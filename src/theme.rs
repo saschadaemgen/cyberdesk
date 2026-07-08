@@ -49,6 +49,7 @@ pub struct Ring {
 pub struct Page {
     pub corner_radius: f32,
     pub feather_width: f32,
+    pub feather_exp: f32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

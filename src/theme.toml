@@ -28,7 +28,11 @@ glow            = 0.22    # relative glow intensity
 
 [page]
 corner_radius = 16.0  # device px (also the OFF-state hard corner)
-feather_width = 34.0  # device px, edge softness in the ON state
+feather_width = 12.0  # device px, edge softness band in the ON state (CD-06:
+                      # narrow, was 34 — the wide band read as a 3D vignette)
+feather_exp   = 0.45  # falloff curve exponent (CD-06): pow applied to the edge
+                      # coverage so the page stays fully opaque except the
+                      # outermost pixels — steep, not creamy (< 1 = steeper)
 
 # Deep Field — Season-1 CD-03 background, now DEMOTED to the future "Calm"
 # template variant (D-0012). Kept fully intact and token-selectable via

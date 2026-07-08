@@ -73,6 +73,8 @@ struct PageUniforms {
     px_size: [f32; 2],
     corner_radius: f32,
     feather: f32,
+    feather_exp: f32,
+    _pad: [f32; 3], // std140: round the struct up to 48 bytes
 }
 
 #[repr(C)]
@@ -1444,6 +1446,7 @@ impl SurfaceRenderer {
         let (zx, zy, zw, zh) = zone;
         let to_ndc_x = |x: f32| (x / win_w) * 2.0 - 1.0;
         let to_ndc_y = |y: f32| 1.0 - (y / win_h) * 2.0;
+        let feather_exp = self.theme.page.feather_exp;
         let page = PageUniforms {
             rect_ndc: [
                 to_ndc_x(zx),
@@ -1454,6 +1457,8 @@ impl SurfaceRenderer {
             px_size: [self.page.width.max(1) as f32, self.page.height.max(1) as f32],
             corner_radius,
             feather: feather_px,
+            feather_exp,
+            _pad: [0.0; 3],
         };
         self.queue
             .write_buffer(&self.page.uniform_buf, 0, bytemuck::bytes_of(&page));
@@ -1462,6 +1467,8 @@ impl SurfaceRenderer {
         // crisp rounded corners, never feathered. Only written/drawn while open.
         if overlay_open {
             let (px, py, pw, ph) = panel;
+            // The overlay always uses the hard rounded edge (feather = 0), so the
+            // exponent is inert here; carry it for a complete uniform.
             let panel_u = PageUniforms {
                 rect_ndc: [
                     to_ndc_x(px),
@@ -1472,6 +1479,8 @@ impl SurfaceRenderer {
                 px_size: [self.panel.width.max(1) as f32, self.panel.height.max(1) as f32],
                 corner_radius,
                 feather: 0.0,
+                feather_exp,
+                _pad: [0.0; 3],
             };
             self.queue
                 .write_buffer(&self.panel.uniform_buf, 0, bytemuck::bytes_of(&panel_u));

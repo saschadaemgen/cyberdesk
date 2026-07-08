@@ -12,6 +12,7 @@ struct PageUniform {
     px_size  : vec2<f32>,   // page texture size in device pixels
     corner_radius : f32,    // rounded-corner radius in device pixels
     feather : f32,          // soft edge falloff width in px; 0 = CD-02 hard edge
+    feather_exp : f32,      // falloff curve exponent (pow on the coverage t)
 };
 
 @group(0) @binding(0) var<uniform> U : PageUniform;
@@ -61,12 +62,18 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
 
     // Edge coverage, toggled live via the uniform (single pipeline, no recompile):
     //   feather > 0 : soft alpha falloff over `feather` px inward from the edge,
-    //                 following the rounded contour — the surf zone dissolves into
-    //                 the Deep Field instead of ending on a hard line.
+    //                 following the rounded contour. CD-06: a narrow band with a
+    //                 steep pow curve — the page stays fully opaque except the
+    //                 outermost pixels (a light, casual soften), not the wide
+    //                 creamy gradient that read as a 3D/vignette curve.
     //   feather = 0 : CD-02 hard rounded edge (1.5px anti-alias straddling it).
     var mask : f32;
     if (U.feather > 0.5) {
-        mask = 1.0 - smoothstep(-U.feather, 0.0, sdf);
+        // t: 1 well inside the rounded box (smoothly AA'd), 0 at the edge.
+        let t = 1.0 - smoothstep(-U.feather, 0.0, sdf);
+        // pow(t, exp<1) lifts the band toward opaque and concentrates the fade
+        // into the last pixels; pow keeps the smooth 0 at the very edge (AA).
+        mask = pow(t, max(U.feather_exp, 0.01));
     } else {
         mask = 1.0 - smoothstep(-0.75, 0.75, sdf);
     }
