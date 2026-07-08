@@ -71,10 +71,11 @@ fn fs_main(@builtin(position) frag : vec4<f32>) -> @location(0) vec4<f32> {
     let cov_in = 1.0 - smoothstep(-px, px, d_in);
 
     let ink = clamp(max(max(cov_out, cov_in), glow), 0.0, 1.0);
-    col = mix(col, brand, ink);
 
     if (U.is_srgb == 1u) {
-        col = srgb_to_linear(col);
+        // Off-screen capture: opaque background + ring, sRGB-converted target.
+        return vec4<f32>(srgb_to_linear(mix(col, brand, ink)), 1.0);
     }
-    return vec4<f32>(col, 1.0);
+    // Window: transparent premultiplied ring, composited over the Deep Field.
+    return vec4<f32>(brand * ink, ink);
 }

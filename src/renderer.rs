@@ -117,7 +117,13 @@ fn ring_pipeline(
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(wgpu::BlendState::REPLACE),
+                // Premultiplied OVER: the ring is transparent except the arc, so
+                // it composites over the Deep Field. (In the capture path the ring
+                // outputs alpha = 1, so OVER reduces to a replace.)
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent::OVER,
+                    alpha: wgpu::BlendComponent::OVER,
+                }),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -317,6 +323,233 @@ impl PagePass {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FieldUniforms {
+    resolution: [f32; 2],
+    time: f32,
+    _pad: f32,
+    base: [f32; 4],
+    brand: [f32; 4],
+    breathing: [f32; 4], // period, amplitude, _, _
+    nebula: [f32; 4],    // a_period, b_period, amplitude, _
+    dust: [f32; 4],      // amplitude, twinkle_period, _, _
+    sweep: [f32; 4],     // period_min, period_max, amplitude, _
+}
+
+impl FieldUniforms {
+    fn from_theme(theme: &crate::theme::Theme, resolution: [f32; 2], time: f32) -> Self {
+        let d = &theme.deep_field;
+        let rgb4 = |v: [f32; 3]| [v[0], v[1], v[2], 1.0];
+        Self {
+            resolution,
+            time,
+            _pad: 0.0,
+            base: rgb4(theme.colors.background_rgb()),
+            brand: rgb4(theme.colors.brand_rgb()),
+            breathing: [d.breathing_period, d.breathing_amplitude, 0.0, 0.0],
+            nebula: [d.nebula_a_period, d.nebula_b_period, d.nebula_amplitude, 0.0],
+            dust: [d.dust_amplitude, d.dust_twinkle_period, 0.0, 0.0],
+            sweep: [d.sweep_period_min, d.sweep_period_max, d.sweep_amplitude, 0.0],
+        }
+    }
+}
+
+/// The Deep Field background: a procedural field rendered to a half-resolution
+/// target (`deepfield.wgsl`) and upscaled into the frame (`blit.wgsl`).
+struct DeepField {
+    field_pipeline: wgpu::RenderPipeline,
+    uniform_buf: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
+    composite_pipeline: wgpu::RenderPipeline,
+    composite_bgl: wgpu::BindGroupLayout,
+    composite_bind_group: Option<wgpu::BindGroup>,
+    sampler: wgpu::Sampler,
+    target_view: Option<wgpu::TextureView>,
+    half_w: u32,
+    half_h: u32,
+    frame: u64,
+    needs_render: bool,
+}
+
+impl DeepField {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let field_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("deepfield-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("deepfield.wgsl").into()),
+        });
+        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("field-uniforms"),
+            size: std::mem::size_of::<FieldUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("field-uniform-bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("field-uniform-bg"),
+            layout: &uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+        let field_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("field-pl"),
+            bind_group_layouts: &[Some(&uniform_bgl)],
+            immediate_size: 0,
+        });
+        let field_pipeline = fullscreen_pipeline(device, &field_shader, &field_layout, format, false);
+
+        // Composite (upscale blit).
+        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("blit-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
+        });
+        let composite_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("field-composite-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("field-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let composite_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("field-composite-pl"),
+            bind_group_layouts: &[Some(&composite_bgl)],
+            immediate_size: 0,
+        });
+        let composite_pipeline =
+            fullscreen_pipeline(device, &blit_shader, &composite_layout, format, false);
+
+        Self {
+            field_pipeline,
+            uniform_buf,
+            uniform_bind_group,
+            composite_pipeline,
+            composite_bgl,
+            composite_bind_group: None,
+            sampler,
+            target_view: None,
+            half_w: 0,
+            half_h: 0,
+            frame: 0,
+            needs_render: true,
+        }
+    }
+
+    fn ensure_target(&mut self, device: &wgpu::Device, w: u32, h: u32) {
+        let hw = (w / 2).max(1);
+        let hh = (h / 2).max(1);
+        if self.target_view.is_none() || self.half_w != hw || self.half_h != hh {
+            let target = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("deepfield-target"),
+                size: wgpu::Extent3d {
+                    width: hw,
+                    height: hh,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: SURFACE_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("field-composite-bg"),
+                layout: &self.composite_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
+            self.target_view = Some(view);
+            self.composite_bind_group = Some(bind_group);
+            self.half_w = hw;
+            self.half_h = hh;
+            self.needs_render = true;
+        }
+    }
+}
+
+/// Build a fullscreen-triangle render pipeline for a shader with `vs_main`/
+/// `fs_main`, an opaque REPLACE target.
+fn fullscreen_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+    _blend: bool,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("fullscreen-pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 /// Renders the shell + surf-zone page to a winit window surface.
 pub struct SurfaceRenderer {
     surface: wgpu::Surface<'static>,
@@ -327,6 +560,7 @@ pub struct SurfaceRenderer {
     ring_uniform_buf: wgpu::Buffer,
     ring_bind_group: wgpu::BindGroup,
     page: PagePass,
+    field: DeepField,
     theme: crate::theme::Theme,
 }
 
@@ -367,6 +601,7 @@ impl SurfaceRenderer {
 
         let (ring_pipeline, ring_uniform_buf, ring_bind_group) = ring_pipeline(&device, SURFACE_FORMAT);
         let page = PagePass::new(&device, SURFACE_FORMAT);
+        let field = DeepField::new(&device, SURFACE_FORMAT);
 
         Self {
             surface,
@@ -377,6 +612,7 @@ impl SurfaceRenderer {
             ring_uniform_buf,
             ring_bind_group,
             page,
+            field,
             theme,
         }
     }
@@ -402,7 +638,7 @@ impl SurfaceRenderer {
     /// (x, y, w, h). `feather` and `deep_field` are the live settings toggles
     /// (consumed by the page feathering in Stage C and the background in Stage B).
     pub fn render(&mut self, time: f32, zone: (f32, f32, f32, f32), feather: bool, deep_field: bool) {
-        let _ = (feather, deep_field); // wired now; consumed in CD-03 Stage B/C
+        let _ = feather; // consumed in CD-03 Stage C
         let (win_w, win_h) = (self.config.width as f32, self.config.height as f32);
         let corner_radius = self.theme.page.corner_radius;
 
@@ -429,6 +665,24 @@ impl SurfaceRenderer {
         self.queue
             .write_buffer(&self.page.uniform_buf, 0, bytemuck::bytes_of(&page));
 
+        // Deep Field: repaint the half-res target at ~30 fps (every other frame,
+        // or right after a resize).
+        self.field.frame = self.field.frame.wrapping_add(1);
+        let do_field = deep_field && {
+            self.field
+                .ensure_target(&self.device, self.config.width, self.config.height);
+            self.field.frame % 2 == 0 || self.field.needs_render
+        };
+        if do_field {
+            let fu = FieldUniforms::from_theme(
+                &self.theme,
+                [self.field.half_w as f32, self.field.half_h as f32],
+                time,
+            );
+            self.queue
+                .write_buffer(&self.field.uniform_buf, 0, bytemuck::bytes_of(&fu));
+        }
+
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -446,6 +700,35 @@ impl SurfaceRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("frame-encoder"),
             });
+
+        // Pass 1: render the Deep Field into its half-res target.
+        if do_field {
+            if let Some(target) = self.field.target_view.as_ref() {
+                let mut fp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("deepfield-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: target,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                fp.set_pipeline(&self.field.field_pipeline);
+                fp.set_bind_group(0, &self.field.uniform_bind_group, &[]);
+                fp.draw(0..3, 0..1);
+            }
+            self.field.needs_render = false;
+        }
+
+        // Pass 2: shell composite — Deep Field (upscaled), then ring, then page.
+        let base = self.theme.colors.background_rgb();
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shell-pass"),
@@ -454,7 +737,12 @@ impl SurfaceRenderer {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: base[0] as f64,
+                            g: base[1] as f64,
+                            b: base[2] as f64,
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -464,12 +752,21 @@ impl SurfaceRenderer {
                 multiview_mask: None,
             });
 
-            // Shell: background + ring (fills the frame).
+            // Backmost: the Deep Field (upscaled from half res), when enabled.
+            if deep_field {
+                if let Some(bg) = self.field.composite_bind_group.as_ref() {
+                    pass.set_pipeline(&self.field.composite_pipeline);
+                    pass.set_bind_group(0, bg, &[]);
+                    pass.draw(0..3, 0..1);
+                }
+            }
+
+            // Ring (transparent, composited over the field).
             pass.set_pipeline(&self.ring_pipeline);
             pass.set_bind_group(0, &self.ring_bind_group, &[]);
             pass.draw(0..3, 0..1);
 
-            // Surf-zone page (over the shell), if a frame has arrived.
+            // Surf-zone page (over everything), if a frame has arrived.
             if let Some(tex_bind_group) = self.page.tex_bind_group.as_ref() {
                 pass.set_pipeline(&self.page.pipeline);
                 pass.set_bind_group(0, &self.page.uniform_bind_group, &[]);
