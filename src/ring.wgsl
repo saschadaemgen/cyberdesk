@@ -73,6 +73,8 @@ fn fs_main(@builtin(position) frag : vec4<f32>) -> @location(0) vec4<f32> {
     let ink = clamp(max(max(cov_out, cov_in), glow), 0.0, 1.0);
     col = mix(col, blue, ink);
 
+    // Non-sRGB (Bgra8Unorm) render target: write the sRGB brand values directly.
+    // (`is_srgb` is retained for the off-screen --capture path.)
     if (U.is_srgb == 1u) {
         col = srgb_to_linear(col);
     }
