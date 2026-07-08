@@ -63,6 +63,17 @@ struct PageUniforms {
     feather: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct GearUniforms {
+    resolution: [f32; 2],
+    center: [f32; 2],
+    radius: f32,
+    hover: f32,
+    _pad: [f32; 2],
+    brand: [f32; 4],
+}
+
 fn ring_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -515,14 +526,23 @@ impl DeepField {
 }
 
 /// Build a fullscreen-triangle render pipeline for a shader with `vs_main`/
-/// `fs_main`, an opaque REPLACE target.
+/// `fs_main`. `blend` selects premultiplied OVER (for overlays that leave the
+/// rest of the frame untouched) versus an opaque REPLACE target.
 fn fullscreen_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
     layout: &wgpu::PipelineLayout,
     format: wgpu::TextureFormat,
-    _blend: bool,
+    blend: bool,
 ) -> wgpu::RenderPipeline {
+    let blend_state = if blend {
+        wgpu::BlendState {
+            color: wgpu::BlendComponent::OVER,
+            alpha: wgpu::BlendComponent::OVER,
+        }
+    } else {
+        wgpu::BlendState::REPLACE
+    };
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("fullscreen-pipeline"),
         layout: Some(layout),
@@ -537,7 +557,7 @@ fn fullscreen_pipeline(
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(wgpu::BlendState::REPLACE),
+                blend: Some(blend_state),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -550,6 +570,56 @@ fn fullscreen_pipeline(
     })
 }
 
+/// The settings gear button: a small cog drawn over everything (`gear.wgsl`).
+struct Gear {
+    pipeline: wgpu::RenderPipeline,
+    uniform_buf: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+impl Gear {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("gear-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("gear.wgsl").into()),
+        });
+        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gear-uniforms"),
+            size: std::mem::size_of::<GearUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("gear-bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gear-bg"),
+            layout: &bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("gear-pl"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let pipeline = fullscreen_pipeline(device, &shader, &layout, format, true);
+        Self { pipeline, uniform_buf, bind_group }
+    }
+}
+
 /// Renders the shell + surf-zone page to a winit window surface.
 pub struct SurfaceRenderer {
     surface: wgpu::Surface<'static>,
@@ -560,6 +630,8 @@ pub struct SurfaceRenderer {
     ring_uniform_buf: wgpu::Buffer,
     ring_bind_group: wgpu::BindGroup,
     page: PagePass,
+    panel: PagePass,
+    gear: Gear,
     field: DeepField,
     theme: crate::theme::Theme,
 }
@@ -601,6 +673,8 @@ impl SurfaceRenderer {
 
         let (ring_pipeline, ring_uniform_buf, ring_bind_group) = ring_pipeline(&device, SURFACE_FORMAT);
         let page = PagePass::new(&device, SURFACE_FORMAT);
+        let panel = PagePass::new(&device, SURFACE_FORMAT);
+        let gear = Gear::new(&device, SURFACE_FORMAT);
         let field = DeepField::new(&device, SURFACE_FORMAT);
 
         Self {
@@ -612,6 +686,8 @@ impl SurfaceRenderer {
             ring_uniform_buf,
             ring_bind_group,
             page,
+            panel,
+            gear,
             field,
             theme,
         }
@@ -634,10 +710,27 @@ impl SurfaceRenderer {
         self.page.upload(&self.device, &self.queue, data, w, h);
     }
 
-    /// Render one frame. `zone` is the surf-zone rect in device pixels
-    /// (x, y, w, h). `feather` and `deep_field` are the live settings toggles
-    /// (consumed by the page feathering in Stage C and the background in Stage B).
-    pub fn render(&mut self, time: f32, zone: (f32, f32, f32, f32), feather: bool, deep_field: bool) {
+    /// Upload a freshly painted internal-view frame (BGRA) into the panel texture.
+    pub fn upload_panel(&mut self, data: &[u8], w: u32, h: u32) {
+        self.panel.upload(&self.device, &self.queue, data, w, h);
+    }
+
+    /// Render one frame. Rects are in device pixels. `zone` is the surf-zone,
+    /// `panel` the internal settings card, `gear` the settings button
+    /// (center_x, center_y, radius). `feather`/`deep_field` are the live toggles;
+    /// `settings_open` shows the panel; `gear_hover` (0..1) drives the gear glow.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(
+        &mut self,
+        time: f32,
+        zone: (f32, f32, f32, f32),
+        panel: (f32, f32, f32, f32),
+        gear: (f32, f32, f32),
+        feather: bool,
+        deep_field: bool,
+        settings_open: bool,
+        gear_hover: f32,
+    ) {
         let (win_w, win_h) = (self.config.width as f32, self.config.height as f32);
         let corner_radius = self.theme.page.corner_radius;
         // Feathering on -> soft SDF falloff of `feather_width` px; off -> 0.0,
@@ -670,6 +763,39 @@ impl SurfaceRenderer {
         };
         self.queue
             .write_buffer(&self.page.uniform_buf, 0, bytemuck::bytes_of(&page));
+
+        // Panel uniforms: the internal settings card (crisp rounded corners,
+        // never feathered). Only written/drawn while the settings view is open.
+        if settings_open {
+            let (px, py, pw, ph) = panel;
+            let panel_u = PageUniforms {
+                rect_ndc: [
+                    to_ndc_x(px),
+                    to_ndc_y(py),
+                    to_ndc_x(px + pw),
+                    to_ndc_y(py + ph),
+                ],
+                px_size: [self.panel.width.max(1) as f32, self.panel.height.max(1) as f32],
+                corner_radius,
+                feather: 0.0,
+            };
+            self.queue
+                .write_buffer(&self.panel.uniform_buf, 0, bytemuck::bytes_of(&panel_u));
+        }
+
+        // Gear button uniforms (always drawn, brand-colored, hover-lit).
+        let (gcx, gcy, gr) = gear;
+        let brand = self.theme.colors.brand_rgb();
+        let gear_u = GearUniforms {
+            resolution: [win_w, win_h],
+            center: [gcx, gcy],
+            radius: gr,
+            hover: gear_hover.clamp(0.0, 1.0),
+            _pad: [0.0, 0.0],
+            brand: [brand[0], brand[1], brand[2], 1.0],
+        };
+        self.queue
+            .write_buffer(&self.gear.uniform_buf, 0, bytemuck::bytes_of(&gear_u));
 
         // Deep Field: repaint the half-res target at ~30 fps (every other frame,
         // or right after a resize).
@@ -772,13 +898,28 @@ impl SurfaceRenderer {
             pass.set_bind_group(0, &self.ring_bind_group, &[]);
             pass.draw(0..3, 0..1);
 
-            // Surf-zone page (over everything), if a frame has arrived.
+            // Surf-zone page, if a frame has arrived.
             if let Some(tex_bind_group) = self.page.tex_bind_group.as_ref() {
                 pass.set_pipeline(&self.page.pipeline);
                 pass.set_bind_group(0, &self.page.uniform_bind_group, &[]);
                 pass.set_bind_group(1, tex_bind_group, &[]);
                 pass.draw(0..6, 0..1);
             }
+
+            // Internal settings card, over the page, when open.
+            if settings_open {
+                if let Some(tex_bind_group) = self.panel.tex_bind_group.as_ref() {
+                    pass.set_pipeline(&self.panel.pipeline);
+                    pass.set_bind_group(0, &self.panel.uniform_bind_group, &[]);
+                    pass.set_bind_group(1, tex_bind_group, &[]);
+                    pass.draw(0..6, 0..1);
+                }
+            }
+
+            // Gear button, on top of everything.
+            pass.set_pipeline(&self.gear.pipeline);
+            pass.set_bind_group(0, &self.gear.bind_group, &[]);
+            pass.draw(0..3, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         self.queue.present(frame);

@@ -2,6 +2,33 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0010 - 2026-07-08 - CD-03: internal view uses a `cyberdesk://` custom scheme
+
+The settings view is a second OSR browser locked to a registered custom scheme,
+`cyberdesk://settings/`, rather than a reserved web host or a `data:` URL.
+
+**Why a custom scheme.** It gives the internal UI a real, standard, secure
+origin (registered via `on_register_custom_schemes` with STANDARD | SECURE |
+CORS | FETCH), which is a clean security context for the message-router IPC and
+lets isolation be expressed as a simple scheme check. A `data:` URL has an opaque
+origin and awkward sub-resource semantics; a reserved web host would blur the
+web/internal boundary we are trying to make absolute.
+
+**Served entirely in-process.** A `SchemeHandlerFactory` + `ResourceHandler`
+serve the settings document straight from embedded bytes (HTML with the theme
+tokens, CSS, and JS inlined — a single document, zero sub-resource requests).
+Nothing touches the network.
+
+**Hard web isolation (D-0004).** The internal view's `RequestHandler::
+on_before_browse` cancels any navigation whose URL is not `cyberdesk://`. Verified
+with an opt-in self-test (`CYBERDESK_ISOLATION_SELFTEST=1`) that steers the view
+at `https://example.com/` and confirms the block fires and the view stays put.
+
+**IPC only on the internal view.** `window.cefQuery` is registered by the
+renderer-side message router only for `cyberdesk://` V8 contexts, and only the
+internal client forwards router messages browser-side. The surf zone never sees
+the bridge. Wire format: docs/cyberdesk-wire-format.md (Settings IPC).
+
 ## D-0009 - 2026-07-08 - CD-02: accelerated OSR researched, CPU path kept for now
 
 CD-02 ships CPU off-screen rendering: `RenderHandler::on_paint` delivers BGRA, we

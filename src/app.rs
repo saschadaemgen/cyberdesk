@@ -1,5 +1,5 @@
-//! winit application: window, render loop, surf-zone geometry, input forwarding
-//! into CEF (OSR), cursor feedback, and clean ESC exit.
+//! winit application: window, render loop, surf-zone + settings geometry, input
+//! forwarding into CEF (OSR), the gear button, cursor feedback, ESC handling.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -11,9 +11,9 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorIcon, Fullscreen, Window, WindowId};
 
-use crate::browser;
+use crate::browser::{self, Role};
 use crate::renderer::SurfaceRenderer;
-use crate::store::Store;
+use crate::settings;
 use crate::theme::Theme;
 
 /// Surf-zone rectangle in device pixels: 60% width, 70% height, centered.
@@ -26,13 +26,33 @@ fn zone_rect(width: u32, height: u32) -> (f32, f32, f32, f32) {
     (zx, zy, zw, zh)
 }
 
+/// Settings card rectangle in device pixels: a centered panel, clamped so it
+/// stays a readable size on both the dev window and a 4K fullscreen shell.
+fn panel_rect(width: u32, height: u32) -> (f32, f32, f32, f32) {
+    let (w, h) = (width as f32, height as f32);
+    let pw = (w * 0.42).clamp(420.0, 760.0).min(w);
+    let ph = (h * 0.64).clamp(360.0, 600.0).min(h);
+    let px = ((w - pw) * 0.5).round();
+    let py = ((h - ph) * 0.5).round();
+    (px, py, pw.round(), ph.round())
+}
+
+/// Gear button geometry in device pixels: (center_x, center_y, radius),
+/// top-right, DPI-scaled.
+fn gear_geom(width: u32, scale: f32) -> (f32, f32, f32) {
+    let w = width as f32;
+    let r = 22.0 * scale;
+    let margin = 30.0 * scale;
+    (w - margin - r, margin + r, r)
+}
+
 pub fn run(windowed: bool) {
     let event_loop = EventLoop::new().expect("failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let store = Store::open();
-    let feather_edges = store.get_bool("feather_edges", true);
-    let deep_field = store.get_bool("deep_field", true);
+    // Opens and takes ownership of the app-state store (state.db) and loads the
+    // persisted toggles; the settings IPC writes through it live.
+    settings::init();
 
     let mut app = Shell {
         windowed,
@@ -40,18 +60,17 @@ pub fn run(windowed: bool) {
         renderer: None,
         start: Instant::now(),
         cef_inited: false,
-        browser_started: false,
+        views_started: false,
         scale: 1.0,
         cursor_phys: PhysicalPosition::new(0.0, 0.0),
         key_mods: 0,
         button_flags: 0,
         applied_cursor: CursorIcon::Default,
-        feather_edges,
-        deep_field,
+        settings_open: false,
+        gear_hover: 0.0,
+        gear_hover_target: 0.0,
+        isolation_tested: false,
     };
-    // The store is created and seeded here (state.db). The settings IPC in
-    // Stage D takes ownership of it for live writes.
-    drop(store);
     event_loop.run_app(&mut app).expect("event loop error");
 
     browser::shutdown_cef();
@@ -63,14 +82,16 @@ struct Shell {
     renderer: Option<SurfaceRenderer>,
     start: Instant,
     cef_inited: bool,
-    browser_started: bool,
+    views_started: bool,
     scale: f32,
     cursor_phys: PhysicalPosition<f64>,
     key_mods: u32,
     button_flags: u32,
     applied_cursor: CursorIcon,
-    feather_edges: bool,
-    deep_field: bool,
+    settings_open: bool,
+    gear_hover: f32,
+    gear_hover_target: f32,
+    isolation_tested: bool,
 }
 
 fn window_hwnd(window: &Window) -> isize {
@@ -118,19 +139,48 @@ fn keycode_to_vk(code: KeyCode) -> i32 {
 }
 
 impl Shell {
-    /// Cursor position translated into surf-zone view coordinates (DIP).
-    fn view_coords(&self) -> (i32, i32) {
-        let (zx, zy) = match self.renderer.as_ref() {
-            Some(r) => {
-                let (w, h) = r.size();
-                let (zx, zy, _, _) = zone_rect(w, h);
-                (zx, zy)
-            }
-            None => (0.0, 0.0),
+    /// The view input is currently routed to (settings when open, else surf).
+    fn active_role(&self) -> Role {
+        if self.settings_open { Role::Internal } else { Role::Surf }
+    }
+
+    /// Top-left origin (device px) of the active view's rectangle.
+    fn active_origin(&self) -> (f32, f32) {
+        let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
+        let (x, y, _, _) = if self.settings_open {
+            panel_rect(w, h)
+        } else {
+            zone_rect(w, h)
         };
-        let vx = ((self.cursor_phys.x - zx as f64) / self.scale as f64) as i32;
-        let vy = ((self.cursor_phys.y - zy as f64) / self.scale as f64) as i32;
+        (x, y)
+    }
+
+    /// Cursor position translated into a view's coordinates (DIP).
+    fn view_coords(&self, origin: (f32, f32)) -> (i32, i32) {
+        let vx = ((self.cursor_phys.x - origin.0 as f64) / self.scale as f64) as i32;
+        let vy = ((self.cursor_phys.y - origin.1 as f64) / self.scale as f64) as i32;
         (vx, vy)
+    }
+
+    /// Is the cursor over the gear button (generous hit radius)?
+    fn gear_hit(&self) -> bool {
+        let (w, _) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
+        let (cx, cy, r) = gear_geom(w, self.scale);
+        let dx = self.cursor_phys.x as f32 - cx;
+        let dy = self.cursor_phys.y as f32 - cy;
+        (dx * dx + dy * dy).sqrt() <= r * 1.7
+    }
+
+    fn toggle_settings(&mut self) {
+        self.settings_open = !self.settings_open;
+        // Move keyboard focus to whichever view is now active.
+        if self.settings_open {
+            browser::set_focus(Role::Surf, false);
+            browser::set_focus(Role::Internal, true);
+        } else {
+            browser::set_focus(Role::Internal, false);
+            browser::set_focus(Role::Surf, true);
+        }
     }
 
     fn mouse_mods(&self) -> u32 {
@@ -141,7 +191,9 @@ impl Shell {
         if let Some(r) = self.renderer.as_ref() {
             let (w, h) = r.size();
             let (_, _, zw, zh) = zone_rect(w, h);
-            browser::set_view_geometry(zw as u32, zh as u32, self.scale);
+            browser::set_view_geometry(Role::Surf, zw as u32, zh as u32, self.scale);
+            let (_, _, pw, ph) = panel_rect(w, h);
+            browser::set_view_geometry(Role::Internal, pw as u32, ph as u32, self.scale);
         }
     }
 }
@@ -179,20 +231,22 @@ impl ApplicationHandler for Shell {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
-            WindowEvent::Focused(focused) => browser::set_focus(focused),
+            WindowEvent::Focused(focused) => browser::set_focus(self.active_role(), focused),
 
             WindowEvent::Resized(size) => {
                 if let Some(r) = self.renderer.as_mut() {
                     r.resize(size.width, size.height);
                 }
                 self.push_geometry();
-                browser::notify_resized();
+                browser::notify_resized(Role::Surf);
+                browser::notify_resized(Role::Internal);
             }
 
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor as f32;
                 self.push_geometry();
-                browser::notify_resized();
+                browser::notify_resized(Role::Surf);
+                browser::notify_resized(Role::Internal);
             }
 
             WindowEvent::ModifiersChanged(mods) => {
@@ -206,25 +260,35 @@ impl ApplicationHandler for Shell {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_phys = position;
-                let (x, y) = self.view_coords();
-                browser::send_mouse_move(x, y, self.mouse_mods(), false);
+                let over_gear = self.gear_hit();
+                self.gear_hover_target = if over_gear { 1.0 } else { 0.0 };
+                if !over_gear {
+                    let (x, y) = self.view_coords(self.active_origin());
+                    browser::send_mouse_move(self.active_role(), x, y, self.mouse_mods(), false);
+                }
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
+                let down = state == ElementState::Pressed;
+                // The gear button toggles the settings view; the click is not
+                // forwarded to any page.
+                if button == MouseButton::Left && down && self.gear_hit() {
+                    self.toggle_settings();
+                    return;
+                }
                 let flag = match button {
                     MouseButton::Left => browser::EVENTFLAG_LEFT_MOUSE_BUTTON,
                     MouseButton::Middle => browser::EVENTFLAG_MIDDLE_MOUSE_BUTTON,
                     MouseButton::Right => browser::EVENTFLAG_RIGHT_MOUSE_BUTTON,
                     _ => 0,
                 };
-                let down = state == ElementState::Pressed;
                 if down {
                     self.button_flags |= flag;
                 } else {
                     self.button_flags &= !flag;
                 }
-                let (x, y) = self.view_coords();
-                browser::send_mouse_button(x, y, self.mouse_mods(), button, down, 1);
+                let (x, y) = self.view_coords(self.active_origin());
+                browser::send_mouse_button(self.active_role(), x, y, self.mouse_mods(), button, down, 1);
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -232,8 +296,8 @@ impl ApplicationHandler for Shell {
                     MouseScrollDelta::LineDelta(x, y) => (x * 120.0, y * 120.0),
                     MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
                 };
-                let (x, y) = self.view_coords();
-                browser::send_mouse_wheel(x, y, self.mouse_mods(), dx as i32, dy as i32);
+                let (x, y) = self.view_coords(self.active_origin());
+                browser::send_mouse_wheel(self.active_role(), x, y, self.mouse_mods(), dx as i32, dy as i32);
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
@@ -241,30 +305,44 @@ impl ApplicationHandler for Shell {
                     PhysicalKey::Code(code) => keycode_to_vk(code),
                     _ => 0,
                 };
-                // ESC quits the shell — never forwarded to the page.
+                // ESC closes the settings view if open, otherwise quits the shell.
                 if vk == 0x1B && event.state == ElementState::Pressed {
-                    event_loop.exit();
+                    if self.settings_open {
+                        self.toggle_settings();
+                    } else {
+                        event_loop.exit();
+                    }
                     return;
                 }
+                let role = self.active_role();
                 match event.state {
                     ElementState::Pressed => {
-                        browser::send_key_down(vk, self.key_mods);
+                        browser::send_key_down(role, vk, self.key_mods);
                         if let Some(text) = event.text.as_ref() {
                             for ch in text.encode_utf16() {
-                                browser::send_char(ch, self.key_mods);
+                                browser::send_char(role, ch, self.key_mods);
                             }
                         }
                     }
-                    ElementState::Released => browser::send_key_up(vk, self.key_mods),
+                    ElementState::Released => browser::send_key_up(role, vk, self.key_mods),
                 }
             }
 
             WindowEvent::RedrawRequested => {
                 let time = self.start.elapsed().as_secs_f32();
+                let (scale, open, hover) = (self.scale, self.settings_open, self.gear_hover);
                 if let Some(r) = self.renderer.as_mut() {
                     let (w, h) = r.size();
-                    let zone = zone_rect(w, h);
-                    r.render(time, zone, self.feather_edges, self.deep_field);
+                    r.render(
+                        time,
+                        zone_rect(w, h),
+                        panel_rect(w, h),
+                        gear_geom(w, scale),
+                        settings::feather_edges(),
+                        settings::deep_field(),
+                        open,
+                        hover,
+                    );
                 }
             }
 
@@ -273,17 +351,22 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        // Create the OSR browser once the CEF context is initialised.
-        if !self.browser_started && browser::context_ready() {
+        // Create both OSR views once the CEF context is initialised.
+        if !self.views_started && browser::context_ready() {
             if let Some(window) = self.window.clone() {
                 self.push_geometry();
-                browser::create_browser(window_hwnd(&window));
-                self.browser_started = true;
+                let hwnd = window_hwnd(&window);
+                browser::create_browser(Role::Surf, hwnd);
+                browser::create_browser(Role::Internal, hwnd);
+                self.views_started = true;
             }
         }
 
-        // Apply a pending cursor request from the page.
-        if let Some(icon) = browser::take_cursor() {
+        // Ease the gear hover glow toward its target.
+        self.gear_hover += (self.gear_hover_target - self.gear_hover) * 0.25;
+
+        // Apply a pending cursor request from the active view.
+        if let Some(icon) = browser::take_cursor(self.active_role()) {
             if icon != self.applied_cursor {
                 if let Some(window) = self.window.as_ref() {
                     window.set_cursor(icon);
@@ -292,9 +375,22 @@ impl ApplicationHandler for Shell {
             }
         }
 
-        // Upload a freshly painted CEF frame into the page texture.
+        // Upload freshly painted frames into their textures.
         if let Some(r) = self.renderer.as_mut() {
-            browser::with_dirty_frame(|data, w, h| r.upload_page(data, w, h));
+            browser::with_dirty_frame(Role::Surf, |data, w, h| r.upload_page(data, w, h));
+            browser::with_dirty_frame(Role::Internal, |data, w, h| r.upload_panel(data, w, h));
+        }
+
+        // Opt-in web-isolation self-test: try to steer the internal view onto the
+        // web and confirm the RequestHandler refuses it (logs "[isolation] ...").
+        if self.views_started
+            && !self.isolation_tested
+            && self.start.elapsed().as_secs_f32() > 2.5
+            && std::env::var("CYBERDESK_ISOLATION_SELFTEST").is_ok()
+        {
+            eprintln!("[isolation] self-test: steering the internal view to https://example.com/");
+            browser::load_url(Role::Internal, "https://example.com/");
+            self.isolation_tested = true;
         }
 
         if let Some(window) = self.window.as_ref() {

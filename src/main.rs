@@ -12,6 +12,7 @@
 mod app;
 mod browser;
 mod renderer;
+mod settings;
 mod store;
 mod theme;
 

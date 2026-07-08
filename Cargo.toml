@@ -24,6 +24,7 @@ cef = { version = "=149.3.0", default-features = false }
 # App state store (schema-versioned key/value settings) and theme tokens.
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "0.9"
 
 [profile.release]

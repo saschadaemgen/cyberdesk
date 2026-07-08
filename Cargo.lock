@@ -562,6 +562,7 @@ dependencies = [
  "pollster",
  "rusqlite",
  "serde",
+ "serde_json",
  "toml",
  "wgpu",
  "winit",
