@@ -76,6 +76,7 @@ pub fn run(windowed: bool) {
         windowed,
         window: None,
         renderer: None,
+        theme: Theme::load(),
         start: Instant::now(),
         cef_inited: false,
         views_started: false,
@@ -102,6 +103,7 @@ struct Shell {
     windowed: bool,
     window: Option<Arc<Window>>,
     renderer: Option<SurfaceRenderer>,
+    theme: Theme,
     start: Instant,
     cef_inited: bool,
     views_started: bool,
@@ -306,7 +308,7 @@ impl ApplicationHandler for Shell {
                 .expect("failed to create window"),
         );
         self.scale = window.scale_factor() as f32;
-        let renderer = SurfaceRenderer::new(window.clone(), Theme::load());
+        let renderer = SurfaceRenderer::new(window.clone(), self.theme.clone());
         self.window = Some(window);
         self.renderer = Some(renderer);
 
@@ -484,6 +486,7 @@ impl ApplicationHandler for Shell {
                     let (w, h) = r.size();
                     self.internal_rect(w, h)
                 });
+                let glow = self.theme.background.glow_default / 100.0;
                 if let (Some(r), Some(internal)) = (self.renderer.as_mut(), internal) {
                     let (w, h) = r.size();
                     r.render(
@@ -493,6 +496,8 @@ impl ApplicationHandler for Shell {
                         gear_geom(w, scale),
                         settings::feather_edges(),
                         settings::deep_field(),
+                        glow,
+                        scale,
                         open,
                         hover,
                         load,

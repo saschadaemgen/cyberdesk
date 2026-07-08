@@ -19,6 +19,7 @@ pub struct Theme {
     pub ring: Ring,
     pub page: Page,
     pub deep_field: DeepField,
+    pub background: Background,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -62,6 +63,67 @@ pub struct DeepField {
     pub sweep_period_min: f32,
     pub sweep_period_max: f32,
     pub sweep_amplitude: f32,
+}
+
+/// Pulse Grid — background v2 (D-0012). Sizes are logical px (scaled by the DPI
+/// factor at bake time); the seed drives deterministic board generation.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Background {
+    pub kind: String,
+    pub seed: u64,
+    pub lattice_cell: f32,
+    pub lattice_dot: f32,
+    pub lattice_glow: f32,
+    pub trace_density: f32,
+    pub trace_seg_min: i32,
+    pub trace_seg_max: i32,
+    pub trace_len_min: i32,
+    pub trace_len_max: i32,
+    pub trace_width: f32,
+    pub trace_glow: f32,
+    pub diagonal_chance: f32,
+    pub pad_radius: f32,
+    pub pad_thickness: f32,
+    pub pad_glow: f32,
+    pub solder_radius: f32,
+    pub solder_glow: f32,
+    pub bus_count: i32,
+    pub bus_width: f32,
+    pub bus_glow: f32,
+    pub zone_shadow: f32,
+    pub zone_feather: f32,
+    pub glow_default: f32,
+    pub pulse: PulseTokens,
+}
+
+/// The Pulse Grid "life" layer — travelling pulses and node flares.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PulseTokens {
+    pub count: i32,
+    pub count_ref_width: f32,
+    pub speed_min: f32,
+    pub speed_max: f32,
+    pub head_radius: f32,
+    pub trail_steps: i32,
+    pub trail_spacing: f32,
+    pub head_glow: f32,
+    pub trail_glow: f32,
+    pub bus_speed_scale: f32,
+    pub bus_size_scale: f32,
+    pub flare_interval_min: f32,
+    pub flare_interval_max: f32,
+    pub flare_max_radius: f32,
+    pub flare_thickness: f32,
+    pub flare_life: f32,
+    pub flare_glow: f32,
+}
+
+impl Background {
+    /// True when the template selects the Pulse Grid (Cyber default); false
+    /// routes the render loop to the Deep Field (Calm variant).
+    pub fn is_pulse_grid(&self) -> bool {
+        self.kind == "pulse_grid"
+    }
 }
 
 impl Theme {

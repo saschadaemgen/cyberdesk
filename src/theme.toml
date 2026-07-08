@@ -30,6 +30,9 @@ glow            = 0.22    # relative glow intensity
 corner_radius = 16.0  # device px (also the OFF-state hard corner)
 feather_width = 34.0  # device px, edge softness in the ON state
 
+# Deep Field — Season-1 CD-03 background, now DEMOTED to the future "Calm"
+# template variant (D-0012). Kept fully intact and token-selectable via
+# background.kind = "deep_field"; Pulse Grid is the Cyber default.
 [deep_field]
 breathing_period    = 12.0  # s, base glow "breathing"
 breathing_amplitude = 0.07  # brightness delta (<= 0.08)
@@ -41,3 +44,55 @@ dust_twinkle_period = 6.0   # s
 sweep_period_min    = 45.0  # s, rare scan sweep window
 sweep_period_max    = 90.0
 sweep_amplitude     = 0.06
+
+# Pulse Grid — background v2 (CD-05, D-0012). A fine circuit-board weave with
+# light pulses travelling routed traces. Unlike the Deep Field, this layer is
+# ALLOWED to glow (the amplitude cap is superseded); content readability is
+# protected by the zone shadow instead of global darkness. All sizes are in
+# logical pixels (scaled by the DPI factor at bake time). Colors come from the
+# brand family (colors.brand), so the one-color-world rule still holds.
+[background]
+kind            = "pulse_grid"  # "pulse_grid" (Cyber default) | "deep_field" (Calm)
+seed            = 2654435769    # board determinism: same seed -> same layout
+lattice_cell    = 21.0          # micro-lattice spacing (logical px)
+lattice_dot     = 0.85          # lattice dot radius (px)
+lattice_glow    = 0.05          # lattice dot brightness (additive)
+trace_density   = 15.0          # traces per megapixel (~30 at 1080p, area-scaled)
+trace_seg_min   = 3             # segments per trace (min)
+trace_seg_max   = 7             # segments per trace (max)
+trace_len_min   = 2             # segment length in lattice cells (min)
+trace_len_max   = 7             # segment length in lattice cells (max)
+trace_width     = 1.0           # trace line width (logical px)
+trace_glow      = 0.42          # trace brightness (additive)
+diagonal_chance = 0.16          # probability a turn is 45° rather than 90°
+pad_radius      = 2.6           # hollow ring (pad) radius at trace endpoints
+pad_thickness   = 0.85          # pad ring half-thickness
+pad_glow        = 0.55          # pad brightness
+solder_radius   = 1.35          # solder dot radius at trace bends
+solder_glow     = 0.5           # solder dot brightness
+bus_count       = 2             # full-width horizontal bus lines
+bus_width       = 2.2           # bus line width (~2x trace, logical px)
+bus_glow        = 0.62          # bus brightness (slightly brighter)
+zone_shadow     = 0.35          # background multiplier under content (Stage C)
+zone_feather    = 40.0          # soft shadow edge width (px)
+glow_default    = 115.0         # default glow-intensity slider value (%)
+
+# Life layer — travelling pulses and node flares (CD-05 Stage B).
+[background.pulse]
+count              = 16     # base pulse count on traces (scaled with width)
+count_ref_width    = 1920.0 # reference width the base count is tuned for
+speed_min          = 90.0   # pulse travel speed along a trace (px/s)
+speed_max          = 210.0
+head_radius        = 2.5    # pulse head radius (logical px)
+trail_steps        = 6      # fading trail sprites behind the head
+trail_spacing      = 7.0    # gap between trail sprites (logical px)
+head_glow          = 0.95   # pulse head brightness
+trail_glow         = 0.75   # trail brightness (falls off along the trail)
+bus_speed_scale    = 0.6    # bus pulses travel slower
+bus_size_scale     = 1.5    # bus pulses are larger
+flare_interval_min = 0.7    # seconds between node flares (min)
+flare_interval_max = 1.0
+flare_max_radius   = 22.0   # flare ring expands to this radius (logical px)
+flare_thickness    = 1.3    # flare ring half-thickness
+flare_life         = 1.1    # flare lifetime (s)
+flare_glow         = 0.7    # flare brightness

@@ -16,6 +16,8 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use winit::window::Window;
 
+use crate::pulsegrid;
+
 /// Non-sRGB render target so CEF's BGRA bytes and our sRGB brand colors pass
 /// through unchanged (matches the cef-rs OSR example).
 const SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
@@ -583,6 +585,482 @@ fn fullscreen_pipeline(
     })
 }
 
+// --- Pulse Grid background (CD-05, D-0012) ----------------------------------
+
+/// Full-resolution HDR bake target — thin lines stay crisp and glow above 1.0
+/// survives the intensity scaling in the composite (a one-time cost, not
+/// per-frame). 16-bit float is core-blendable and can be sampled with
+/// `textureLoad`.
+const BAKE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Per-instance vertex layout for `pulsegrid_sprite.wgsl` (matches
+/// [`pulsegrid::SpriteInstance`]).
+const SPRITE_ATTRS: [wgpu::VertexAttribute; 4] =
+    wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4];
+
+/// Premultiplied additive blend — overlapping glow accumulates.
+fn additive_blend() -> wgpu::BlendState {
+    let add = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::One,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    };
+    wgpu::BlendState { color: add, alpha: add }
+}
+
+/// Composite + life-pass globals (mirrors `Globals` in the shaders).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct SpriteGlobals {
+    base: [f32; 4],
+    resolution: [f32; 2],
+    glow_intensity: f32,
+    _pad: f32,
+}
+
+/// Micro-lattice uniforms (mirrors `Lattice` in `pulsegrid_lattice.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct LatticeUniforms {
+    brand: [f32; 4],
+    resolution: [f32; 2],
+    cell: f32,
+    dot_radius: f32,
+    glow: f32,
+    aa: f32,
+    _pad: [f32; 2],
+}
+
+/// A fullscreen-triangle pipeline with an explicit blend state (the shared
+/// `fullscreen_pipeline` only offers OVER / REPLACE).
+fn blended_fullscreen_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+    blend: wgpu::BlendState,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("pulsegrid-fullscreen-pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(blend),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// An instanced sprite pipeline (unit quad × instance buffer) for the SDF
+/// primitives — additive, targeting `format`.
+fn sprite_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("pulsegrid-sprite-pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<pulsegrid::SpriteInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &SPRITE_ATTRS,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(additive_blend()),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// The Pulse Grid background: a seeded circuit board baked once into a full-res
+/// HDR texture (micro lattice + traces + pads + solder dots + bus lines) and
+/// composited each frame as the backmost layer, scaled by the glow-intensity
+/// uniform. Trace polylines stay on the CPU (in `board`) for the Stage B life
+/// layer.
+struct PulseGrid {
+    // Micro-lattice fullscreen pass (baked into `bake_view`).
+    lattice_pipeline: wgpu::RenderPipeline,
+    lattice_buf: wgpu::Buffer,
+    lattice_bg: wgpu::BindGroup,
+
+    // Instanced SDF primitives (traces/pads/dots/bus) baked into `bake_view`.
+    sprite_bake_pipeline: wgpu::RenderPipeline,
+    bake_globals_buf: wgpu::Buffer,
+    bake_globals_bg: wgpu::BindGroup,
+
+    // Composite: read the bake, add over the base, scale by glow intensity.
+    composite_pipeline: wgpu::RenderPipeline,
+    composite_bgl: wgpu::BindGroupLayout,
+    composite_bg: Option<wgpu::BindGroup>,
+
+    // Live globals, shared by the composite (and the Stage B life pass).
+    globals_buf: wgpu::Buffer,
+
+    bake_view: Option<wgpu::TextureView>,
+    prim_buf: Option<wgpu::Buffer>,
+    prim_count: u32,
+
+    // Regeneration guards.
+    width: u32,
+    height: u32,
+    scale: f32,
+    seed: u64,
+    needs_bake: bool,
+
+    // CPU board model (kept for the life layer).
+    board: Option<pulsegrid::Board>,
+}
+
+impl PulseGrid {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        // Sprite shader + its globals bind-group layout (VS reads resolution).
+        let sprite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pulsegrid-sprite-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("pulsegrid_sprite.wgsl").into()),
+        });
+        let sprite_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pulsegrid-sprite-bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let sprite_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("pulsegrid-sprite-pl"),
+            bind_group_layouts: &[Some(&sprite_bgl)],
+            immediate_size: 0,
+        });
+        let sprite_bake_pipeline = sprite_pipeline(device, &sprite_shader, &sprite_layout, BAKE_FORMAT);
+
+        let bake_globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pulsegrid-bake-globals"),
+            size: std::mem::size_of::<SpriteGlobals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bake_globals_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pulsegrid-bake-globals-bg"),
+            layout: &sprite_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: bake_globals_buf.as_entire_binding(),
+            }],
+        });
+
+        // Live globals buffer (written every frame).
+        let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pulsegrid-globals"),
+            size: std::mem::size_of::<SpriteGlobals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Lattice pass.
+        let lattice_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pulsegrid-lattice-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("pulsegrid_lattice.wgsl").into()),
+        });
+        let lattice_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pulsegrid-lattice-uniforms"),
+            size: std::mem::size_of::<LatticeUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let lattice_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pulsegrid-lattice-bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let lattice_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pulsegrid-lattice-bg"),
+            layout: &lattice_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: lattice_buf.as_entire_binding(),
+            }],
+        });
+        let lattice_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("pulsegrid-lattice-pl"),
+            bind_group_layouts: &[Some(&lattice_bgl)],
+            immediate_size: 0,
+        });
+        let lattice_pipeline =
+            blended_fullscreen_pipeline(device, &lattice_shader, &lattice_layout, BAKE_FORMAT, additive_blend());
+
+        // Composite pass (globals uniform + baked texture).
+        let composite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pulsegrid-composite-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("pulsegrid_composite.wgsl").into()),
+        });
+        let composite_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pulsegrid-composite-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let composite_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("pulsegrid-composite-pl"),
+            bind_group_layouts: &[Some(&composite_bgl)],
+            immediate_size: 0,
+        });
+        // Backmost, opaque: REPLACE (writes base + glow over the whole frame).
+        let composite_pipeline =
+            fullscreen_pipeline(device, &composite_shader, &composite_layout, format, false);
+
+        Self {
+            lattice_pipeline,
+            lattice_buf,
+            lattice_bg,
+            sprite_bake_pipeline,
+            bake_globals_buf,
+            bake_globals_bg,
+            composite_pipeline,
+            composite_bgl,
+            composite_bg: None,
+            globals_buf,
+            bake_view: None,
+            prim_buf: None,
+            prim_count: 0,
+            width: 0,
+            height: 0,
+            scale: 1.0,
+            seed: 0,
+            needs_bake: false,
+            board: None,
+        }
+    }
+
+    /// (Re)generate the board and bake resources when the frame size, DPI scale
+    /// or seed changes, then write the live globals for this frame. Returns
+    /// whether a bake pass must run (consumed by [`SurfaceRenderer::render`]).
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        w: u32,
+        h: u32,
+        scale: f32,
+        theme: &crate::theme::Theme,
+        base: [f32; 3],
+        glow_intensity: f32,
+    ) -> bool {
+        let cfg = &theme.background;
+        let dirty = self.bake_view.is_none()
+            || self.width != w
+            || self.height != h
+            || self.scale != scale
+            || self.seed != cfg.seed;
+
+        if dirty {
+            let t0 = std::time::Instant::now();
+
+            // New full-res HDR bake target.
+            let bake = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("pulsegrid-bake"),
+                size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: BAKE_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let bake_view = bake.create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Deterministic board generation.
+            let brand = theme.colors.brand_rgb();
+            let board = pulsegrid::generate(w.max(1), h.max(1), scale, cfg, brand);
+            self.prim_count = board.prims.len() as u32;
+
+            let prim_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("pulsegrid-prims"),
+                size: (board.prims.len().max(1) * std::mem::size_of::<pulsegrid::SpriteInstance>())
+                    as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            if !board.prims.is_empty() {
+                queue.write_buffer(&prim_buf, 0, bytemuck::cast_slice(&board.prims));
+            }
+
+            // Lattice + bake globals (static until the next regeneration).
+            let lattice = LatticeUniforms {
+                brand: [brand[0], brand[1], brand[2], 1.0],
+                resolution: [w as f32, h as f32],
+                cell: (cfg.lattice_cell * scale).max(4.0),
+                dot_radius: cfg.lattice_dot * scale,
+                glow: cfg.lattice_glow,
+                aa: 0.9,
+                _pad: [0.0, 0.0],
+            };
+            queue.write_buffer(&self.lattice_buf, 0, bytemuck::bytes_of(&lattice));
+
+            let bake_globals = SpriteGlobals {
+                base: [base[0], base[1], base[2], 1.0],
+                resolution: [w as f32, h as f32],
+                glow_intensity: 1.0, // bake stores raw glow; composite re-applies intensity
+                _pad: 0.0,
+            };
+            queue.write_buffer(&self.bake_globals_buf, 0, bytemuck::bytes_of(&bake_globals));
+
+            // Composite bind group (globals + the fresh bake view).
+            self.composite_bg = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pulsegrid-composite-bg"),
+                layout: &self.composite_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.globals_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&bake_view),
+                    },
+                ],
+            }));
+
+            self.bake_view = Some(bake_view);
+            self.prim_buf = Some(prim_buf);
+            self.width = w;
+            self.height = h;
+            self.scale = scale;
+            self.seed = cfg.seed;
+            self.needs_bake = true;
+            self.board = Some(board);
+
+            eprintln!(
+                "[pulsegrid] baked {} primitives for {}x{} in {:.1} ms",
+                self.prim_count,
+                w,
+                h,
+                t0.elapsed().as_secs_f32() * 1000.0
+            );
+        }
+
+        // Live globals for this frame.
+        let globals = SpriteGlobals {
+            base: [base[0], base[1], base[2], 1.0],
+            resolution: [w as f32, h as f32],
+            glow_intensity,
+            _pad: 0.0,
+        };
+        queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
+
+        self.needs_bake
+    }
+
+    /// Record the one-time bake render pass (lattice then primitives) into the
+    /// HDR bake target. Cleared to transparent so the additive draws accumulate.
+    fn record_bake(&self, encoder: &mut wgpu::CommandEncoder) {
+        let Some(view) = self.bake_view.as_ref() else {
+            return;
+        };
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("pulsegrid-bake-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&self.lattice_pipeline);
+        pass.set_bind_group(0, &self.lattice_bg, &[]);
+        pass.draw(0..3, 0..1);
+        if let (Some(prim_buf), count) = (self.prim_buf.as_ref(), self.prim_count) {
+            if count > 0 {
+                pass.set_pipeline(&self.sprite_bake_pipeline);
+                pass.set_bind_group(0, &self.bake_globals_bg, &[]);
+                pass.set_vertex_buffer(0, prim_buf.slice(..));
+                pass.draw(0..6, 0..count);
+            }
+        }
+    }
+
+    /// Draw the baked circuit as the backmost layer of the shell pass.
+    fn composite<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        if let Some(bg) = self.composite_bg.as_ref() {
+            pass.set_pipeline(&self.composite_pipeline);
+            pass.set_bind_group(0, bg, &[]);
+            pass.draw(0..3, 0..1);
+        }
+    }
+}
+
 /// The settings gear button: a small cog drawn over everything (`gear.wgsl`).
 struct Gear {
     pipeline: wgpu::RenderPipeline,
@@ -697,6 +1175,7 @@ pub struct SurfaceRenderer {
     gear: Gear,
     loading: Loading,
     field: DeepField,
+    pulse: PulseGrid,
     theme: crate::theme::Theme,
 }
 
@@ -741,6 +1220,7 @@ impl SurfaceRenderer {
         let gear = Gear::new(&device, SURFACE_FORMAT);
         let loading = Loading::new(&device, SURFACE_FORMAT);
         let field = DeepField::new(&device, SURFACE_FORMAT);
+        let pulse = PulseGrid::new(&device, SURFACE_FORMAT);
 
         Self {
             surface,
@@ -755,6 +1235,7 @@ impl SurfaceRenderer {
             gear,
             loading,
             field,
+            pulse,
             theme,
         }
     }
@@ -783,8 +1264,10 @@ impl SurfaceRenderer {
 
     /// Render one frame. Rects are in device pixels. `zone` is the surf-zone,
     /// `panel` the internal settings card, `gear` the settings button
-    /// (center_x, center_y, radius). `feather`/`deep_field` are the live toggles;
-    /// `settings_open` shows the panel; `gear_hover` (0..1) drives the gear glow.
+    /// (center_x, center_y, radius). `feather`/`background_on` are the live
+    /// toggles; `glow_intensity` scales the Pulse Grid brightness; `scale` is
+    /// the DPI factor (Pulse Grid sizes are logical px). `overlay_open` shows the
+    /// panel; `gear_hover` (0..1) drives the gear glow.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -793,12 +1276,40 @@ impl SurfaceRenderer {
         panel: (f32, f32, f32, f32),
         gear: (f32, f32, f32),
         feather: bool,
-        deep_field: bool,
+        background_on: bool,
+        glow_intensity: f32,
+        scale: f32,
         overlay_open: bool,
         gear_hover: f32,
         loading_intensity: f32,
     ) {
         let (win_w, win_h) = (self.config.width as f32, self.config.height as f32);
+        let base = self.theme.colors.background_rgb();
+
+        // Background selection is a template token (D-0012): Pulse Grid (Cyber
+        // default) or the Deep Field (Calm). The "Animated background" toggle
+        // (`background_on`) gates whichever the template picked.
+        let use_pulse = self.theme.background.is_pulse_grid();
+        let do_pulse = background_on && use_pulse;
+        let do_deep = background_on && !use_pulse;
+
+        // Pulse Grid: (re)generate + bake on size/scale/seed change, write the
+        // live globals. Must run before the frame encoder (creates GPU
+        // resources + queues writes).
+        let pulse_bake = if do_pulse {
+            self.pulse.prepare(
+                &self.device,
+                &self.queue,
+                self.config.width,
+                self.config.height,
+                scale,
+                &self.theme,
+                base,
+                glow_intensity,
+            )
+        } else {
+            false
+        };
         let corner_radius = self.theme.page.corner_radius;
         // Feathering on -> soft SDF falloff of `feather_width` px; off -> 0.0,
         // which the page shader reads as the CD-02 hard rounded edge.
@@ -881,7 +1392,7 @@ impl SurfaceRenderer {
         // Deep Field: repaint the half-res target at ~30 fps (every other frame,
         // or right after a resize).
         self.field.frame = self.field.frame.wrapping_add(1);
-        let do_field = deep_field && {
+        let do_field = do_deep && {
             self.field
                 .ensure_target(&self.device, self.config.width, self.config.height);
             self.field.frame % 2 == 0 || self.field.needs_render
@@ -940,8 +1451,14 @@ impl SurfaceRenderer {
             self.field.needs_render = false;
         }
 
-        // Pass 2: shell composite — Deep Field (upscaled), then ring, then page.
-        let base = self.theme.colors.background_rgb();
+        // Pass 1b: bake the Pulse Grid static layer (only on first frame / after
+        // a resize or seed change — otherwise the baked texture is reused).
+        if do_pulse && pulse_bake {
+            self.pulse.record_bake(&mut encoder);
+            self.pulse.needs_bake = false;
+        }
+
+        // Pass 2: shell composite — background, then ring, then page.
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shell-pass"),
@@ -965,8 +1482,12 @@ impl SurfaceRenderer {
                 multiview_mask: None,
             });
 
-            // Backmost: the Deep Field (upscaled from half res), when enabled.
-            if deep_field {
+            // Backmost: the selected background. Pulse Grid composites its baked
+            // circuit (scaled by glow intensity); the Deep Field upscales its
+            // half-res target. Either is the Cyber/Calm template choice.
+            if do_pulse {
+                self.pulse.composite(&mut pass);
+            } else if do_deep {
                 if let Some(bg) = self.field.composite_bind_group.as_ref() {
                     pass.set_pipeline(&self.field.composite_pipeline);
                     pass.set_bind_group(0, bg, &[]);
@@ -974,7 +1495,7 @@ impl SurfaceRenderer {
                 }
             }
 
-            // Ring (transparent, composited over the field).
+            // Ring (transparent, composited over the background).
             pass.set_pipeline(&self.ring_pipeline);
             pass.set_bind_group(0, &self.ring_bind_group, &[]);
             pass.draw(0..3, 0..1);
@@ -1014,8 +1535,12 @@ impl SurfaceRenderer {
     }
 }
 
-/// Render a single ring frame off-screen to a PNG (headless self-test; renders
-/// the shell only, no CEF).
+/// Render a single shell frame off-screen to a PNG (headless self-test: the
+/// Pulse Grid background + the CARVILON ring, no CEF surf zone). Because the
+/// background shaders write token colors directly to a non-sRGB target — exactly
+/// as the on-screen `Bgra8Unorm` path does — the PNG shows the circuit as it
+/// appears fullscreen, which is the sanctioned way to eyeball it without
+/// screen-scraping the desktop.
 pub fn capture(path: &str, width: u32, height: u32, time: f32, theme: &crate::theme::Theme) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -1037,9 +1562,24 @@ pub fn capture(path: &str, width: u32, height: u32, time: f32, theme: &crate::th
 
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let (pipeline, uniform_buf, bind_group) = ring_pipeline(&device, format);
-    // sRGB target: convert the token sRGB values to linear in-shader.
-    let ring = RingUniforms::from_theme(theme, [width as f32, height as f32], time, 1);
+    // `is_srgb = 0`: the ring paints its transparent premultiplied path (as
+    // on-screen) so it composites OVER the Pulse Grid background rather than an
+    // opaque fill — the PNG then matches the fullscreen framebuffer exactly.
+    let ring = RingUniforms::from_theme(theme, [width as f32, height as f32], time, 0);
     queue.write_buffer(&uniform_buf, 0, bytemuck::bytes_of(&ring));
+
+    // Pulse Grid background (skipped when the template selects the Deep Field —
+    // that path is surface-bound and not wired into the headless capture).
+    let base = theme.colors.background_rgb();
+    let do_pulse = theme.background.is_pulse_grid();
+    let mut pulse = PulseGrid::new(&device, format);
+    if do_pulse {
+        let glow = std::env::var("CYBERDESK_CAPTURE_GLOW")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(theme.background.glow_default / 100.0);
+        pulse.prepare(&device, &queue, width, height, 1.0, theme, base, glow);
+    }
 
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("capture-target"),
@@ -1072,7 +1612,17 @@ pub fn capture(path: &str, width: u32, height: u32, time: f32, theme: &crate::th
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("capture-encoder"),
     });
+    // Bake the static circuit into its HDR target first.
+    if do_pulse {
+        pulse.record_bake(&mut encoder);
+    }
     {
+        let clear = wgpu::Color {
+            r: base[0] as f64,
+            g: base[1] as f64,
+            b: base[2] as f64,
+            a: 1.0,
+        };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("capture-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1080,7 +1630,7 @@ pub fn capture(path: &str, width: u32, height: u32, time: f32, theme: &crate::th
                 resolve_target: None,
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    load: wgpu::LoadOp::Clear(clear),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -1089,6 +1639,10 @@ pub fn capture(path: &str, width: u32, height: u32, time: f32, theme: &crate::th
             occlusion_query_set: None,
             multiview_mask: None,
         });
+        // Backmost: the Pulse Grid, then the ring over it.
+        if do_pulse {
+            pulse.composite(&mut pass);
+        }
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.draw(0..3, 0..1);

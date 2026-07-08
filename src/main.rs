@@ -11,6 +11,7 @@
 
 mod app;
 mod browser;
+mod pulsegrid;
 mod renderer;
 mod settings;
 mod store;
@@ -66,8 +67,17 @@ fn main() -> ExitCode {
     }
 
     if let Some(path) = capture {
+        // Default to the dev-window size; `CYBERDESK_CAPTURE_SIZE=WxH` overrides
+        // it (e.g. `5120x1440` to eyeball the ultrawide Pulse Grid headlessly).
+        let (cw, ch) = std::env::var("CYBERDESK_CAPTURE_SIZE")
+            .ok()
+            .and_then(|s| {
+                let (w, h) = s.split_once('x')?;
+                Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+            })
+            .unwrap_or((1600u32, 900u32));
         // A representative moment in the rotation (gap off the vertical axis).
-        renderer::capture(&path, 1600, 900, 3.0, &theme::Theme::load());
+        renderer::capture(&path, cw, ch, 3.0, &theme::Theme::load());
         println!("wrote {path}");
         return ExitCode::SUCCESS;
     }
