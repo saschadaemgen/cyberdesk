@@ -1,6 +1,6 @@
 # CyberDesk - Architecture
 
-Project CARVILON CyberDesk - living document - Status: 2026-07-08 (Season 1 extended - CD-04 complete)
+Project CARVILON CyberDesk - living document - Status: 2026-07-08 (Season 1 extended - CD-05 complete)
 Proprietary - Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
 
 ## What CyberDesk is
@@ -26,4 +26,4 @@ Development: Windows 11 (MSVC). Later: Linux appliance. Long-term goal: CARVILON
 
 ## Status
 
-Season 1 extended (CD-04) complete. CD-01: shell (winit/wgpu, borderless fullscreen, rotating ring) plus a chromeless CEF windowed embed of google.com. CD-02: off-screen rendering - the page becomes a wgpu texture composited inside our own frame (CPU path; accelerated path researched, D-0009). CD-03: feathered surf-zone edges, the procedural Deep Field background, and a web-isolated `cyberdesk://` settings view over a message-router IPC bridge (D-0010). CD-04: free surfing - a `Ctrl+L` command bar (host-side URL-vs-search), history navigation (Alt+arrows, mouse buttons 4/5, F5 / Ctrl+R / Ctrl+Shift+R), a gesture-aware popup policy (D-0011), a loading line, and a tier-1 foreground guard. Next: Season 2 (zone layout and the Edit Mode grid). This document is updated after every season, and mid-season when necessary.
+Season 1 extended (CD-05) complete. CD-01: shell (winit/wgpu, borderless fullscreen, rotating ring) plus a chromeless CEF windowed embed of google.com. CD-02: off-screen rendering - the page becomes a wgpu texture composited inside our own frame (CPU path; accelerated path researched, D-0009). CD-03: feathered surf-zone edges, the procedural Deep Field background, and a web-isolated `cyberdesk://` settings view over a message-router IPC bridge (D-0010). CD-04: free surfing - a `Ctrl+L` command bar (host-side URL-vs-search), history navigation (Alt+arrows, mouse buttons 4/5, F5 / Ctrl+R / Ctrl+Shift+R), a gesture-aware popup policy (D-0011), a loading line, and a tier-1 foreground guard. CD-05: background v2 - the seeded, bake-once "Pulse Grid" circuit board (traces, pads, bus lines, travelling pulses, node flares) replaces the Deep Field as the Cyber default and is allowed to glow, with a zone shadow dimming it under content and a live glow-intensity slider; the Deep Field is demoted to a token-selectable "Calm" variant (D-0012). Next: Season 2 (zone layout and the Edit Mode grid). This document is updated after every season, and mid-season when necessary.

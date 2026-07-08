@@ -11,6 +11,7 @@ Soft season mapping - chat fill level and reality decide the actual cuts. Comple
 ## Design (Season 2)
 
 - Design law: color world, motion language, background shaders - reference files by CD (Claude Design) are binding, CC implements them 1:1
+- Pulse Grid activity coupling (deferred from CD-05): drive the background pulses/flares from real system activity - NetGuard traffic, MQTT ticks, event-engine signals - instead of the current autonomous animation. Belongs after NetGuard/events exist (Season 4+). Also earmarked: a template picker UI to switch the Pulse Grid ("Cyber") and Deep Field ("Calm") backgrounds, which are currently token-selectable only (D-0012).
 - Drag-and-drop as a global design language: ghost element, zone highlight on hover, magnetic docking, spring animation (specification CD, implementation CC)
 - App start animation (logo rotation); Plymouth theme stays earmarked for the OS path
 

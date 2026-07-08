@@ -13,16 +13,24 @@ feathered compositing, and an isolated in-shell settings surface.
 
 ---
 
-## State after CD-04 (Season 1 extended)
+## State after CD-05 (Season 1 extended)
 
 * **Shell:** Borderless fullscreen on the primary monitor, dark background
   (`#04070A`), a slowly rotating CARVILON ring (open arc + hollow inner ring,
   `#009FE3`) that frames the surf zone, vsync. `ESC` quits cleanly (from
   anywhere, even with the page focused). Dev mode via `--windowed` (1600×900).
-* **Deep Field background:** a procedural, texture-free living background behind
-  everything — a breathing glow, two drifting nebula gradients, sparse twinkling
-  dust, and a rare scan sweep — rendered at half resolution and upscaled, within
-  a tight amplitude budget (no flicker, ~6–8% brightness delta).
+* **Pulse Grid background:** a seeded circuit board that lives behind the shell —
+  a fine micro lattice, routed traces with pads and solder dots, two full-width
+  bus lines, bright pulses with fading trails travelling the traces, and
+  occasional expanding node flares. The static layer is baked once into a
+  full-resolution texture (imperceptible startup cost) and composited each frame,
+  scaled by a live **glow-intensity** control; the board is identical across
+  launches (seed determinism). It is allowed to glow — a **zone shadow** dims it
+  under the surf zone and any open overlay (calm under content, glow in the
+  margins) so the page stays readable. The earlier **Deep Field** (a breathing
+  glow with drifting nebulae, dust, and a scan sweep) is preserved as a
+  token-selectable "Calm" variant (`background.kind = "deep_field"`). See
+  `docs/cyberdesk-decisions.md` (D-0012).
 * **Surf zone (CEF, off-screen rendering):** CEF renders the page off-screen
   (`on_paint`); CyberDesk uploads each frame into a wgpu texture and composites
   it inside its own frame — the page sits centered (~60% × 70%) with the shell
@@ -40,10 +48,10 @@ feathered compositing, and an isolated in-shell settings surface.
 * **Settings:** a gear button (top-right) opens an in-shell settings card — a
   **second, web-isolated OSR view** locked to an internal `cyberdesk://` custom
   scheme (D-0010), served entirely in-process from embedded assets. It can never
-  reach the web (its navigation is confined to `cyberdesk://`). Three toggles
-  (feathered edges, Deep Field, and stay-in-foreground) are wired over a CEF
-  message-router IPC bridge (`get_settings` / `set_setting`), applied live and
-  persisted to SQLite.
+  reach the web (its navigation is confined to `cyberdesk://`). A **glow-intensity**
+  slider (50–220 %) plus three toggles (animated background, feathered edges, and
+  stay-in-foreground) are wired over a CEF message-router IPC bridge
+  (`get_settings` / `set_setting`), applied live and persisted to SQLite.
 * **One token source:** every style value — colors, radii, periods, amplitudes —
   comes from an embedded theme (`src/theme.toml`), resolved both into wgpu shader
   uniforms and into the settings page's CSS custom properties. App state lives in
@@ -144,10 +152,12 @@ you summon it. All navigation shortcuts act on the surf view.
 
 An amber glyph in the command bar marks a page served over plain `http://`
 (e.g. `neverssl.com`, which stays http by design); `https` and internal pages
-show no warning. The **gear** (top-right) opens the settings card with three
-live, persisted toggles: **feathered edges**, **Deep Field** background, and
-**stay in foreground** (keep the fullscreen shell above other windows; always
-off in `--windowed` dev mode).
+show no warning. The **gear** (top-right) opens the settings card with a live,
+persisted **glow-intensity** slider (50–220 %, brightness of the animated
+background) and three toggles: **animated background** (the Pulse Grid, or
+whichever background the template selects), **feathered edges**, and **stay in
+foreground** (keep the fullscreen shell above other windows; always off in
+`--windowed` dev mode).
 
 ---
 
@@ -164,10 +174,12 @@ cyberdesk/
 │  ├─ theme.toml     # the embedded "cyber" token set (single style source)
 │  ├─ store.rs       # schema-versioned SQLite app-state store
 │  ├─ settings.rs    # live settings state (owns the store) shared with the IPC
+│  ├─ pulsegrid.rs   # Pulse Grid background: seeded generator + life simulation
 │  ├─ settings.html/.css/.js   # embedded internal settings page assets
 │  ├─ command.html/.css/.js    # embedded command-bar page assets
 │  ├─ ring.wgsl      # background + CARVILON ring
-│  ├─ deepfield.wgsl # procedural Deep Field background   ·  blit.wgsl (upscale)
+│  ├─ pulsegrid_*.wgsl  # Pulse Grid: lattice · sprite (SDF prims/pulses) · composite
+│  ├─ deepfield.wgsl # Deep Field ("Calm" variant) background  ·  blit.wgsl (upscale)
 │  ├─ page.wgsl      # surf-zone page / settings panel compositing (feathering)
 │  ├─ loading.wgsl   # surf-zone loading line
 │  └─ gear.wgsl      # settings gear button
@@ -175,7 +187,7 @@ cyberdesk/
 │  └─ fetch-cef.ps1  # downloads the pinned CEF version into vendor/cef/
 ├─ docs/                          # living project documents (English)
 │  ├─ cyberdesk-architecture.md
-│  ├─ cyberdesk-decisions.md      # D-0001 … D-0011
+│  ├─ cyberdesk-decisions.md      # D-0001 … D-0012
 │  ├─ cyberdesk-security.md
 │  ├─ cyberdesk-wire-format.md    # settings + navigation IPC schema
 │  ├─ cyberdesk-feature-backlog.md

@@ -24,20 +24,27 @@ Transport: `window.cefQuery({ request, persistent: false, onSuccess, onFailure }
 ### `get_settings` (view -> host)
 
 - Request: `{"cmd":"get_settings"}`
-- Success: `{"feather_edges":<bool>,"deep_field":<bool>}`
+- Success: `{"feather_edges":<bool>,"animated_background":<bool>,"stay_foreground":<bool>,"glow_intensity":<int>}`
+  - `glow_intensity` is a whole percent (50..=220).
 - Failure: code 1 (malformed request JSON).
 
 ### `set_setting` (view -> host)
 
-- Request: `{"cmd":"set_setting","key":"<key>","value":<bool>}`
-- `key` ∈ { `feather_edges`, `deep_field` } (the only writable keys).
-- Effect: updates the in-memory toggle (applied by the next rendered frame) and
+- Request: `{"cmd":"set_setting","key":"<key>","value":<bool|int>}`
+- Writable keys and their value types:
+  - `feather_edges`, `animated_background`, `stay_foreground` — boolean.
+  - `glow_intensity` — number (whole percent; accepts a JSON number or a numeric
+    string, clamped host-side to 50..=220).
+- Effect: updates the in-memory setting (applied by the next rendered frame) and
   the SQLite `settings` row (survives restart).
-- Success: `{"ok":true,"key":"<key>","value":<bool>}`
+- Success: `{"ok":true,"key":"<key>","value":<bool|int>}`
 - Failure: code 1 (malformed request), 2 (missing `key`/`value` or wrong type),
   3 (unknown key), 4 (unknown `cmd`).
 
-Unknown commands are rejected with code 4. There is no passthrough channel.
+CD-05 (D-0012) renamed the background toggle `deep_field` -> `animated_background`
+(it now governs whichever background the template selects) and added the numeric
+`glow_intensity`; the store migrates the old key. Unknown commands are rejected
+with code 4. There is no passthrough channel.
 
 ## Command bar / navigation IPC (CD-04, live)
 
