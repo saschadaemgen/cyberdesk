@@ -794,7 +794,7 @@ impl SurfaceRenderer {
         gear: (f32, f32, f32),
         feather: bool,
         deep_field: bool,
-        settings_open: bool,
+        overlay_open: bool,
         gear_hover: f32,
         loading_intensity: f32,
     ) {
@@ -831,9 +831,9 @@ impl SurfaceRenderer {
         self.queue
             .write_buffer(&self.page.uniform_buf, 0, bytemuck::bytes_of(&page));
 
-        // Panel uniforms: the internal settings card (crisp rounded corners,
-        // never feathered). Only written/drawn while the settings view is open.
-        if settings_open {
+        // Panel uniforms: the internal overlay (settings card or command bar) —
+        // crisp rounded corners, never feathered. Only written/drawn while open.
+        if overlay_open {
             let (px, py, pw, ph) = panel;
             let panel_u = PageUniforms {
                 rect_ndc: [
@@ -994,8 +994,8 @@ impl SurfaceRenderer {
                 pass.draw(0..3, 0..1);
             }
 
-            // Internal settings card, over the page, when open.
-            if settings_open {
+            // Internal overlay (settings card or command bar), over the page.
+            if overlay_open {
                 if let Some(tex_bind_group) = self.panel.tex_bind_group.as_ref() {
                     pass.set_pipeline(&self.panel.pipeline);
                     pass.set_bind_group(0, &self.panel.uniform_bind_group, &[]);

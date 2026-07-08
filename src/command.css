@@ -1,0 +1,73 @@
+/* Command bar styling. Colors come entirely from the injected token custom
+   properties (see theme.toml / Theme::to_css_vars) — nothing hardcoded here. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: transparent;            /* the wgpu compositor paints behind us */
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.bar {
+  width: 100%;
+  height: 100%;
+  padding: 0 14px;
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav { display: flex; align-items: center; gap: 2px; flex: none; }
+
+.glyph {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.glyph:hover { background: color-mix(in srgb, var(--panel-border) 55%, transparent); color: var(--text); }
+.glyph:active { background: color-mix(in srgb, var(--brand) 25%, transparent); }
+.glyph:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.scheme {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+}
+.scheme.secure   { color: var(--brand); }
+.scheme.insecure { color: var(--warn); }
+.scheme.neutral  { color: var(--text-dim); opacity: 0.5; }
+
+.url {
+  flex: 1 1 auto;
+  height: 40px;
+  min-width: 0;
+  padding: 0 14px;
+  font-size: 16px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--background) 60%, transparent);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.url::placeholder { color: var(--text-dim); }
+.url:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 30%, transparent);
+}

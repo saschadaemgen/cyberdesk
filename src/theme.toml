@@ -15,6 +15,7 @@ panel_border = "#123246"
 text         = "#DCE9F2"
 text_dim     = "#7C9CB4"
 accent       = "#009FE3"
+warn         = "#E8A23D"  # amber — insecure/plain-http hint
 
 [ring]
 radius          = 0.40   # fraction of min viewport dimension

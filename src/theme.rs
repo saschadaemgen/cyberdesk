@@ -30,6 +30,7 @@ pub struct Colors {
     pub text: String,
     pub text_dim: String,
     pub accent: String,
+    pub warn: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -86,6 +87,7 @@ impl Theme {
              \x20 --text: {text};\n\
              \x20 --text-dim: {text_dim};\n\
              \x20 --accent: {accent};\n\
+             \x20 --warn: {warn};\n\
              \x20 --corner-radius: {radius}px;\n\
              }}\n",
             bg = self.colors.background,
@@ -95,6 +97,7 @@ impl Theme {
             text = self.colors.text,
             text_dim = self.colors.text_dim,
             accent = self.colors.accent,
+            warn = self.colors.warn,
             radius = self.page.corner_radius,
         )
     }

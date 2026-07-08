@@ -46,6 +46,24 @@ fn gear_geom(width: u32, scale: f32) -> (f32, f32, f32) {
     (w - margin - r, margin + r, r)
 }
 
+/// Command-bar rectangle in device pixels: a centered strip in the upper third.
+fn command_rect(width: u32, height: u32, scale: f32) -> (f32, f32, f32, f32) {
+    let (w, h) = (width as f32, height as f32);
+    let pw = (w * 0.5).clamp(560.0, 960.0).min(w);
+    let ph = (76.0 * scale).min(h);
+    let px = ((w - pw) * 0.5).round();
+    let py = (h * 0.20).round();
+    (px, py, pw.round(), ph.round())
+}
+
+/// Which internal overlay (if any) is currently shown.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Overlay {
+    Closed,
+    Settings,
+    Command,
+}
+
 pub fn run(windowed: bool) {
     let event_loop = EventLoop::new().expect("failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -67,7 +85,7 @@ pub fn run(windowed: bool) {
         mods: ModifiersState::empty(),
         button_flags: 0,
         applied_cursor: CursorIcon::Default,
-        settings_open: false,
+        overlay: Overlay::Closed,
         gear_hover: 0.0,
         gear_hover_target: 0.0,
         loading_intensity: 0.0,
@@ -92,7 +110,7 @@ struct Shell {
     mods: ModifiersState,
     button_flags: u32,
     applied_cursor: CursorIcon,
-    settings_open: bool,
+    overlay: Overlay,
     gear_hover: f32,
     gear_hover_target: f32,
     loading_intensity: f32,
@@ -145,18 +163,31 @@ fn keycode_to_vk(code: KeyCode) -> i32 {
 }
 
 impl Shell {
-    /// The view input is currently routed to (settings when open, else surf).
+    /// The view input is currently routed to (internal when an overlay is open,
+    /// else the surf view).
     fn active_role(&self) -> Role {
-        if self.settings_open { Role::Internal } else { Role::Surf }
+        if self.overlay == Overlay::Closed {
+            Role::Surf
+        } else {
+            Role::Internal
+        }
+    }
+
+    /// The internal view's rectangle (device px) for the current overlay.
+    fn internal_rect(&self, w: u32, h: u32) -> (f32, f32, f32, f32) {
+        match self.overlay {
+            Overlay::Command => command_rect(w, h, self.scale),
+            _ => panel_rect(w, h),
+        }
     }
 
     /// Top-left origin (device px) of the active view's rectangle.
     fn active_origin(&self) -> (f32, f32) {
         let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
-        let (x, y, _, _) = if self.settings_open {
-            panel_rect(w, h)
-        } else {
+        let (x, y, _, _) = if self.overlay == Overlay::Closed {
             zone_rect(w, h)
+        } else {
+            self.internal_rect(w, h)
         };
         (x, y)
     }
@@ -177,16 +208,42 @@ impl Shell {
         (dx * dx + dy * dy).sqrt() <= r * 1.7
     }
 
-    fn toggle_settings(&mut self) {
-        self.settings_open = !self.settings_open;
-        // Move keyboard focus to whichever view is now active.
-        if self.settings_open {
-            browser::set_focus(Role::Surf, false);
-            browser::set_focus(Role::Internal, true);
-        } else {
-            browser::set_focus(Role::Internal, false);
-            browser::set_focus(Role::Surf, true);
+    /// Switch the overlay state machine: resize/navigate the internal view and
+    /// move keyboard focus accordingly. Closed <-> Settings <-> Command.
+    fn set_overlay(&mut self, next: Overlay) {
+        self.overlay = next;
+        // Match the internal OSR view's size to the new overlay before it paints.
+        if let Some(r) = self.renderer.as_ref() {
+            let (w, h) = r.size();
+            let (_, _, iw, ih) = self.internal_rect(w, h);
+            browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
+            browser::notify_resized(Role::Internal);
         }
+        match next {
+            Overlay::Settings => {
+                browser::show_internal_settings();
+                browser::set_focus(Role::Surf, false);
+                browser::set_focus(Role::Internal, true);
+            }
+            Overlay::Command => {
+                browser::show_internal_command();
+                browser::set_focus(Role::Surf, false);
+                browser::set_focus(Role::Internal, true);
+            }
+            Overlay::Closed => {
+                browser::set_focus(Role::Internal, false);
+                browser::set_focus(Role::Surf, true);
+            }
+        }
+    }
+
+    fn toggle_settings(&mut self) {
+        let next = if self.overlay == Overlay::Settings {
+            Overlay::Closed
+        } else {
+            Overlay::Settings
+        };
+        self.set_overlay(next);
     }
 
     fn mouse_mods(&self) -> u32 {
@@ -198,8 +255,8 @@ impl Shell {
             let (w, h) = r.size();
             let (_, _, zw, zh) = zone_rect(w, h);
             browser::set_view_geometry(Role::Surf, zw as u32, zh as u32, self.scale);
-            let (_, _, pw, ph) = panel_rect(w, h);
-            browser::set_view_geometry(Role::Internal, pw as u32, ph as u32, self.scale);
+            let (_, _, iw, ih) = self.internal_rect(w, h);
+            browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
         }
     }
 }
@@ -326,10 +383,18 @@ impl ApplicationHandler for Shell {
                     PhysicalKey::Code(code) => keycode_to_vk(code),
                     _ => 0,
                 };
-                // ESC closes the settings view if open, otherwise quits the shell.
+                // Ctrl+L opens the command bar (from any state).
+                if event.state == ElementState::Pressed
+                    && self.mods.control_key()
+                    && event.physical_key == PhysicalKey::Code(KeyCode::KeyL)
+                {
+                    self.set_overlay(Overlay::Command);
+                    return;
+                }
+                // ESC chain: command bar / settings first, then quit the shell.
                 if vk == 0x1B && event.state == ElementState::Pressed {
-                    if self.settings_open {
-                        self.toggle_settings();
+                    if self.overlay != Overlay::Closed {
+                        self.set_overlay(Overlay::Closed);
                     } else {
                         event_loop.exit();
                     }
@@ -381,14 +446,18 @@ impl ApplicationHandler for Shell {
 
             WindowEvent::RedrawRequested => {
                 let time = self.start.elapsed().as_secs_f32();
-                let (scale, open, hover, load) =
-                    (self.scale, self.settings_open, self.gear_hover, self.loading_intensity);
-                if let Some(r) = self.renderer.as_mut() {
+                let (scale, hover, load) = (self.scale, self.gear_hover, self.loading_intensity);
+                let open = self.overlay != Overlay::Closed;
+                let internal = self.renderer.as_ref().map(|r| {
+                    let (w, h) = r.size();
+                    self.internal_rect(w, h)
+                });
+                if let (Some(r), Some(internal)) = (self.renderer.as_mut(), internal) {
                     let (w, h) = r.size();
                     r.render(
                         time,
                         zone_rect(w, h),
-                        panel_rect(w, h),
+                        internal,
                         gear_geom(w, scale),
                         settings::feather_edges(),
                         settings::deep_field(),
@@ -413,6 +482,12 @@ impl ApplicationHandler for Shell {
                 browser::create_browser(Role::Internal, hwnd);
                 self.views_started = true;
             }
+        }
+
+        // The command bar's navigate request closes the overlay (set from the
+        // IPC thread).
+        if browser::take_overlay_close() {
+            self.set_overlay(Overlay::Closed);
         }
 
         // Ease the gear hover glow toward its target.

@@ -40,8 +40,8 @@ use winit::window::CursorIcon;
 const HOME_URL: &str = "https://www.google.com/";
 /// The internal custom scheme and the settings document URL (D-0010).
 const SCHEME: &str = "cyberdesk";
-const SCHEME_DOMAIN: &str = "settings";
 const SETTINGS_URL: &str = "cyberdesk://settings/";
+const COMMAND_URL: &str = "cyberdesk://command/";
 
 // cef_event_flags_t bits (modifiers for mouse/key events).
 const EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
@@ -143,16 +143,31 @@ pub fn surf_loading() -> bool {
 pub fn surf_title() -> String {
     surf_nav().lock().unwrap().title.clone()
 }
-// Consumed by the command bar's `get_nav_state` IPC in Stage B.
-#[allow(dead_code)]
+
+// The command bar's `navigate` sets this on the CEF UI thread; the main thread
+// consumes it to close the overlay after a submission.
+static CLOSE_OVERLAY: AtomicBool = AtomicBool::new(false);
+fn request_overlay_close() {
+    CLOSE_OVERLAY.store(true, Ordering::Relaxed);
+}
+pub fn take_overlay_close() -> bool {
+    CLOSE_OVERLAY.swap(false, Ordering::Relaxed)
+}
+
+/// Point the internal view at the settings page.
+pub fn show_internal_settings() {
+    load_url(Role::Internal, SETTINGS_URL);
+}
+/// Point the internal view at the command bar page.
+pub fn show_internal_command() {
+    load_url(Role::Internal, COMMAND_URL);
+}
 pub fn surf_can_back() -> bool {
     SURF_CAN_BACK.load(Ordering::Relaxed)
 }
-#[allow(dead_code)]
 pub fn surf_can_forward() -> bool {
     SURF_CAN_FWD.load(Ordering::Relaxed)
 }
-#[allow(dead_code)]
 pub fn surf_url() -> String {
     surf_nav().lock().unwrap().url.clone()
 }
@@ -456,12 +471,89 @@ fn settings_document() -> String {
     .clone()
 }
 
-/// Handle one settings query string (see docs/cyberdesk-wire-format.md).
+/// The command-bar HTML, built once (same inlining discipline as the settings
+/// page — one self-contained document, no sub-resource requests).
+fn command_document() -> String {
+    static DOC: OnceLock<String> = OnceLock::new();
+    DOC.get_or_init(|| {
+        let theme = crate::theme::Theme::load();
+        include_str!("command.html")
+            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__CSS__*/", include_str!("command.css"))
+            .replace("/*__JS__*/", include_str!("command.js"))
+    })
+    .clone()
+}
+
+/// Scheme of a URL, for the command bar's lock/warn hint.
+fn scheme_of(url: &str) -> &'static str {
+    if url.starts_with("https://") {
+        "https"
+    } else if url.starts_with("http://") {
+        "http"
+    } else {
+        "other"
+    }
+}
+
+/// Percent-encode a search query (application/x-www-form-urlencoded style).
+fn urlencode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Host-side URL-vs-search decision. A scheme, or a dot without spaces, or
+/// localhost is treated as a URL (defaulting to https://); everything else
+/// becomes a Google search.
+fn classify_input(input: &str) -> String {
+    let t = input.trim();
+    if t.is_empty() {
+        return "about:blank".to_string();
+    }
+    if t.contains("://") {
+        return t.to_string();
+    }
+    let is_localhost =
+        t == "localhost" || t.starts_with("localhost:") || t.starts_with("localhost/");
+    let looks_url = is_localhost || (t.contains('.') && !t.contains(char::is_whitespace));
+    if looks_url {
+        format!("https://{t}")
+    } else {
+        format!("https://www.google.com/search?q={}", urlencode(t))
+    }
+}
+
+/// Current surf navigation state as JSON, for the `get_nav_state` IPC reply.
+fn nav_state_json() -> String {
+    let url = surf_url();
+    let scheme = scheme_of(&url);
+    serde_json::json!({
+        "url": url,
+        "title": surf_title(),
+        "can_back": surf_can_back(),
+        "can_forward": surf_can_forward(),
+        "loading": surf_loading(),
+        "scheme": scheme,
+    })
+    .to_string()
+}
+
+/// Handle one internal-view query string (see docs/cyberdesk-wire-format.md).
 /// Returns the JSON reply on success, or `(error_code, message)` on failure.
-fn handle_settings_query(request: &str) -> Result<String, (i32, String)> {
+fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
     let v: serde_json::Value =
         serde_json::from_str(request).map_err(|e| (1, format!("bad request json: {e}")))?;
     match v.get("cmd").and_then(|c| c.as_str()).unwrap_or("") {
+        // Settings (CD-03).
         "get_settings" => Ok(crate::settings::snapshot_json()),
         "set_setting" => {
             let key = v
@@ -473,6 +565,30 @@ fn handle_settings_query(request: &str) -> Result<String, (i32, String)> {
                 .and_then(|x| x.as_bool())
                 .ok_or((2, "missing or non-boolean 'value'".to_string()))?;
             crate::settings::set(key, value).map_err(|e| (3, e))
+        }
+        // Command bar / navigation (CD-04).
+        "get_nav_state" => Ok(nav_state_json()),
+        "navigate" => {
+            let input = v
+                .get("input")
+                .and_then(|x| x.as_str())
+                .ok_or((2, "missing 'input'".to_string()))?;
+            let url = classify_input(input);
+            load_url(Role::Surf, &url);
+            request_overlay_close();
+            Ok(serde_json::json!({ "ok": true, "url": url }).to_string())
+        }
+        "go_back" => {
+            go_back(Role::Surf);
+            Ok(serde_json::json!({ "ok": true }).to_string())
+        }
+        "go_forward" => {
+            go_forward(Role::Surf);
+            Ok(serde_json::json!({ "ok": true }).to_string())
+        }
+        "reload" => {
+            reload(Role::Surf);
+            Ok(serde_json::json!({ "ok": true }).to_string())
         }
         other => Err((4, format!("unknown cmd: {other}"))),
     }
@@ -491,7 +607,7 @@ impl BrowserSideHandler for SettingsQueryHandler {
         callback: Arc<Mutex<dyn BrowserSideCallback>>,
     ) -> bool {
         let cb = callback.lock().unwrap();
-        match handle_settings_query(request) {
+        match handle_internal_query(request) {
             Ok(json) => cb.success_str(&json),
             Err((code, msg)) => cb.failure(code, &msg),
         }
@@ -533,11 +649,12 @@ wrap_browser_process_handler! {
 
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
-            // Serve cyberdesk://settings/ from the in-process factory.
-            let mut factory = SettingsSchemeFactory::new();
+            // Serve every cyberdesk:// host (settings, command) from the
+            // in-process factory (empty domain = all hosts under the scheme).
+            let mut factory = InternalSchemeFactory::new();
             register_scheme_handler_factory(
                 Some(&CefString::from(SCHEME)),
-                Some(&CefString::from(SCHEME_DOMAIN)),
+                Some(&CefString::from("")),
                 Some(&mut factory),
             );
 
@@ -825,7 +942,7 @@ wrap_request_handler! {
 }
 
 wrap_scheme_handler_factory! {
-    struct SettingsSchemeFactory;
+    struct InternalSchemeFactory;
 
     impl SchemeHandlerFactory {
         fn create(
@@ -833,11 +950,21 @@ wrap_scheme_handler_factory! {
             _browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             _scheme_name: Option<&CefString>,
-            _request: Option<&mut Request>,
+            request: Option<&mut Request>,
         ) -> Option<ResourceHandler> {
-            let bytes = Arc::new(settings_document().into_bytes());
-            Some(SettingsResourceHandler::new(
-                bytes,
+            // Route by host/path: cyberdesk://command/ -> command bar, everything
+            // else under the scheme -> settings.
+            let url = request
+                .as_ref()
+                .map(|r| CefString::from(&r.url()).to_string())
+                .unwrap_or_default();
+            let doc = if url.contains("//command") {
+                command_document()
+            } else {
+                settings_document()
+            };
+            Some(InternalResourceHandler::new(
+                Arc::new(doc.into_bytes()),
                 Arc::new(AtomicUsize::new(0)),
                 "text/html".to_string(),
             ))
@@ -846,7 +973,7 @@ wrap_scheme_handler_factory! {
 }
 
 wrap_resource_handler! {
-    struct SettingsResourceHandler {
+    struct InternalResourceHandler {
         data: Arc<Vec<u8>>,
         offset: Arc<AtomicUsize>,
         mime: String,
