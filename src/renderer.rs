@@ -722,6 +722,15 @@ struct PulseGrid {
     bake_globals_buf: wgpu::Buffer,
     bake_globals_bg: wgpu::BindGroup,
 
+    // Live layer: travelling pulses + node flares, drawn over the composite.
+    sprite_life_pipeline: wgpu::RenderPipeline,
+    life_globals_bg: wgpu::BindGroup,
+    life_buf: wgpu::Buffer,
+    life_cap: u32,
+    life_count: u32,
+    sim: Option<pulsegrid::PulseSim>,
+    last_time: f32,
+
     // Composite: read the bake, add over the base, scale by glow intensity.
     composite_pipeline: wgpu::RenderPipeline,
     composite_bgl: wgpu::BindGroupLayout,
@@ -771,6 +780,8 @@ impl PulseGrid {
             immediate_size: 0,
         });
         let sprite_bake_pipeline = sprite_pipeline(device, &sprite_shader, &sprite_layout, BAKE_FORMAT);
+        // Same shader, but targeting the surface format for the live pass.
+        let sprite_life_pipeline = sprite_pipeline(device, &sprite_shader, &sprite_layout, format);
 
         let bake_globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pulsegrid-bake-globals"),
@@ -792,6 +803,24 @@ impl PulseGrid {
             label: Some("pulsegrid-globals"),
             size: std::mem::size_of::<SpriteGlobals>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let life_globals_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pulsegrid-life-globals-bg"),
+            layout: &sprite_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: globals_buf.as_entire_binding(),
+            }],
+        });
+
+        // Live instance buffer — a generous fixed cap (pulses scale with width,
+        // but even at ultrawide the count stays a few hundred sprites).
+        let life_cap: u32 = 1536;
+        let life_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pulsegrid-life"),
+            size: (life_cap as usize * std::mem::size_of::<pulsegrid::SpriteInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -881,6 +910,13 @@ impl PulseGrid {
             sprite_bake_pipeline,
             bake_globals_buf,
             bake_globals_bg,
+            sprite_life_pipeline,
+            life_globals_bg,
+            life_buf,
+            life_cap,
+            life_count: 0,
+            sim: None,
+            last_time: 0.0,
             composite_pipeline,
             composite_bgl,
             composite_bg: None,
@@ -986,6 +1022,17 @@ impl PulseGrid {
                 ],
             }));
 
+            // Fresh life simulation for the new board (pulse count scales with
+            // width; positions come from the regenerated polylines).
+            self.sim = Some(pulsegrid::PulseSim::new(
+                &board,
+                &cfg.pulse,
+                brand,
+                w as f32,
+                scale,
+                cfg.seed,
+            ));
+
             self.bake_view = Some(bake_view);
             self.prim_buf = Some(prim_buf);
             self.width = w;
@@ -1057,6 +1104,35 @@ impl PulseGrid {
             pass.set_pipeline(&self.composite_pipeline);
             pass.set_bind_group(0, bg, &[]);
             pass.draw(0..3, 0..1);
+        }
+    }
+
+    /// Step the life simulation by the frame delta and upload the pulse/flare
+    /// sprites. Must run before the frame encoder (queues a buffer write).
+    fn update_life(&mut self, queue: &wgpu::Queue, time: f32, theme: &crate::theme::Theme) {
+        // Clamp the delta so a stall (or the first frame) can't fling pulses
+        // across the board.
+        let dt = (time - self.last_time).clamp(0.0, 0.05);
+        self.last_time = time;
+
+        self.life_count = 0;
+        if let (Some(sim), Some(board)) = (self.sim.as_mut(), self.board.as_ref()) {
+            let insts = sim.step(board, &theme.background.pulse, dt);
+            let n = insts.len().min(self.life_cap as usize);
+            if n > 0 {
+                queue.write_buffer(&self.life_buf, 0, bytemuck::cast_slice(&insts[..n]));
+            }
+            self.life_count = n as u32;
+        }
+    }
+
+    /// Draw the live pulses + flares (additive, over the composite).
+    fn draw_life<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        if self.life_count > 0 {
+            pass.set_pipeline(&self.sprite_life_pipeline);
+            pass.set_bind_group(0, &self.life_globals_bg, &[]);
+            pass.set_vertex_buffer(0, self.life_buf.slice(..));
+            pass.draw(0..6, 0..self.life_count);
         }
     }
 }
@@ -1297,7 +1373,7 @@ impl SurfaceRenderer {
         // live globals. Must run before the frame encoder (creates GPU
         // resources + queues writes).
         let pulse_bake = if do_pulse {
-            self.pulse.prepare(
+            let bake = self.pulse.prepare(
                 &self.device,
                 &self.queue,
                 self.config.width,
@@ -1306,7 +1382,10 @@ impl SurfaceRenderer {
                 &self.theme,
                 base,
                 glow_intensity,
-            )
+            );
+            // Advance the pulses/flares and upload this frame's sprites.
+            self.pulse.update_life(&self.queue, time, &self.theme);
+            bake
         } else {
             false
         };
@@ -1487,6 +1566,8 @@ impl SurfaceRenderer {
             // half-res target. Either is the Cyber/Calm template choice.
             if do_pulse {
                 self.pulse.composite(&mut pass);
+                // Life layer (pulses + flares) over the baked circuit.
+                self.pulse.draw_life(&mut pass);
             } else if do_deep {
                 if let Some(bg) = self.field.composite_bind_group.as_ref() {
                     pass.set_pipeline(&self.field.composite_pipeline);
@@ -1579,6 +1660,11 @@ pub fn capture(path: &str, width: u32, height: u32, time: f32, theme: &crate::th
             .and_then(|v| v.parse::<f32>().ok())
             .unwrap_or(theme.background.glow_default / 100.0);
         pulse.prepare(&device, &queue, width, height, 1.0, theme, base, glow);
+        // Advance the life sim to a representative animated moment (pulses have
+        // travelled, at least one node flare is mid-expansion).
+        for i in 1..=32 {
+            pulse.update_life(&queue, i as f32 * 0.05, theme);
+        }
     }
 
     let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -1639,9 +1725,10 @@ pub fn capture(path: &str, width: u32, height: u32, time: f32, theme: &crate::th
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        // Backmost: the Pulse Grid, then the ring over it.
+        // Backmost: the Pulse Grid + its life layer, then the ring over it.
         if do_pulse {
             pulse.composite(&mut pass);
+            pulse.draw_life(&mut pass);
         }
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);

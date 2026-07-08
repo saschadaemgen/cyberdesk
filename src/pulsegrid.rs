@@ -331,3 +331,192 @@ pub fn generate(width: u32, height: u32, scale: f32, cfg: &Background, brand: [f
         pads,
     }
 }
+
+// --- Life layer: travelling pulses and node flares (Stage B) -----------------
+
+/// A light pulse travelling along a trace (or a bus line).
+struct Pulse {
+    line: usize, // index into `board.traces`, or `board.buses` when `is_bus`
+    is_bus: bool,
+    dist: f32, // arc distance along the polyline (physical px)
+    speed: f32,
+}
+
+/// An expanding, fading ring at a pad.
+struct Flare {
+    center: [f32; 2],
+    age: f32, // seconds since spawn
+}
+
+/// The animated life of the board. Its randomness (respawns, flare positions)
+/// runs off a seeded PRNG, but it is intentionally NOT part of the determinism
+/// contract — only the static board layout must match across launches. Positions
+/// are produced fresh each frame from the CPU polylines.
+pub struct PulseSim {
+    pulses: Vec<Pulse>,
+    flares: Vec<Flare>,
+    rng: Rng,
+    flare_timer: f32,
+    brand: [f32; 3],
+    scale: f32,
+}
+
+impl PulseSim {
+    pub fn new(
+        board: &Board,
+        cfg: &crate::theme::PulseTokens,
+        brand: [f32; 3],
+        width: f32,
+        scale: f32,
+        seed: u64,
+    ) -> Self {
+        // The life PRNG is decorrelated from the board PRNG.
+        let mut rng = Rng::new(seed ^ 0x5DEE_CE66_D1B2_A5F3);
+        let mut pulses = Vec::new();
+
+        // Trace pulses, count scaled with width.
+        if !board.traces.is_empty() {
+            let count = ((cfg.count as f32) * (width / cfg.count_ref_width.max(1.0)))
+                .round()
+                .max(1.0) as usize;
+            for _ in 0..count {
+                let line = rng.index(board.traces.len());
+                let total = board.traces[line].total.max(1.0);
+                pulses.push(Pulse {
+                    line,
+                    is_bus: false,
+                    dist: rng.range(0.0, total),
+                    speed: rng.range(cfg.speed_min, cfg.speed_max) * scale,
+                });
+            }
+        }
+        // Bus pulses: a couple per bus, slower.
+        if !board.buses.is_empty() {
+            for line in 0..board.buses.len() {
+                let total = board.buses[line].total.max(1.0);
+                for _ in 0..2 {
+                    pulses.push(Pulse {
+                        line,
+                        is_bus: true,
+                        dist: rng.range(0.0, total),
+                        speed: rng.range(cfg.speed_min, cfg.speed_max) * scale * cfg.bus_speed_scale,
+                    });
+                }
+            }
+        }
+
+        let flare_timer = rng.range(cfg.flare_interval_min, cfg.flare_interval_max);
+
+        Self {
+            pulses,
+            flares: Vec::new(),
+            rng,
+            flare_timer,
+            brand,
+            scale,
+        }
+    }
+
+    fn line<'a>(&self, board: &'a Board, p: &Pulse) -> &'a Polyline {
+        if p.is_bus {
+            &board.buses[p.line]
+        } else {
+            &board.traces[p.line]
+        }
+    }
+
+    fn respawn(&mut self, board: &Board, cfg: &crate::theme::PulseTokens, is_bus: bool) -> (usize, f32) {
+        let n = if is_bus { board.buses.len() } else { board.traces.len() };
+        let line = self.rng.index(n);
+        let speed = self.rng.range(cfg.speed_min, cfg.speed_max)
+            * self.scale
+            * if is_bus { cfg.bus_speed_scale } else { 1.0 };
+        (line, speed)
+    }
+
+    /// Advance the simulation by `dt` seconds and emit the sprites for this
+    /// frame (pulse heads + fading trails, then flare rings).
+    pub fn step(&mut self, board: &Board, cfg: &crate::theme::PulseTokens, dt: f32) -> Vec<SpriteInstance> {
+        let aa = 0.9;
+        let head_white = mix_white(self.brand, 0.6);
+        let mut out: Vec<SpriteInstance> = Vec::with_capacity(self.pulses.len() * (cfg.trail_steps as usize + 1) + 8);
+
+        // Pulses.
+        for i in 0..self.pulses.len() {
+            let is_bus = self.pulses[i].is_bus;
+            let size_scale = if is_bus { cfg.bus_size_scale } else { 1.0 };
+            let total = self.line(board, &self.pulses[i]).total;
+
+            self.pulses[i].dist += self.pulses[i].speed * dt;
+            if self.pulses[i].dist > total {
+                let (line, speed) = self.respawn(board, cfg, is_bus);
+                self.pulses[i].line = line;
+                self.pulses[i].dist = 0.0;
+                self.pulses[i].speed = speed;
+            }
+
+            let poly = self.line(board, &self.pulses[i]);
+            let dist = self.pulses[i].dist;
+            let head_r = cfg.head_radius * self.scale * size_scale;
+            let head = poly.point_at(dist);
+            out.push(SpriteInstance::disk(
+                head,
+                head_r,
+                aa,
+                [head_white[0], head_white[1], head_white[2], cfg.head_glow],
+            ));
+
+            let spacing = cfg.trail_spacing * self.scale * size_scale;
+            for k in 1..=cfg.trail_steps {
+                let td = dist - spacing * k as f32;
+                if td < 0.0 {
+                    break;
+                }
+                let frac = 1.0 - (k as f32) / (cfg.trail_steps as f32 + 1.0);
+                let pos = poly.point_at(td);
+                out.push(SpriteInstance::disk(
+                    pos,
+                    head_r * frac,
+                    aa,
+                    [
+                        self.brand[0] * cfg.trail_glow,
+                        self.brand[1] * cfg.trail_glow,
+                        self.brand[2] * cfg.trail_glow,
+                        frac,
+                    ],
+                ));
+            }
+        }
+
+        // Node flares: spawn on a timer, age, and expire.
+        self.flare_timer -= dt;
+        if self.flare_timer <= 0.0 && !board.pads.is_empty() {
+            let idx = self.rng.index(board.pads.len());
+            self.flares.push(Flare {
+                center: board.pads[idx],
+                age: 0.0,
+            });
+            self.flare_timer = self.rng.range(cfg.flare_interval_min, cfg.flare_interval_max);
+        }
+        let life = cfg.flare_life.max(0.01);
+        let thickness = cfg.flare_thickness * self.scale;
+        for f in &mut self.flares {
+            f.age += dt;
+        }
+        self.flares.retain(|f| f.age < life);
+        for f in &self.flares {
+            let t = f.age / life; // 0 -> 1
+            let radius = cfg.flare_max_radius * self.scale * t;
+            let alpha = cfg.flare_glow * (1.0 - t);
+            out.push(SpriteInstance::ring(
+                f.center,
+                radius,
+                thickness,
+                aa,
+                [self.brand[0], self.brand[1], self.brand[2], alpha],
+            ));
+        }
+
+        out
+    }
+}
