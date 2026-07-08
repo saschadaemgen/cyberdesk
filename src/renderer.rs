@@ -635,17 +635,17 @@ struct SpriteGlobals {
     zones: [[f32; 4]; 4], // up to 4 content rects (x, y, w, h) in physical px
 }
 
-/// Micro-lattice uniforms (mirrors `Lattice` in `pulsegrid_lattice.wgsl`).
+/// Micro-lattice uniforms (mirrors `Lattice` in `pulsegrid_lattice.wgsl`). Since
+/// CD-06 it carries three depth weaves — each `layers[i]` is `(cell, dot_radius,
+/// glow, _)` for far / mid / near.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct LatticeUniforms {
     brand: [f32; 4],
     resolution: [f32; 2],
-    cell: f32,
-    dot_radius: f32,
-    glow: f32,
     aa: f32,
-    _pad: [f32; 2],
+    _pad0: f32,
+    layers: [[f32; 4]; 3],
 }
 
 /// A fullscreen-triangle pipeline with an explicit blend state (the shared
@@ -831,9 +831,10 @@ impl PulseGrid {
             }],
         });
 
-        // Live instance buffer — a generous fixed cap (pulses scale with width,
-        // but even at ultrawide the count stays a few hundred sprites).
-        let life_cap: u32 = 1536;
+        // Live instance buffer — a generous fixed cap. Pulses now span three
+        // depth layers (each head + trail), but even at ultrawide the total
+        // stays well under this.
+        let life_cap: u32 = 4096;
         let life_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pulsegrid-life"),
             size: (life_cap as usize * std::mem::size_of::<pulsegrid::SpriteInstance>()) as u64,
@@ -1005,15 +1006,23 @@ impl PulseGrid {
                 queue.write_buffer(&prim_buf, 0, bytemuck::cast_slice(&board.prims));
             }
 
-            // Lattice + bake globals (static until the next regeneration).
+            // Lattice + bake globals (static until the next regeneration). Three
+            // depth weaves: near (front, brightest) plus dimmer, finer mid/far.
+            let near_cell = (cfg.lattice_cell * scale).max(4.0);
+            let mid_cell = (cfg.lattice_cell * scale * cfg.mid_cell_scale).max(3.0);
+            let far_cell = (cfg.lattice_cell * scale * cfg.far_cell_scale).max(3.0);
+            let dot = cfg.lattice_dot * scale;
+            let g = cfg.lattice_glow;
             let lattice = LatticeUniforms {
                 brand: [brand[0], brand[1], brand[2], 1.0],
                 resolution: [w as f32, h as f32],
-                cell: (cfg.lattice_cell * scale).max(4.0),
-                dot_radius: cfg.lattice_dot * scale,
-                glow: cfg.lattice_glow,
                 aa: 0.9,
-                _pad: [0.0, 0.0],
+                _pad0: 0.0,
+                layers: [
+                    [far_cell, dot, g * cfg.far_bright, 0.0],
+                    [mid_cell, dot, g * cfg.mid_bright, 0.0],
+                    [near_cell, dot, g, 0.0],
+                ],
             };
             queue.write_buffer(&self.lattice_buf, 0, bytemuck::bytes_of(&lattice));
 

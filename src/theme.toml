@@ -45,41 +45,74 @@ sweep_period_min    = 45.0  # s, rare scan sweep window
 sweep_period_max    = 90.0
 sweep_amplitude     = 0.06
 
-# Pulse Grid — background v2 (CD-05, D-0012). A fine circuit-board weave with
-# light pulses travelling routed traces. Unlike the Deep Field, this layer is
-# ALLOWED to glow (the amplitude cap is superseded); content readability is
-# protected by the zone shadow instead of global darkness. All sizes are in
-# logical pixels (scaled by the DPI factor at bake time). Colors come from the
-# brand family (colors.brand), so the one-color-world rule still holds.
+# Pulse Grid — background v2 (CD-05, D-0012), depth overhaul (CD-06, D-0013). A
+# fine circuit-board weave with light pulses travelling routed traces. Unlike the
+# Deep Field, this layer is ALLOWED to glow (the amplitude cap is superseded);
+# content readability is protected by the zone shadow instead of global darkness.
+# All sizes are in logical pixels (scaled by the DPI factor at bake time). Colors
+# come from the brand family (colors.brand), so the one-color-world rule holds.
+#
+# The board is built as THREE depth layers baked into one texture (far → mid →
+# near). The tokens below are the NEAR (crisp, bright, front) layer; mid and far
+# derive from them via the `mid_*`/`far_*` scales. The two bus lines live on the
+# near layer. Per-layer seeds derive deterministically from `seed`, so all three
+# layers stay identical across launches.
 [background]
 kind            = "pulse_grid"  # "pulse_grid" (Cyber default) | "deep_field" (Calm)
 seed            = 2654435769    # board determinism: same seed -> same layout
-lattice_cell    = 21.0          # micro-lattice spacing (logical px)
+lattice_cell    = 21.0          # near micro-lattice spacing (logical px)
 lattice_dot     = 0.85          # lattice dot radius (px)
-lattice_glow    = 0.05          # lattice dot brightness (additive)
-trace_density   = 15.0          # traces per megapixel (~30 at 1080p, area-scaled)
+lattice_glow    = 0.05          # near lattice dot brightness (additive)
+trace_density   = 20.0          # NEAR traces per megapixel (area-scaled)
 trace_seg_min   = 3             # segments per trace (min)
 trace_seg_max   = 7             # segments per trace (max)
 trace_len_min   = 2             # segment length in lattice cells (min)
 trace_len_max   = 7             # segment length in lattice cells (max)
-trace_width     = 1.0           # trace line width (logical px)
-trace_glow      = 0.42          # trace brightness (additive)
+trace_width     = 1.0           # near trace line width (logical px)
+trace_glow      = 0.42          # near trace brightness (additive)
 diagonal_chance = 0.16          # probability a turn is 45° rather than 90°
+long_run_chance = 0.14          # probability a segment is a long straight run
 pad_radius      = 2.6           # hollow ring (pad) radius at trace endpoints
 pad_thickness   = 0.85          # pad ring half-thickness
 pad_glow        = 0.55          # pad brightness
 solder_radius   = 1.35          # solder dot radius at trace bends
 solder_glow     = 0.5           # solder dot brightness
-bus_count       = 2             # full-width horizontal bus lines
+bus_count       = 2             # full-width horizontal bus lines (near layer)
 bus_width       = 2.2           # bus line width (~2x trace, logical px)
 bus_glow        = 0.62          # bus brightness (slightly brighter)
-zone_shadow     = 0.35          # background multiplier under content (Stage C)
+zone_shadow     = 0.35          # background multiplier under content
 zone_feather    = 40.0          # soft shadow edge width (px)
 glow_default    = 115.0         # default glow-intensity slider value (%)
 
-# Life layer — travelling pulses and node flares (CD-05 Stage B).
+# Depth layers (CD-06). Mid and far derive from the near values above; near is
+# the crisp bright front, mid the middle, far the finest/faintest recede.
+mid_cell_scale  = 0.68  # mid lattice/step cell vs near
+far_cell_scale  = 0.5   # far lattice/step cell vs near (finest weave)
+mid_count_scale = 2.0   # mid trace count vs near
+far_count_scale = 4.0   # far trace count vs near (densest)
+mid_width_scale = 0.72  # mid line width vs near
+far_width_scale = 0.5   # far line width vs near (thinnest)
+mid_bright      = 0.6   # mid brightness vs near
+far_bright      = 0.36  # far brightness vs near (faintest)
+
+# Component vocabulary (CD-06) — breaks the uniform random-walk predictability.
+# Counts are per megapixel; sizes are in lattice cells or logical px.
+chip_density      = 3.0  # chip footprints per megapixel (near + mid layers)
+chip_min_cells    = 3    # chip body extent in lattice cells (min)
+chip_max_cells    = 7    # chip body extent in lattice cells (max)
+chip_pin_glow     = 0.5  # chip pin-pad brightness
+chip_four_chance  = 0.4  # chance a chip has pin rows on all 4 edges (else 2)
+hub_density       = 1.6  # junction hubs per megapixel per layer
+hub_attach_chance = 0.5  # chance a trace starts at a hub (routes traces to it)
+via_density       = 6.0  # via clusters per megapixel per layer
+via_min           = 3    # filled dots per via cluster (min)
+via_max           = 8    # filled dots per via cluster (max)
+
+# Life layer — travelling pulses and node flares (CD-05 Stage B), across all
+# three depth layers (CD-06): near bright/fast, mid fewer/dimmer, far sparse/
+# slow/faint. Flares stay on the near layer.
 [background.pulse]
-count              = 16     # base pulse count on traces (scaled with width)
+count              = 16     # base NEAR pulse count on traces (scaled with width)
 count_ref_width    = 1920.0 # reference width the base count is tuned for
 speed_min          = 90.0   # pulse travel speed along a trace (px/s)
 speed_max          = 210.0
@@ -90,6 +123,14 @@ head_glow          = 0.95   # pulse head brightness
 trail_glow         = 0.75   # trail brightness (falls off along the trail)
 bus_speed_scale    = 0.6    # bus pulses travel slower
 bus_size_scale     = 1.5    # bus pulses are larger
+mid_count_scale    = 0.5    # mid pulse count vs near base
+far_count_scale    = 0.28   # far pulse count vs near base (sparse)
+mid_bright         = 0.6    # mid pulse brightness vs near
+far_bright         = 0.34   # far pulse brightness vs near (faint)
+mid_speed_scale    = 0.8    # mid pulse speed vs near
+far_speed_scale    = 0.55   # far pulse speed vs near (slow, depth in motion)
+mid_size_scale     = 0.85   # mid pulse head size vs near
+far_size_scale     = 0.7    # far pulse head size vs near
 flare_interval_min = 0.7    # seconds between node flares (min)
 flare_interval_max = 1.0
 flare_max_radius   = 22.0   # flare ring expands to this radius (logical px)
