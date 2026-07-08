@@ -8,7 +8,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{CursorIcon, Fullscreen, Window, WindowId};
 
 use crate::browser::{self, Role};
@@ -64,11 +64,14 @@ pub fn run(windowed: bool) {
         scale: 1.0,
         cursor_phys: PhysicalPosition::new(0.0, 0.0),
         key_mods: 0,
+        mods: ModifiersState::empty(),
         button_flags: 0,
         applied_cursor: CursorIcon::Default,
         settings_open: false,
         gear_hover: 0.0,
         gear_hover_target: 0.0,
+        loading_intensity: 0.0,
+        applied_title: String::new(),
         isolation_tested: false,
     };
     event_loop.run_app(&mut app).expect("event loop error");
@@ -86,11 +89,14 @@ struct Shell {
     scale: f32,
     cursor_phys: PhysicalPosition<f64>,
     key_mods: u32,
+    mods: ModifiersState,
     button_flags: u32,
     applied_cursor: CursorIcon,
     settings_open: bool,
     gear_hover: f32,
     gear_hover_target: f32,
+    loading_intensity: f32,
+    applied_title: String,
     isolation_tested: bool,
 }
 
@@ -251,6 +257,7 @@ impl ApplicationHandler for Shell {
 
             WindowEvent::ModifiersChanged(mods) => {
                 let s = mods.state();
+                self.mods = s;
                 self.key_mods = browser::modifier_flags(
                     s.shift_key(),
                     s.control_key(),
@@ -275,6 +282,20 @@ impl ApplicationHandler for Shell {
                 if button == MouseButton::Left && down && self.gear_hit() {
                     self.toggle_settings();
                     return;
+                }
+                // Mouse buttons 4/5 are Back/Forward on the surf view.
+                if down && self.active_role() == Role::Surf {
+                    match button {
+                        MouseButton::Back => {
+                            browser::go_back(Role::Surf);
+                            return;
+                        }
+                        MouseButton::Forward => {
+                            browser::go_forward(Role::Surf);
+                            return;
+                        }
+                        _ => {}
+                    }
                 }
                 let flag = match button {
                     MouseButton::Left => browser::EVENTFLAG_LEFT_MOUSE_BUTTON,
@@ -314,6 +335,36 @@ impl ApplicationHandler for Shell {
                     }
                     return;
                 }
+                // Surf navigation shortcuts (only while the surf view is active).
+                if event.state == ElementState::Pressed && self.active_role() == Role::Surf {
+                    if let PhysicalKey::Code(code) = event.physical_key {
+                        let (ctrl, alt, shift) =
+                            (self.mods.control_key(), self.mods.alt_key(), self.mods.shift_key());
+                        match code {
+                            KeyCode::F5 => {
+                                browser::reload(Role::Surf);
+                                return;
+                            }
+                            KeyCode::KeyR if ctrl => {
+                                if shift {
+                                    browser::reload_ignore_cache(Role::Surf);
+                                } else {
+                                    browser::reload(Role::Surf);
+                                }
+                                return;
+                            }
+                            KeyCode::ArrowLeft if alt => {
+                                browser::go_back(Role::Surf);
+                                return;
+                            }
+                            KeyCode::ArrowRight if alt => {
+                                browser::go_forward(Role::Surf);
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 let role = self.active_role();
                 match event.state {
                     ElementState::Pressed => {
@@ -330,7 +381,8 @@ impl ApplicationHandler for Shell {
 
             WindowEvent::RedrawRequested => {
                 let time = self.start.elapsed().as_secs_f32();
-                let (scale, open, hover) = (self.scale, self.settings_open, self.gear_hover);
+                let (scale, open, hover, load) =
+                    (self.scale, self.settings_open, self.gear_hover, self.loading_intensity);
                 if let Some(r) = self.renderer.as_mut() {
                     let (w, h) = r.size();
                     r.render(
@@ -342,6 +394,7 @@ impl ApplicationHandler for Shell {
                         settings::deep_field(),
                         open,
                         hover,
+                        load,
                     );
                 }
             }
@@ -364,6 +417,26 @@ impl ApplicationHandler for Shell {
 
         // Ease the gear hover glow toward its target.
         self.gear_hover += (self.gear_hover_target - self.gear_hover) * 0.25;
+
+        // Ease the loading line toward on (loading) / off (done).
+        let load_target = if browser::surf_loading() { 1.0 } else { 0.0 };
+        self.loading_intensity += (load_target - self.loading_intensity) * 0.15;
+
+        // In windowed dev mode, reflect the page title in the OS window title.
+        if self.windowed {
+            let title = browser::surf_title();
+            if title != self.applied_title {
+                if let Some(window) = self.window.as_ref() {
+                    let full = if title.is_empty() {
+                        "CARVILON CyberDesk".to_string()
+                    } else {
+                        format!("{title} — CARVILON CyberDesk")
+                    };
+                    window.set_title(&full);
+                    self.applied_title = title;
+                }
+            }
+        }
 
         // Apply a pending cursor request from the active view.
         if let Some(icon) = browser::take_cursor(self.active_role()) {

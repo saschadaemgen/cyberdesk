@@ -74,6 +74,19 @@ struct GearUniforms {
     brand: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct LoadingUniforms {
+    resolution: [f32; 2],
+    _pad0: [f32; 2], // align the following vec4 to 16 bytes (std140)
+    zone: [f32; 4],
+    time: f32,
+    intensity: f32,
+    thickness: f32,
+    _pad: f32,
+    brand: [f32; 4],
+}
+
 fn ring_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -620,6 +633,56 @@ impl Gear {
     }
 }
 
+/// The surf-zone loading line (`loading.wgsl`), a single-uniform OVER overlay.
+struct Loading {
+    pipeline: wgpu::RenderPipeline,
+    uniform_buf: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+impl Loading {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("loading-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("loading.wgsl").into()),
+        });
+        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("loading-uniforms"),
+            size: std::mem::size_of::<LoadingUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("loading-bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("loading-bg"),
+            layout: &bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("loading-pl"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let pipeline = fullscreen_pipeline(device, &shader, &layout, format, true);
+        Self { pipeline, uniform_buf, bind_group }
+    }
+}
+
 /// Renders the shell + surf-zone page to a winit window surface.
 pub struct SurfaceRenderer {
     surface: wgpu::Surface<'static>,
@@ -632,6 +695,7 @@ pub struct SurfaceRenderer {
     page: PagePass,
     panel: PagePass,
     gear: Gear,
+    loading: Loading,
     field: DeepField,
     theme: crate::theme::Theme,
 }
@@ -675,6 +739,7 @@ impl SurfaceRenderer {
         let page = PagePass::new(&device, SURFACE_FORMAT);
         let panel = PagePass::new(&device, SURFACE_FORMAT);
         let gear = Gear::new(&device, SURFACE_FORMAT);
+        let loading = Loading::new(&device, SURFACE_FORMAT);
         let field = DeepField::new(&device, SURFACE_FORMAT);
 
         Self {
@@ -688,6 +753,7 @@ impl SurfaceRenderer {
             page,
             panel,
             gear,
+            loading,
             field,
             theme,
         }
@@ -730,6 +796,7 @@ impl SurfaceRenderer {
         deep_field: bool,
         settings_open: bool,
         gear_hover: f32,
+        loading_intensity: f32,
     ) {
         let (win_w, win_h) = (self.config.width as f32, self.config.height as f32);
         let corner_radius = self.theme.page.corner_radius;
@@ -796,6 +863,20 @@ impl SurfaceRenderer {
         };
         self.queue
             .write_buffer(&self.gear.uniform_buf, 0, bytemuck::bytes_of(&gear_u));
+
+        // Loading line: a thin bar along the top edge of the surf zone.
+        let loading_u = LoadingUniforms {
+            resolution: [win_w, win_h],
+            _pad0: [0.0, 0.0],
+            zone: [zone.0, zone.1, zone.2, zone.3],
+            time,
+            intensity: loading_intensity.clamp(0.0, 1.0),
+            thickness: 2.5,
+            _pad: 0.0,
+            brand: [brand[0], brand[1], brand[2], 1.0],
+        };
+        self.queue
+            .write_buffer(&self.loading.uniform_buf, 0, bytemuck::bytes_of(&loading_u));
 
         // Deep Field: repaint the half-res target at ~30 fps (every other frame,
         // or right after a resize).
@@ -904,6 +985,13 @@ impl SurfaceRenderer {
                 pass.set_bind_group(0, &self.page.uniform_bind_group, &[]);
                 pass.set_bind_group(1, tex_bind_group, &[]);
                 pass.draw(0..6, 0..1);
+            }
+
+            // Loading line along the top edge of the surf zone, while loading.
+            if loading_intensity > 0.004 {
+                pass.set_pipeline(&self.loading.pipeline);
+                pass.set_bind_group(0, &self.loading.bind_group, &[]);
+                pass.draw(0..3, 0..1);
             }
 
             // Internal settings card, over the page, when open.

@@ -120,6 +120,43 @@ static CONTEXT_READY: AtomicBool = AtomicBool::new(false);
 /// `on_context_initialized`; read from the client/request/life-span handlers.
 static BROWSER_ROUTER: OnceLock<Arc<BrowserSideRouter>> = OnceLock::new();
 
+// --- Surf navigation state (CEF UI thread -> main thread) -------------------
+// The LoadHandler / DisplayHandler callbacks fire on the CEF UI thread; the main
+// thread reads these for the loading line, the window title, and get_nav_state.
+static SURF_LOADING: AtomicBool = AtomicBool::new(false);
+static SURF_CAN_BACK: AtomicBool = AtomicBool::new(false);
+static SURF_CAN_FWD: AtomicBool = AtomicBool::new(false);
+
+#[derive(Default)]
+struct SurfNav {
+    url: String,
+    title: String,
+}
+fn surf_nav() -> &'static Mutex<SurfNav> {
+    static N: OnceLock<Mutex<SurfNav>> = OnceLock::new();
+    N.get_or_init(|| Mutex::new(SurfNav::default()))
+}
+
+pub fn surf_loading() -> bool {
+    SURF_LOADING.load(Ordering::Relaxed)
+}
+pub fn surf_title() -> String {
+    surf_nav().lock().unwrap().title.clone()
+}
+// Consumed by the command bar's `get_nav_state` IPC in Stage B.
+#[allow(dead_code)]
+pub fn surf_can_back() -> bool {
+    SURF_CAN_BACK.load(Ordering::Relaxed)
+}
+#[allow(dead_code)]
+pub fn surf_can_forward() -> bool {
+    SURF_CAN_FWD.load(Ordering::Relaxed)
+}
+#[allow(dead_code)]
+pub fn surf_url() -> String {
+    surf_nav().lock().unwrap().url.clone()
+}
+
 // --- Process / lifecycle ----------------------------------------------------
 
 /// Must be the first thing `main` does. Binds the CEF API version and runs the
@@ -259,6 +296,32 @@ fn with_host(role: Role, f: impl FnOnce(BrowserHost)) {
             f(host);
         }
     }
+}
+
+fn with_browser(role: Role, f: impl FnOnce(&Browser)) {
+    let browser = view(role).browser.lock().unwrap().clone();
+    if let Some(browser) = browser {
+        f(&browser);
+    }
+}
+
+// Navigation controls (surf view). No-op until the browser exists.
+pub fn go_back(role: Role) {
+    with_browser(role, |b| b.go_back());
+}
+pub fn go_forward(role: Role) {
+    with_browser(role, |b| b.go_forward());
+}
+pub fn reload(role: Role) {
+    with_browser(role, |b| b.reload());
+}
+pub fn reload_ignore_cache(role: Role) {
+    with_browser(role, |b| b.reload_ignore_cache());
+}
+// Wired to the command bar's reload/stop glyph in Stage B.
+#[allow(dead_code)]
+pub fn stop_load(role: Role) {
+    with_browser(role, |b| b.stop_load());
 }
 
 pub fn notify_resized(role: Role) {
@@ -501,6 +564,13 @@ wrap_client! {
         fn display_handler(&self) -> Option<DisplayHandler> {
             Some(CyberDisplayHandler::new(self.role))
         }
+        fn load_handler(&self) -> Option<LoadHandler> {
+            // Only the surf view drives the loading line / nav state.
+            match self.role {
+                Role::Surf => Some(CyberLoadHandler::new(self.role)),
+                Role::Internal => None,
+            }
+        }
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
             Some(CyberLifeSpanHandler::new(self.role))
         }
@@ -614,6 +684,45 @@ wrap_display_handler! {
             *view(self.role).cursor.lock().unwrap() = Some(map_cursor(type_));
             1
         }
+
+        fn on_address_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            url: Option<&CefString>,
+        ) {
+            if self.role == Role::Surf {
+                surf_nav().lock().unwrap().url = url.map(|u| u.to_string()).unwrap_or_default();
+            }
+        }
+
+        fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
+            if self.role == Role::Surf {
+                surf_nav().lock().unwrap().title = title.map(|t| t.to_string()).unwrap_or_default();
+            }
+        }
+    }
+}
+
+wrap_load_handler! {
+    struct CyberLoadHandler {
+        role: Role,
+    }
+
+    impl LoadHandler {
+        fn on_loading_state_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            is_loading: c_int,
+            can_go_back: c_int,
+            can_go_forward: c_int,
+        ) {
+            if self.role == Role::Surf {
+                SURF_LOADING.store(is_loading != 0, Ordering::Relaxed);
+                SURF_CAN_BACK.store(can_go_back != 0, Ordering::Relaxed);
+                SURF_CAN_FWD.store(can_go_forward != 0, Ordering::Relaxed);
+            }
+        }
     }
 }
 
@@ -623,16 +732,19 @@ wrap_life_span_handler! {
     }
 
     impl LifeSpanHandler {
-        // Suppress popups entirely (no new windows in either view).
+        // Popup policy (D-0011): a genuine user gesture (a click on a
+        // target=_blank link) navigates THIS view to the target and suppresses
+        // the popup window; popups without a gesture (ad/script `window.open`)
+        // are suppressed outright. Either way, no separate window is ever opened.
         fn on_before_popup(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             _popup_id: c_int,
-            _target_url: Option<&CefString>,
+            target_url: Option<&CefString>,
             _target_frame_name: Option<&CefString>,
             _target_disposition: WindowOpenDisposition,
-            _user_gesture: c_int,
+            user_gesture: c_int,
             _popup_features: Option<&PopupFeatures>,
             _window_info: Option<&mut WindowInfo>,
             _client: Option<&mut Option<Client>>,
@@ -640,6 +752,13 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut c_int>,
         ) -> c_int {
+            if self.role == Role::Surf && user_gesture != 0 {
+                if let (Some(browser), Some(url)) = (browser, target_url) {
+                    if let Some(frame) = browser.main_frame() {
+                        frame.load_url(Some(url));
+                    }
+                }
+            }
             1
         }
 
