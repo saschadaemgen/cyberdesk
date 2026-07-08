@@ -562,9 +562,21 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
                 .ok_or((2, "missing 'key'".to_string()))?;
             let value = v
                 .get("value")
-                .and_then(|x| x.as_bool())
-                .ok_or((2, "missing or non-boolean 'value'".to_string()))?;
-            crate::settings::set(key, value).map_err(|e| (3, e))
+                .ok_or((2, "missing 'value'".to_string()))?;
+            // glow_intensity carries a number (percent); the toggles carry bools.
+            if key == crate::settings::KEY_GLOW_INTENSITY {
+                let n = value
+                    .as_i64()
+                    .or_else(|| value.as_f64().map(|f| f.round() as i64))
+                    .or_else(|| value.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+                    .ok_or((2, "'value' must be numeric for glow_intensity".to_string()))?;
+                crate::settings::set_glow_intensity(n).map_err(|e| (3, e))
+            } else {
+                let b = value
+                    .as_bool()
+                    .ok_or((2, "'value' must be boolean".to_string()))?;
+                crate::settings::set(key, b).map_err(|e| (3, e))
+            }
         }
         // Command bar / navigation (CD-04).
         "get_nav_state" => Ok(nav_state_json()),

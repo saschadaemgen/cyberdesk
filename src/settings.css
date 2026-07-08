@@ -92,5 +92,47 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
   background: var(--brand);
 }
 
+/* Slider control (glow intensity) */
+.slider { display: flex; align-items: center; gap: 14px; flex: none; }
+
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 172px;
+  height: 4px;
+  border-radius: 999px;
+  /* Filled portion (brand) up to the thumb; the rest is the dim track. The
+     split point is set live from JS as a --fill percentage. */
+  background: linear-gradient(
+    to right,
+    var(--brand) 0%,
+    var(--brand) var(--fill, 50%),
+    color-mix(in srgb, var(--panel-border) 70%, transparent) var(--fill, 50%),
+    color-mix(in srgb, var(--panel-border) 70%, transparent) 100%
+  );
+  cursor: pointer;
+  outline: none;
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--brand) 60%, transparent);
+  border: none;
+  cursor: pointer;
+}
+.range:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.val {
+  font-size: 13px;
+  color: var(--text-dim);
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .status { font-size: 12px; color: var(--text-dim); min-height: 15px; }
 .status.error { color: #E0736B; }

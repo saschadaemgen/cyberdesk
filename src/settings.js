@@ -62,13 +62,34 @@
     })(switches[i]);
   }
 
+  // Glow-intensity slider: applied live on every input, persisted host-side.
+  var glow = document.getElementById("glow");
+  var glowVal = document.getElementById("glow-val");
+
+  function paintGlow(percent) {
+    var min = parseInt(glow.min, 10);
+    var max = parseInt(glow.max, 10);
+    glow.value = percent;
+    glowVal.textContent = percent + "%";
+    var fill = ((percent - min) / (max - min)) * 100;
+    glow.style.setProperty("--fill", fill + "%");
+  }
+
+  glow.addEventListener("input", function () {
+    var percent = parseInt(glow.value, 10);
+    paintGlow(percent);
+    query({ cmd: "set_setting", key: "glow_intensity", value: percent })
+      .catch(function (err) { setStatus(String(err), true); });
+  });
+
   // Load current values on startup.
   query({ cmd: "get_settings" })
     .then(function (response) {
       var s = JSON.parse(response);
       paint("feather_edges", s.feather_edges);
-      paint("deep_field", s.deep_field);
+      paint("animated_background", s.animated_background);
       paint("stay_foreground", s.stay_foreground);
+      paintGlow(s.glow_intensity);
     })
     .catch(function (err) { setStatus(String(err), true); });
 })();

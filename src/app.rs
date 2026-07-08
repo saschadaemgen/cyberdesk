@@ -486,7 +486,6 @@ impl ApplicationHandler for Shell {
                     let (w, h) = r.size();
                     self.internal_rect(w, h)
                 });
-                let glow = self.theme.background.glow_default / 100.0;
                 if let (Some(r), Some(internal)) = (self.renderer.as_mut(), internal) {
                     let (w, h) = r.size();
                     r.render(
@@ -495,8 +494,8 @@ impl ApplicationHandler for Shell {
                         internal,
                         gear_geom(w, scale),
                         settings::feather_edges(),
-                        settings::deep_field(),
-                        glow,
+                        settings::animated_background(),
+                        settings::glow_intensity(),
                         scale,
                         open,
                         hover,

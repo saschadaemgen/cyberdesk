@@ -69,8 +69,16 @@ impl Store {
             )
             .ok();
         self.set_if_absent("feather_edges", "true");
-        self.set_if_absent("deep_field", "true");
+        // CD-05 (D-0012) renamed the background toggle `deep_field` ->
+        // `animated_background`. Carry the old on/off value across if present,
+        // so a user who had disabled the background keeps it disabled.
+        if self.get("animated_background").is_none() {
+            let prev = self.get("deep_field");
+            self.set("animated_background", prev.as_deref().unwrap_or("true"));
+        }
         self.set_if_absent("stay_foreground", "true");
+        // glow_intensity is seeded lazily from the background.glow_default token
+        // in settings::init (kept out of the store until the user changes it).
     }
 
     fn set_if_absent(&self, key: &str, value: &str) {

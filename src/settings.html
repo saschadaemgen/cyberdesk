@@ -23,20 +23,32 @@
     <section class="rows">
       <div class="row">
         <div class="label">
-          <span class="name">Feathered edges</span>
-          <span class="hint">Soft alpha falloff at the surf-zone edge</span>
+          <span class="name">Glow intensity</span>
+          <span class="hint">Brightness of the animated background</span>
         </div>
-        <div class="switch" data-key="feather_edges" role="switch" tabindex="0" aria-checked="false">
+        <div class="slider">
+          <input id="glow" class="range" type="range" min="50" max="220" step="1"
+                 value="115" aria-label="Glow intensity">
+          <span class="val" id="glow-val">115%</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="label">
+          <span class="name">Animated background</span>
+          <span class="hint">Living circuit background behind the shell</span>
+        </div>
+        <div class="switch" data-key="animated_background" role="switch" tabindex="0" aria-checked="false">
           <span class="knob"></span>
         </div>
       </div>
 
       <div class="row">
         <div class="label">
-          <span class="name">Deep Field background</span>
-          <span class="hint">Living procedural background behind the shell</span>
+          <span class="name">Feathered edges</span>
+          <span class="hint">Soft alpha falloff at the surf-zone edge</span>
         </div>
-        <div class="switch" data-key="deep_field" role="switch" tabindex="0" aria-checked="false">
+        <div class="switch" data-key="feather_edges" role="switch" tabindex="0" aria-checked="false">
           <span class="knob"></span>
         </div>
       </div>
