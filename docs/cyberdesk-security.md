@@ -1,34 +1,34 @@
-# CyberDesk - Sicherheit
+# CyberDesk - Security
 
-Projekt CARVILON CyberDesk · lebendes Dokument · Stand: 08.07.2026
+Project CARVILON CyberDesk - living document - Status: 2026-07-08
 
-## Eisernes Gesetz
+## Iron law
 
-Die Surf-Zone (CEF) hat by design keinen Pfad zu CARVILON-Funktionen (Türen, Kameras, Zeitstempel). Es existiert keine IPC-Route vom Web-Renderer zu Steuerkommandos. Trennung durch Architektur, nicht durch Filter.
+The surf zone (CEF) has no path to CARVILON functions (doors, cameras, time clock) by design. No IPC route exists from the web renderer to control commands. Separation by architecture, not by filter.
 
-## Prozessgrenzen und IPC
+## Process boundaries and IPC
 
-- Rust-Host und CEF-Renderer sind durch eine harte Prozessgrenze getrennt; die Chromium-Sandbox bleibt aktiv.
-- IPC ausschließlich über eine explizite Allowlist benannter Kommandos (Schema in cyberdesk-wire-format.md, entsteht ab CD-02).
-- Keine generischen Eval- oder Passthrough-Kanäle.
+- Rust host and CEF renderers are separated by a hard process boundary; the Chromium sandbox stays active.
+- IPC exclusively through an explicit allowlist of named commands (schema in cyberdesk-wire-format.md, emerging from CD-02).
+- No generic eval or passthrough channels.
 
-## Schlüssel und Autorisierung (geplant, Season 6)
+## Keys and authorization (planned, Season 6)
 
-- Start-Autorisierung: Passphrase oder Token → Argon2id → Schlüssel → verschlüsselter App-State wird entschlüsselt → erst dann rendert die Oberfläche.
-- Zeroize für sämtliches Schlüsselmaterial. Keine Schlüssel vor der Authentifizierung im Speicher. Kein Schlüsselmaterial in der WebView, niemals.
+- Start authorization: passphrase or token -> Argon2id -> key -> encrypted app state is decrypted -> only then does the UI render.
+- Zeroize for all key material. No keys in memory before authentication. No key material in the WebView, ever.
 
 ## NetGuard
 
-Deny-by-default pro Zone, Allowlist der Ziele, Certificate-Pinning (MITM-Erkennung), eigener DNS-Resolver (kein Leak am System-DNS vorbei), Kill-Switch pro Verbindung, Volumen- und Verbindungszähler. Anomalie-Signale: nie gesehenes Ziel, Beaconing-Takt, Volumensprung außerhalb der Baseline, Zertifikatswechsel am gepinnten Ziel, DNS außerhalb der Allowlist. Regelbasiert und erklärbar zuerst, Statistik später. Security-Alerts laufen als Ereignisse durch die Prioritäts-Engine - dieselbe Maschinerie wie Klingeln.
+Deny-by-default per zone, destination allowlist, certificate pinning (MITM detection), own DNS resolver (no leak past the system DNS), kill switch per connection, volume and connection counters. Anomaly signals: never-seen destination, beaconing cadence, volume spike outside the baseline, certificate change on a pinned destination, DNS outside the allowlist. Rule-based and explainable first, statistics later. Security alerts run as events through the Priority Engine - the same machinery as the doorbell.
 
-## Supply Chain
+## Supply chain
 
-Gepinnte Dependencies, cargo-audit und cargo-deny im Workflow, keine GPL-Verlinkung (D-0005), CEF-Version exakt gepinnt, große Binaries nie im Repo (Fetch-Skript).
+Pinned dependencies, cargo-audit and cargo-deny in the workflow, no GPL linking (D-0005), CEF version pinned exactly, large binaries never in the repo (fetch script).
 
 ## CRA (Cyber Resilience Act)
 
-Meldepflichten ab September 2026, Vollcompliance Dezember 2027. Von Anfang an eingebaut statt nachgerüstet: Update-Fähigkeit (signierte Updates geplant), SBOM-Erzeugung, Vorfalls-Protokollierung (später Hash-Chain), dokumentierter Schwachstellen-Meldeweg.
+Reporting obligations from September 2026, full compliance December 2027. Built in from the start instead of retrofitted: update capability (signed updates planned), SBOM generation, incident logging (hash chain later), documented vulnerability disclosure path.
 
-## Repo-Hygiene
+## Repo hygiene
 
-Pre-Push-Grep gegen echte IPs, Hostnamen und Secrets vor jedem Push. Testdaten ausschließlich mit Platzhaltern (Dokumentations-IPs wie 203.0.113.x). Repo bleibt privat.
+Pre-push grep against real IPs, hostnames, and secrets before every push. Test data uses placeholders only (documentation IPs such as 203.0.113.x). Repo stays private.

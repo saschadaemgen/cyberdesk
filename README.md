@@ -1,44 +1,44 @@
 # CARVILON CyberDesk
 
-CyberDesk ist das Desktop-Frontend der CARVILON-Plattform – eine einzige
-Vollbild-Anwendung im Stil eines seriösen „Cyber-Betriebssystems". Ein
-speichersicherer Rust-Host rendert die Shell (festes Zonen-Layout, eine
-Farbwelt, animationslastig) und bettet über das Chromium Embedded Framework
-(CEF) Web-Inhalte als native Views ein. In dieser Season liefert CyberDesk das
-startbare Fundament plus den Machbarkeitsbeweis, dass CEF im Rust-Host läuft.
+CyberDesk is the desktop frontend of the CARVILON platform — a single
+fullscreen application in the style of a serious "cyber operating system". A
+memory-safe Rust host renders the shell (fixed zone layout, one color world,
+heavily animated) and embeds web content through the Chromium Embedded
+Framework (CEF). This season delivers the runnable foundation plus the proof
+that CEF works inside the Rust host.
 
-> Proprietär – Copyright (c) 2026 Sascha Daemgen IT and More Systems.
-> Alle Rechte vorbehalten. Siehe `LICENSE`.
-
----
-
-## Stand nach CD-01
-
-* **Etappe A – Shell:** Randloses Vollbild auf dem Primärmonitor, dunkler
-  Hintergrund (`#04070A`), zentrierter, langsam rotierender CARVILON-Ring
-  (offener Bogen + hohler Kern-Ring, `#009FE3`), `vsync`. `ESC` beendet sauber.
-  Dev-Modus über `--windowed` (1600×900).
-* **Etappe B – CEF:** Ein chromeloser CEF-Browser-View (nur die nackte
-  Seitenfläche, kein Browser-UI) wird zentriert ins Shell-Fenster eingebettet
-  und lädt eine Web-Seite. Popups werden unterdrückt bzw. in-place navigiert.
-
-Ziel-Plattform: **Windows 11 (x64, MSVC)**. Andere Plattformen sind bewusst
-nicht Teil dieses Tickets.
+> Proprietary — Copyright (c) 2026 Sascha Daemgen IT and More Systems.
+> All rights reserved. See `LICENSE`.
 
 ---
 
-## Voraussetzungen
+## State after CD-01
 
-| Werkzeug | Zweck | Hinweis |
+* **Stage A — Shell:** Borderless fullscreen on the primary monitor, dark
+  background (`#04070A`), a centered, slowly rotating CARVILON ring (open arc +
+  hollow inner ring, `#009FE3`), vsync. `ESC` quits cleanly. Dev mode via
+  `--windowed` (1600×900).
+* **Stage B — CEF:** A chromeless CEF browser view (bare page surface, no
+  browser UI) is embedded, centered, in the shell window and loads a web page.
+  Popups are suppressed.
+
+Target platform: **Windows 11 (x64, MSVC)**. Other platforms are deliberately
+out of scope for this ticket.
+
+---
+
+## Prerequisites
+
+| Tool | Purpose | Note |
 | --- | --- | --- |
-| Rust (stable, `x86_64-pc-windows-msvc`) | Build | via `rustup` |
-| Visual Studio 2022 – „Desktop development with C++" | MSVC-Linker + Windows-SDK | für Rust-MSVC und den CEF-Wrapper |
-| CMake ≥ 3.29 | baut `libcef_dll_wrapper` | muss auf `PATH` sein |
-| Ninja ≥ 1.12 | CMake-Generator für den Wrapper | muss auf `PATH` sein |
-| Python 3 | Build-Helfer von CEF/Chromium | muss auf `PATH` sein |
-| PowerShell 5.1+ | `scripts/fetch-cef.ps1` | Windows-Bordmittel |
+| Rust (stable, `x86_64-pc-windows-msvc`) | build | via `rustup` |
+| Visual Studio 2022 — "Desktop development with C++" | MSVC linker + Windows SDK | for Rust-MSVC and the CEF wrapper |
+| CMake ≥ 3.29 | builds `libcef_dll_wrapper` | must be on `PATH` |
+| Ninja ≥ 1.12 | CMake generator for the wrapper | must be on `PATH` |
+| Python 3 | CEF/Chromium build helper | must be on `PATH` |
+| PowerShell 5.1+ | `scripts/fetch-cef.ps1` | ships with Windows |
 
-Schnelltest, dass alles vorhanden ist:
+Quick check that everything is present:
 
 ```pwsh
 rustc --version; cargo --version; cmake --version; ninja --version; python --version
@@ -46,47 +46,47 @@ rustc --version; cargo --version; cmake --version; ninja --version; python --ver
 
 ---
 
-## 1. CEF-Binaries holen (einmalig / bei Versionswechsel)
+## 1. Fetch the CEF binaries (once / on version change)
 
-Die CEF-Binaries sind mehrere hundert MB groß und liegen **niemals** im Repo.
-Das folgende Skript lädt die exakt gepinnte CEF-Version (siehe
-`docs/cyberdesk-decisions.md`, D-0002) von der offiziellen CDN nach `vendor/cef/` und
-richtet sie so ein, dass der Build sie direkt verwendet:
+The CEF binaries are several hundred MB and are **never** committed. The
+following script downloads the exact pinned CEF version (see
+`docs/cyberdesk-decisions.md`, D-0002) from the official CDN into `vendor/cef/`
+and lays it out so the build uses it directly:
 
 ```pwsh
-# aus dem Repo-Wurzelverzeichnis
+# from the repository root
 ./scripts/fetch-cef.ps1
 ```
 
-Das Skript prüft die SHA1-Summe des Downloads und ist idempotent
-(erneuter Aufruf ohne `-Force` erkennt eine vorhandene Installation).
-`vendor/cef/` ist in `.gitignore` eingetragen.
+The script verifies the download's SHA-1 and is idempotent (a second run
+without `-Force` detects an existing installation). `vendor/cef/` is listed in
+`.gitignore`.
 
 ---
 
-## 2. Bauen & Starten
+## 2. Build & run
 
-CyberDesk findet die CEF-Installation über die Umgebungsvariable `CEF_PATH`,
-die bereits in `.cargo/config.toml` auf `vendor/cef/` gesetzt ist – es ist
-also keine manuelle Konfiguration nötig.
+CyberDesk locates the CEF installation via the `CEF_PATH` environment variable,
+which is already set to `vendor/cef/` in `.cargo/config.toml` — no manual
+configuration needed.
 
 ```pwsh
-# Vollbild (Abnahme-Modus)
+# fullscreen (acceptance mode)
 cargo run --release
 
-# Gefenstert 1600x900 (Dev-Modus)
+# windowed 1600x900 (dev mode)
 cargo run --release -- --windowed
 ```
 
-* **`ESC`** beendet die Anwendung sauber.
-* Der erste Build ist langsam, weil CMake+Ninja den `libcef_dll_wrapper`
-  kompilieren. Die CEF-Laufzeitdateien (`libcef.dll`, Ressourcen, `locales/`)
-  werden automatisch neben die `.exe` in `target/<profil>/` kopiert.
+* **`ESC`** quits the application cleanly.
+* The first build is slow because CMake+Ninja compile `libcef_dll_wrapper`. The
+  CEF runtime files (`libcef.dll`, resources, `locales/`) are copied next to the
+  `.exe` in `target/<profile>/` automatically.
 
-### Optional: Render-Selbsttest ohne Fenster
+### Optional: headless render self-test
 
-Rendert einen einzelnen Ring-Frame offscreen in eine PNG-Datei (nützlich für
-CI / visuelle Regression, stört keinen Desktop):
+Renders a single ring frame off-screen to a PNG file (useful for CI / visual
+regression; does not touch any desktop):
 
 ```pwsh
 cargo run --release -- --capture ring.png
@@ -94,45 +94,44 @@ cargo run --release -- --capture ring.png
 
 ---
 
-## Projektstruktur
+## Project layout
 
 ```
 cyberdesk/
 ├─ src/
-│  ├─ main.rs        # Einstieg, CLI, Prozess-Modell
-│  ├─ app.rs         # winit-Event-Loop, Fenster, ESC
-│  ├─ renderer.rs    # wgpu-Renderer (Ring), Offscreen-Capture
-│  ├─ ring.wgsl      # Shader für Hintergrund + CARVILON-Ring
-│  └─ cef/           # CEF-Einbettung (Etappe B)
+│  ├─ main.rs        # entry point, CLI, process model
+│  ├─ app.rs         # winit event loop, window, ESC
+│  ├─ renderer.rs    # wgpu renderer (ring), off-screen capture
+│  ├─ ring.wgsl      # shader for background + CARVILON ring
+│  └─ browser.rs     # CEF embedding (Stage B)
 ├─ scripts/
-│  └─ fetch-cef.ps1  # lädt die gepinnte CEF-Version nach vendor/cef/
-├─ docs/                         # lebende Projekt-Dokumente
+│  └─ fetch-cef.ps1  # downloads the pinned CEF version into vendor/cef/
+├─ docs/                          # living project documents (English)
 │  ├─ cyberdesk-architecture.md
-│  ├─ cyberdesk-decisions.md     # D-0001 … D-0007
+│  ├─ cyberdesk-decisions.md      # D-0001 … D-0008
 │  ├─ cyberdesk-security.md
 │  ├─ cyberdesk-wire-format.md
 │  ├─ cyberdesk-feature-backlog.md
 │  └─ cyberdesk-roadmap.txt
 ├─ .cargo/config.toml
-└─ vendor/cef/       # (git-ignored) CEF-Binaries
+└─ vendor/cef/        # (git-ignored) CEF binaries
 ```
 
 ---
 
-## Fehlerbehebung
+## Troubleshooting
 
-* **`CMake`/`Ninja` nicht gefunden:** In VS 2022 die Komponente „C++ CMake
-  tools for Windows" installieren oder CMake/Ninja separat installieren und
-  auf `PATH` legen.
-* **Link-Fehler zu `libcef`:** `vendor/cef/` fehlt oder ist unvollständig –
-  `./scripts/fetch-cef.ps1 -Force` erneut ausführen.
-* **Schwarzer statt dunkler Hintergrund / kein Ring:** Grafiktreiber prüfen;
-  wgpu benötigt einen funktionierenden D3D12- oder Vulkan-Backend-Adapter.
-* **`GPU process exited unexpectedly` auf stderr:** bekannt und harmlos – CEF
-  fällt auf Software-Rendering (SwiftShader) zurück, die Seite rendert korrekt.
-  Details und der Plan zur Behebung stehen in `docs/cyberdesk-decisions.md`
-  (D-0008). Im Release-Vollbild (kein Konsolenfenster) ist die Meldung ohnehin
-  unsichtbar.
-* **CEF-Profil/Cache:** liegt isoliert unter `target/<profil>/cyberdesk-cache/`
-  (git-ignoriert) – die Surf-Zone teilt bewusst keinen Zustand mit einem
-  separat installierten Chrome.
+* **`CMake`/`Ninja` not found:** install the "C++ CMake tools for Windows"
+  component in VS 2022, or install CMake/Ninja separately and put them on
+  `PATH`.
+* **Link error against `libcef`:** `vendor/cef/` is missing or incomplete — run
+  `./scripts/fetch-cef.ps1 -Force` again.
+* **Black instead of dark background / no ring:** check the graphics driver;
+  wgpu needs a working D3D12 or Vulkan backend adapter.
+* **`GPU process exited unexpectedly` on stderr:** known and harmless — CEF
+  falls back to software rendering (SwiftShader) and the page renders correctly.
+  Details and the fix plan are in `docs/cyberdesk-decisions.md` (D-0008). In the
+  release fullscreen build (no console window) the message is invisible anyway.
+* **CEF profile/cache:** kept isolated under `target/<profile>/cyberdesk-cache/`
+  (git-ignored) — the surf zone deliberately shares no state with a separately
+  installed Chrome.

@@ -1,21 +1,21 @@
-# CyberDesk - Wire-Format
+# CyberDesk - Wire Format
 
-Projekt CARVILON CyberDesk · lebendes Dokument · Stand: 08.07.2026
+Project CARVILON CyberDesk - living document - Status: 2026-07-08
 
-Noch bewusst dünn - die Formate entstehen ab CD-02. Regel: Jede Schnittstellen-Änderung wird hier dokumentiert, bevor sie in main landet.
+Deliberately thin for now - the formats emerge from CD-02 on. Rule: every interface change is documented here before it lands on main.
 
-## Host↔CEF IPC (geplant)
+## Host<->CEF IPC (planned)
 
-- Explizite Allowlist benannter Kommandos. Pro Kommando dokumentiert: Name, Richtung, Felder, Fehlerfälle.
-- Keine generischen Eval- oder Passthrough-Kanäle.
-- Erste Kommandos entstehen mit CD-02: Frame-Übergabe (OSR-Textur), Input-Weiterleitung (Maus/Tastatur), Navigation (URL laden, zurück/vor).
+- Explicit allowlist of named commands. Documented per command: name, direction, fields, error cases.
+- No generic eval or passthrough channels.
+- First commands arrive with CD-02: frame handover (OSR texture), input forwarding (mouse/keyboard), navigation (load URL, back/forward).
 
-## NetGuard-Policy (Skizze)
+## NetGuard policy (sketch)
 
-- Pro Zone: erlaubte Ziele (Host, Port, Protokoll), optionaler Pinning-Fingerprint, Limits (Rate, Volumen).
-- Default: deny. Policy-Änderungen sind versioniert und werden protokolliert.
-- Format-Entscheidung (Datei vs. SQLite) fällt mit dem NetGuard-Grundausbau.
+- Per zone: allowed destinations (host, port, protocol), optional pinning fingerprint, limits (rate, volume).
+- Default: deny. Policy changes are versioned and logged.
+- Format decision (file vs. SQLite) falls with the NetGuard base build.
 
-## CARVILON-Protokolle
+## CARVILON protocols
 
-- Die Anbindung an Edge und VPS folgt in Season 7. Maßgeblich bleiben die Server-Dokumente (carvilon-server-wire-format.md); dieses Dokument hält dann nur die CyberDesk-Sicht (welche Endpunkte, welche Richtung, welche Auth).
+- Edge and VPS integration follows in Season 7. The server documents remain authoritative (carvilon-server-wire-format.md); this document then holds only the CyberDesk view (which endpoints, which direction, which auth).

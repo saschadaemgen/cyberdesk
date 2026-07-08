@@ -1,21 +1,21 @@
-CYBERDESK ROADMAP (weiche Schnitte, Stand 08.07.2026)
+CYBERDESK ROADMAP (soft cuts, status 2026-07-08)
 
-Prinzipien:
-- Risiko zuerst: das Unbewiesene nach vorn.
-- Sicherheit vor Anbindung: keine Tuersteuerung, bevor die Autorisierung steht.
-- D-0006: Der bessere, schwerere Weg schlaegt den Kompromiss. Gilt fuer Qualitaet des Wegs, nicht fuer Alles-auf-einmal.
-- Season-Ende: Season-Protokoll (inkl. Fehlschlaege und Sackgassen) + Chat-Uebergabe + Update der fuenf lebenden Docs. Ablage in seasons/ UND im Chat-Projekt.
+Principles:
+- Risk first: the unproven moves to the front.
+- Security before integration: no door control before authorization stands.
+- D-0006: The better, harder path beats the compromise. Governs the quality of the path, not all-at-once scope.
+- Season end: season protocol (including failures and dead ends) + chat handover + update of the five living docs. Stored in seasons/ AND in the chat project.
 
-S1  Fundament + Risikobeweis     CD-01 Shell+CEF [laeuft], CD-02 OSR-Textur, CD-03 Feathering
-S2  Design-Gesetz                Farbwelt, Bewegungssprache, Shader, Drag-and-Drop-Sprache (CD-Referenz bindend)
-S3  Zonen-Engine                 Raster, S/M/L-Reflow, Reiter-Zone, Bearbeiten-Modus
-S4  Modi + Ereignis-Engine       Standard/Admin/Nicht-stoeren, Prioritaet x Modus, simulierte Ereignisse
-S5  Browser wird CARVILON        Favoriten/Verlauf (SQLite), Downloads, Kontextmenue, Request-Filter
-S6  Krypto + Autorisierung       Argon2id, Zeroize, verschluesselter State, Start-Freigabe
-S7  CARVILON-Anbindung           Kameras, Tueren, Status, Zeitstempel (NetGuard-Regeln Edge/VPS)
-S8+ Werkzeuge                    Terminal, Editor, Explorer, FTP, Logik-Analyzer, NetGuard-Monitor
-S9+ Alltag                       Musik, SimpleX, E-Mail, Telefonie, Kalender/Tagesplaner, Office-Einheit (Text+Tabellen in einem)
+S1  Foundation + risk proof     CD-01 shell+CEF [running], CD-02 OSR texture, CD-03 feathering
+S2  Design law                  Color world, motion language, shaders, drag-and-drop language (CD reference binding)
+S3  Zone engine                 Grid, S/M/L reflow, tab rail, Edit Mode
+S4  Modes + Event Engine        Standard/Admin/DND, priority x mode, simulated events
+S5  Browser becomes CARVILON    Favorites/history (SQLite), downloads, context menu, request filter
+S6  Crypto + authorization      Argon2id, Zeroize, encrypted state, start authorization
+S7  CARVILON integration        Cameras, doors, status, time clock (NetGuard rules Edge/VPS)
+S8+ Tools                       Terminal, editor, explorer, FTP, logic analyzer, NetGuard monitor
+S9+ Everyday                    Music, SimpleX, email, calls, calendar/day planner, office unit (text+tables in one)
 
-Fernziel: CARVILON OS (Debian 13 Trixie) - CyberDesk bootet als Shell. Nichts aus dem App-Weg ist Wegwerfarbeit.
+Long-term goal: CARVILON OS (Debian 13 Trixie) - CyberDesk boots as the shell. Nothing on the app path is throwaway work.
 
-Anmerkung: Nummern sind Orientierung, kein Vertrag. Chat-Fuellstand und Realitaet entscheiden ueber die echten Schnitte.
+Note: Numbers are orientation, not a contract. Chat fill level and reality decide the actual cuts.

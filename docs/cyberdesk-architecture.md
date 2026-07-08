@@ -1,34 +1,29 @@
-# CyberDesk - Architektur
+# CyberDesk - Architecture
 
-Projekt CARVILON CyberDesk · lebendes Dokument · Stand: 08.07.2026 (vor Abschluss CD-01)
-Proprietär · Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
+Project CARVILON CyberDesk - living document - Status: 2026-07-08 (before CD-01 completion)
+Proprietary - Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
 
-## Was CyberDesk ist
+## What CyberDesk is
 
-Eine einzige Vollbild-Anwendung im Stil eines seriösen Cyber-Betriebssystems: festes Zonen-Layout, eine Farbwelt (Grund #04070A, Markenblau #009FE3), stark animiert, optimiert für Ultrawide-Displays (Zielbild ca. 1,20 m Bildbreite, 16:9 als Fallback). Es laufen ausschließlich CARVILON-eigene Anwendungen plus eine Surf-Zone. Keine frei verschiebbaren Fenster - Vorhersehbarkeit ist der Produktkern.
+A single fullscreen application in the style of a serious cyber operating system: fixed zone layout, one color world (base #04070A, brand blue #009FE3), heavily animated, optimized for ultrawide displays (target roughly 1.20 m of screen width, 16:9 as fallback). Only CARVILON-built applications run inside it, plus one surf zone. No freely movable windows - predictability is the core of the product.
 
-## Schichtenmodell
+## Layer model
 
-1. **Zonen (fest):** Spine links, Hauptbereich (drei Größen S/M/L mit Reflow der Nachbarzonen), Videozone, Terminalzone, rechte Reiter-Zone (Status, Dateien, FTP, Musik, ...). Positionen sind Gesetz. Änderungen nur im Bearbeiten-Modus innerhalb der Rastervorgaben (D-0007).
-2. **Modi (Layout-Presets):** Standard, Admin (Hauptbereich größer), Nicht-stören u. a. Ein Modus lädt ein Preset desselben festen Layouts - er erfindet kein neues.
-3. **Ereignis-Prioritäts-Engine:** Ereignisse (Klingeln, Anruf, Alarm, Security-Alert) tragen Prioritäten, Zonen tragen Ränge, der Modus ist das Gate. Entscheidung pro Ereignis: überschreiben, einblenden oder unterdrücken. Auch Störungen sind reglementiert.
+1. **Zones (fixed):** Spine on the left, main area (three sizes S/M/L with reflow of neighboring zones), video zone, terminal zone, right tab rail (Status, Files, FTP, Music, ...). Positions are law. Changes only in Edit Mode within the grid rules (D-0007).
+2. **Modes (layout presets):** Standard, Admin (larger main area), Do-Not-Disturb, and others. A mode loads a preset of the same fixed layout - it never invents a new one.
+3. **Event Priority Engine:** Events (doorbell, call, alarm, security alert) carry priorities, zones carry ranks, the mode acts as the gate. Decision per event: override, overlay, or suppress. Even interruptions are regulated.
 
-## Prozess- und Technikmodell
+## Process and technology model
 
-- **Rust-Host:** Fensterverwaltung (winit), Rendering (wgpu), Zonen/Modi/Ereignis-Engine, später Krypto (Argon2id, Zeroize) und Start-Autorisierung.
-- **CEF (Chromium Embedded Framework):** liefert ausschließlich Pixel der Surf-Zone. CD-01: windowed Embed als Feasibility-Beweis; ab CD-02 Offscreen-Rendering in eine GPU-Textur, danach Feathering/Compositing im eigenen Frame (weiche, ins Design blutende Ränder).
-- **Harte Prozessgrenze Host↔CEF**, IPC nur über explizite Allowlist. Kein Electron, kein Node, keine npm-Kette im Kern. Chromium-Sandbox bleibt aktiv.
-- **NetGuard:** Kein Modul öffnet selbst Verbindungen; alles läuft durch die zentrale Netz-Schicht (deny-by-default pro Zone, Certificate-Pinning, eigener DNS-Resolver, Kill-Switch, Zähler). Browser-Traffic hängt über den CefRequestHandler am selben Monitor.
+- **Rust host:** window management (winit), rendering (wgpu), zones/modes/event engine, later crypto (Argon2id, Zeroize) and start authorization.
+- **CEF (Chromium Embedded Framework):** delivers pixels of the surf zone, nothing else. CD-01: windowed embed as feasibility proof; from CD-02 on, offscreen rendering into a GPU texture, then feathering/compositing inside our own frame (soft edges bleeding into the design). CEF runs with an isolated browser profile (own root_cache_path) - the surf zone never shares state with any user-installed browser.
+- **Hard process boundary host<->CEF**, IPC only through an explicit allowlist. No Electron, no Node, no npm chain in the core. Chromium sandbox stays active.
+- **NetGuard:** no module opens connections on its own; everything goes through the central network layer (deny-by-default per zone, certificate pinning, own DNS resolver, kill switch, counters). Browser traffic attaches to the same monitor via CefRequestHandler.
 
-## Plattform-Pfad
+## Platform path
 
-Entwicklung: Windows 11 (MSVC). Später: Linux-Appliance. Fernziel: CARVILON OS (Debian 13 "Trixie"), das direkt in CyberDesk als Shell bootet - die App ist erste Lieferung und späteres Herz des OS. Nichts aus dem App-Weg ist Wegwerfarbeit.
+Development: Windows 11 (MSVC). Later: Linux appliance. Long-term goal: CARVILON OS (Debian 13 "Trixie") booting directly into CyberDesk as its shell - the app is the first deliverable and the later heart of the OS. Nothing on the app path is throwaway work.
 
 ## Status
 
-CD-01 (Shell-Skeleton + CEF-Feasibility) **abgeschlossen**: Vollbild-Shell mit
-rotierendem Ring (Etappe A) und chromelos eingebettetem CEF-View, der google.com
-laedt (Etappe B) - beides verifiziert. Offene Punkte aus CD-01 stehen in
-`cyberdesk-decisions.md` (D-0008: Sandbox-Wiederaktivierung, GPU-Unterprozess im
-Release). Dieses Dokument wird nach jeder Season, bei Bedarf auch zwischendurch,
-aktualisiert.
+CD-01 complete: shell (winit/wgpu, borderless fullscreen, rotating ring) plus chromeless CEF windowed embed of google.com, verified on the 5120x1440 ultrawide target display. Next: CD-02 (OSR - the page becomes a GPU texture). This document is updated after every season, and mid-season when necessary.
