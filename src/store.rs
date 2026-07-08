@@ -70,6 +70,7 @@ impl Store {
             .ok();
         self.set_if_absent("feather_edges", "true");
         self.set_if_absent("deep_field", "true");
+        self.set_if_absent("stay_foreground", "true");
     }
 
     fn set_if_absent(&self, key: &str, value: &str) {

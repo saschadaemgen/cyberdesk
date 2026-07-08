@@ -9,7 +9,7 @@ use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
-use winit::window::{CursorIcon, Fullscreen, Window, WindowId};
+use winit::window::{CursorIcon, Fullscreen, Window, WindowId, WindowLevel};
 
 use crate::browser::{self, Role};
 use crate::renderer::SurfaceRenderer;
@@ -90,6 +90,7 @@ pub fn run(windowed: bool) {
         gear_hover_target: 0.0,
         loading_intensity: 0.0,
         applied_title: String::new(),
+        applied_topmost: false,
         isolation_tested: false,
     };
     event_loop.run_app(&mut app).expect("event loop error");
@@ -115,6 +116,7 @@ struct Shell {
     gear_hover_target: f32,
     loading_intensity: f32,
     applied_title: String,
+    applied_topmost: bool,
     isolation_tested: bool,
 }
 
@@ -259,6 +261,30 @@ impl Shell {
             browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
         }
     }
+
+    /// Foreground guard (tier 1): in fullscreen, keep the shell always-on-top
+    /// while the "stay_foreground" setting is on. Dev (`--windowed`) mode is
+    /// never topmost. `force` re-asserts the level even if unchanged — used by
+    /// the focus-loss watchdog, since a window manager may drop the level when
+    /// another window steals focus.
+    fn apply_foreground(&mut self, force: bool) {
+        if self.windowed {
+            return;
+        }
+        let want = settings::stay_foreground();
+        if !force && want == self.applied_topmost {
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            let level = if want {
+                WindowLevel::AlwaysOnTop
+            } else {
+                WindowLevel::Normal
+            };
+            window.set_window_level(level);
+        }
+        self.applied_topmost = want;
+    }
 }
 
 impl ApplicationHandler for Shell {
@@ -294,7 +320,13 @@ impl ApplicationHandler for Shell {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
-            WindowEvent::Focused(focused) => browser::set_focus(self.active_role(), focused),
+            WindowEvent::Focused(focused) => {
+                browser::set_focus(self.active_role(), focused);
+                // Watchdog: re-assert always-on-top when another window takes focus.
+                if !focused {
+                    self.apply_foreground(true);
+                }
+            }
 
             WindowEvent::Resized(size) => {
                 if let Some(r) = self.renderer.as_mut() {
@@ -489,6 +521,9 @@ impl ApplicationHandler for Shell {
         if browser::take_overlay_close() {
             self.set_overlay(Overlay::Closed);
         }
+
+        // Apply the foreground guard (acts only when the setting changes).
+        self.apply_foreground(false);
 
         // Ease the gear hover glow toward its target.
         self.gear_hover += (self.gear_hover_target - self.gear_hover) * 0.25;

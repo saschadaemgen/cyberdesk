@@ -19,11 +19,13 @@ fn store() -> &'static Mutex<Store> {
 
 static FEATHER_EDGES: AtomicBool = AtomicBool::new(true);
 static DEEP_FIELD: AtomicBool = AtomicBool::new(true);
+static STAY_FOREGROUND: AtomicBool = AtomicBool::new(true);
 
 /// The settings keys the internal view is allowed to read and write. Anything
 /// outside this list is rejected by [`set`].
 pub const KEY_FEATHER_EDGES: &str = "feather_edges";
 pub const KEY_DEEP_FIELD: &str = "deep_field";
+pub const KEY_STAY_FOREGROUND: &str = "stay_foreground";
 
 /// Open the store and load the persisted toggles into the atomics. Must be
 /// called once on the main thread before CEF starts.
@@ -31,6 +33,7 @@ pub fn init() {
     let s = store().lock().unwrap();
     FEATHER_EDGES.store(s.get_bool(KEY_FEATHER_EDGES, true), Ordering::Relaxed);
     DEEP_FIELD.store(s.get_bool(KEY_DEEP_FIELD, true), Ordering::Relaxed);
+    STAY_FOREGROUND.store(s.get_bool(KEY_STAY_FOREGROUND, true), Ordering::Relaxed);
 }
 
 pub fn feather_edges() -> bool {
@@ -41,12 +44,17 @@ pub fn deep_field() -> bool {
     DEEP_FIELD.load(Ordering::Relaxed)
 }
 
+pub fn stay_foreground() -> bool {
+    STAY_FOREGROUND.load(Ordering::Relaxed)
+}
+
 /// Current settings as a JSON object string, for the `get_settings` IPC reply.
 pub fn snapshot_json() -> String {
     format!(
-        "{{\"feather_edges\":{},\"deep_field\":{}}}",
+        "{{\"feather_edges\":{},\"deep_field\":{},\"stay_foreground\":{}}}",
         feather_edges(),
-        deep_field()
+        deep_field(),
+        stay_foreground()
     )
 }
 
@@ -57,6 +65,7 @@ pub fn set(key: &str, value: bool) -> Result<String, String> {
     let atomic = match key {
         KEY_FEATHER_EDGES => &FEATHER_EDGES,
         KEY_DEEP_FIELD => &DEEP_FIELD,
+        KEY_STAY_FOREGROUND => &STAY_FOREGROUND,
         other => return Err(format!("unknown setting key: {other}")),
     };
     atomic.store(value, Ordering::Relaxed);

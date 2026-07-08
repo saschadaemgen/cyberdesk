@@ -68,6 +68,7 @@
       var s = JSON.parse(response);
       paint("feather_edges", s.feather_edges);
       paint("deep_field", s.deep_field);
+      paint("stay_foreground", s.stay_foreground);
     })
     .catch(function (err) { setStatus(String(err), true); });
 })();
