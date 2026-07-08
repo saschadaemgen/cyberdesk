@@ -13,29 +13,37 @@ feathered compositing, and an isolated in-shell settings surface.
 
 ---
 
-## State after CD-05 (Season 1 extended)
+## State after CD-06 (Season 1 extended)
 
 * **Shell:** Borderless fullscreen on the primary monitor, dark background
-  (`#04070A`), a slowly rotating CARVILON ring (open arc + hollow inner ring,
-  `#009FE3`) that frames the surf zone, vsync. `ESC` quits cleanly (from
-  anywhere, even with the page focused). Dev mode via `--windowed` (1600×900).
-* **Pulse Grid background:** a seeded circuit board that lives behind the shell —
-  a fine micro lattice, routed traces with pads and solder dots, two full-width
-  bus lines, bright pulses with fading trails travelling the traces, and
-  occasional expanding node flares. The static layer is baked once into a
-  full-resolution texture (imperceptible startup cost) and composited each frame,
-  scaled by a live **glow-intensity** control; the board is identical across
-  launches (seed determinism). It is allowed to glow — a **zone shadow** dims it
-  under the surf zone and any open overlay (calm under content, glow in the
-  margins) so the page stays readable. The earlier **Deep Field** (a breathing
-  glow with drifting nebulae, dust, and a scan sweep) is preserved as a
-  token-selectable "Calm" variant (`background.kind = "deep_field"`). See
-  `docs/cyberdesk-decisions.md` (D-0012).
+  (`#04070A`), vsync. The shell background is the Pulse Grid alone — the CARVILON
+  ring was removed from the shell in CD-06 (its motif migrates to the Season-2
+  start animation / Energy Core, D-0013). `ESC` quits cleanly (from anywhere,
+  even with the page focused). Dev mode via `--windowed` (1600×900).
+* **Pulse Grid background:** a seeded circuit board that lives behind the shell,
+  built as **three depth layers** (far → mid → near) baked into one
+  full-resolution HDR texture — a crisp bright front, a dimmer middle, and a
+  faint fine recede (~10× the earlier content: ~12k primitives at ultrawide,
+  baked in a few milliseconds). Each layer weaves a micro lattice, routed traces
+  with pads and solder dots, **chip footprints** (outline + pin-pad rows), **via
+  clusters** and **junction hubs**; the near layer carries the two full-width
+  bus lines. Bright pulses with fading trails travel the traces on every depth
+  (near bright/fast, far sparse/slow/faint — depth in motion), with occasional
+  expanding node flares on the near layer. The board is composited each frame
+  scaled by a live **glow-intensity** control and is identical across launches
+  (per-layer seeds derive from one master seed — full determinism). It is
+  allowed to glow — a **zone shadow** dims it under the surf zone and any open
+  overlay (calm under content, glow in the margins) so the page stays readable.
+  The earlier **Deep Field** (a breathing glow with drifting nebulae, dust, and
+  a scan sweep) is preserved as a token-selectable "Calm" variant
+  (`background.kind = "deep_field"`). See `docs/cyberdesk-decisions.md` (D-0012,
+  D-0013).
 * **Surf zone (CEF, off-screen rendering):** CEF renders the page off-screen
   (`on_paint`); CyberDesk uploads each frame into a wgpu texture and composites
   it inside its own frame — the page sits centered (~60% × 70%) with the shell
-  visible around it. Its edges are **feathered** (a soft SDF-based alpha falloff
-  that dissolves the page into the Deep Field; toggleable back to the hard
+  visible around it. Its edges are **feathered** (a light, steep SDF-based alpha
+  soften over a narrow band — the outermost pixels only, corrected in CD-06 from
+  the wider CD-05 band that read as a vignette; toggleable back to the hard
   rounded corner). Mouse and keyboard are forwarded into the page (a Google
   search, clicking, and scrolling all work) and the cursor follows the page.
 * **Free surfing (command bar + history):** `Ctrl+L` summons a command bar over
@@ -126,12 +134,16 @@ cargo run --release -- --windowed
 
 ### Optional: headless render self-test
 
-Renders a single ring frame off-screen to a PNG file (useful for CI / visual
-regression; does not touch any desktop):
+Renders a single shell-background frame (the Pulse Grid) off-screen to a PNG
+file (useful for CI / visual regression; does not touch any desktop):
 
 ```pwsh
-cargo run --release -- --capture ring.png
+cargo run --release -- --capture background.png
 ```
+
+`CYBERDESK_CAPTURE_SIZE=WxH` sizes it (e.g. `5120x1440` for the ultrawide
+judgment) and `CYBERDESK_CAPTURE_GLOW=<mult>` brightens it (e.g. to inspect the
+faint far layer).
 
 ---
 
@@ -177,8 +189,8 @@ cyberdesk/
 │  ├─ pulsegrid.rs   # Pulse Grid background: seeded generator + life simulation
 │  ├─ settings.html/.css/.js   # embedded internal settings page assets
 │  ├─ command.html/.css/.js    # embedded command-bar page assets
-│  ├─ ring.wgsl      # background + CARVILON ring
-│  ├─ pulsegrid_*.wgsl  # Pulse Grid: lattice · sprite (SDF prims/pulses) · composite
+│  ├─ ring.wgsl      # CARVILON ring — dormant since CD-06 (Season-2 motif)
+│  ├─ pulsegrid_*.wgsl  # Pulse Grid: lattice (3 depth weaves) · sprite (SDF prims/pulses) · composite
 │  ├─ deepfield.wgsl # Deep Field ("Calm" variant) background  ·  blit.wgsl (upscale)
 │  ├─ page.wgsl      # surf-zone page / settings panel compositing (feathering)
 │  ├─ loading.wgsl   # surf-zone loading line
@@ -187,7 +199,7 @@ cyberdesk/
 │  └─ fetch-cef.ps1  # downloads the pinned CEF version into vendor/cef/
 ├─ docs/                          # living project documents (English)
 │  ├─ cyberdesk-architecture.md
-│  ├─ cyberdesk-decisions.md      # D-0001 … D-0012
+│  ├─ cyberdesk-decisions.md      # D-0001 … D-0013
 │  ├─ cyberdesk-security.md
 │  ├─ cyberdesk-wire-format.md    # settings + navigation IPC schema
 │  ├─ cyberdesk-feature-backlog.md
@@ -205,8 +217,8 @@ cyberdesk/
   `PATH`.
 * **Link error against `libcef`:** `vendor/cef/` is missing or incomplete — run
   `./scripts/fetch-cef.ps1 -Force` again.
-* **Black instead of dark background / no ring:** check the graphics driver;
-  wgpu needs a working D3D12 or Vulkan backend adapter.
+* **Black instead of the circuit background:** check the graphics driver; wgpu
+  needs a working D3D12 or Vulkan backend adapter.
 * **`GPU process exited unexpectedly` on stderr:** this was a CD-01 child-window
   issue; under CD-02's off-screen rendering the GPU process is healthy and the
   message no longer appears (see `docs/cyberdesk-decisions.md`, D-0009). If it

@@ -19,6 +19,10 @@ Claude Code. The following rules are binding.
   * `docs: …` — documentation
   * `fix: …`, `refactor: …`, `chore: …`
 * Each ticket stage ends with **one** meaningful commit, followed by a push.
+* **Push per stage, autonomously, never ask** (permanent rule from CD-06 /
+  D-0013). The pre-push secret/IP grep below stays mandatory before every push;
+  only the asking stops. If a push is denied by the tool permission system, note
+  it in the final report and continue — do not stall a stage on it.
 * `Cargo.lock` is **committed** (this is an application, not a library →
   reproducible builds, exact version pins).
 

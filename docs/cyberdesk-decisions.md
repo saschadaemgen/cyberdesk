@@ -2,6 +2,65 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0013 - 2026-07-08 - CD-06: depth overhaul, ring removed, feather corrected, autonomous push
+
+Sascha's verdict on the CD-05 visuals: the background looked like "800x600 Amiga
+times" — far too little content for a 5120x1440 canvas (~1.2k primitives), the
+effect too predictable, and the rotating ring in the middle still ugly. CD-06
+fixes all three, plus the parked feather correction, and changes the push policy.
+
+**Ring removed from the shell.** The rotating CARVILON ring no longer renders in
+the shell pass or the `--capture` path (the capture composites the background
+faithfully since CD-05, so it needs no ring backdrop). The shell background is
+the Pulse Grid alone. The ring shader/module (`ring.wgsl`, `RingUniforms`,
+`ring_pipeline`) stays in the tree **dormant** (`#[allow(dead_code)]`) — its
+future is the start animation and the Energy Core interaction motif (Season 2),
+so it is demoted, not deleted.
+
+**Depth-layer architecture (the 10x).** The Pulse Grid is now **three depth
+layers** — far → mid → near — each its own generated board, all baked additively
+into the one HDR texture (draw order is cosmetic). At ultrawide this lifts the
+content from ~1.2k to **12,424 baked primitives** (~10x), baked in **3.6 ms**
+(still imperceptible; single-digit ms as required). Rationale: one flat layer at
+any density still reads flat and repetitive; real depth (a crisp bright front, a
+dimmer middle, a faint fine recede) is what makes a 1.2 m canvas read as *deep*
+rather than merely busy.
+- **Far**: finest lattice (~half the near cell), ~4x the near trace count,
+  thinnest lines, ~0.36 brightness. **Mid**: between the two (~0.68 cell, ~2x
+  count, ~0.6 brightness). **Near**: the CD-05 scale/brightness — the crisp
+  bright front; the two bus lines and the flare-anchor pads live here.
+- **Per-layer seeds** derive deterministically from `background.seed` (three
+  sub-seeds pulled from a master splitmix64), so the determinism contract holds
+  across launches (verified: byte-identical captures). The micro-lattice now
+  sums three weaves (far/mid/near cells) in a single fullscreen pass.
+- **Component vocabulary** kills the uniform random-walk predictability: **chip
+  footprints** (outline rectangle + pin-pad rows on 2 or 4 edges, near/mid),
+  **via clusters** (3–8 filled dots, all layers), **junction hubs** (pads with
+  several traces routed toward them), and **varied segment distribution** (short
+  zigzags mixed with occasional long straight runs, especially on far).
+- **Life across depth**: pulse count, speed, brightness and head size scale per
+  layer (near bright/fast, mid fewer/dimmer, far sparse/slow/faint — depth in
+  motion); node flares stay near-layer. The HDR bake target and the zone shadow
+  are unchanged and keep working across all three layers. All counts, sizes and
+  scales are theme tokens; the generator kept the CD-05 instance/sprite pipeline
+  (more primitives and vocabulary, not a new renderer).
+
+**Feather corrected (parked CD-05 verdict).** The 34 px smoothstep feather read
+as a 3D/vignette curve — the page was already >50% transparent 16 px inside its
+edge and faded over a wide creamy band, so it seemed to curve away. The band is
+narrowed to **12 px** (`feather_width`) and a **falloff curve exponent** token
+(`feather_exp = 0.45`) applies `pow()` to the edge coverage in `page.wgsl`: the
+page now stays fully opaque until ~10 px from the edge, then fades over the last
+few pixels (0.55 at 4 px, 0.17 at 1 px, 0 at the edge) — a light, casual soften,
+steep not creamy, with AA preserved at the boundary. The OFF state (hard 16 px
+rounded corner) is untouched and the toggle still switches live in the one page
+pipeline.
+
+**Push policy (permanent, from CD-06 on).** Push **per stage, autonomously,
+never ask.** The pre-push secret/IP grep stays mandatory before every push; only
+the asking stops. If a push is denied by the tool permission system, note it and
+continue — do not stall a stage on it. CLAUDE.md carries this rule.
+
 ## D-0012 - 2026-07-08 - CD-05: background v2 "Pulse Grid"
 
 The Deep Field (CD-03) is too dark for the Cyber look. Its replacement is the
