@@ -1472,13 +1472,17 @@ struct DragInstance {
 const DRAG_ATTRS: [wgpu::VertexAttribute; 3] =
     wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
 
-/// A drag-overlay quad (CD-12): the drag ghost (a circle: `radius` = half its
-/// size), a drop-zone gutter bar, or a slot highlight. Premultiplied OVER.
+/// A command-overlay quad (CD-12): the topmost transparent pass shared by the
+/// favorite-drag visuals (drag ghost, drop-zone gutter bars, slot highlight) and
+/// the per-slot close orbs. `kind` selects the fragment shape — `0` a filled soft
+/// rounded rect (a circle when `radius` = half), `1` a close orb (ring + cross).
+/// Premultiplied OVER.
 pub struct DragQuad {
     pub rect: (f32, f32, f32, f32),
     pub color: [f32; 4],
     pub radius: f32,
     pub glow: f32,
+    pub kind: u32,
 }
 
 /// The drag overlay pass — instanced soft rounded rects, drawn topmost.
@@ -1599,9 +1603,10 @@ impl SurfaceRenderer {
         // Placeholder instances: up to MAX_SLOTS empty slots + 2 side zones.
         let placeholder = SlotPlaceholder::new(&device, SURFACE_FORMAT, MAX_SLOTS as u32 + 2);
         let slotlines = SlotLines::new(&device, SURFACE_FORMAT, MAX_SLOTS as u32);
-        // Drag overlay: up to MAX_SLOTS+1 gutter drop zones + the ghost + a slot
-        // highlight (CD-12).
-        let drag = DragOverlay::new(&device, SURFACE_FORMAT, MAX_SLOTS as u32 + 3);
+        // Command overlay (CD-12): the drag visuals (up to MAX_SLOTS+1 gutter drop
+        // zones + ghost + slot highlight) OR the per-slot close orbs (2 instances
+        // each: backing disc + ring/cross). Sized for the larger, close orbs.
+        let drag = DragOverlay::new(&device, SURFACE_FORMAT, MAX_SLOTS as u32 * 2 + 4);
         let gear = Gear::new(&device, SURFACE_FORMAT);
         let field = DeepField::new(&device, SURFACE_FORMAT);
         let pulse = PulseGrid::new(&device, SURFACE_FORMAT);
@@ -1847,11 +1852,11 @@ impl SurfaceRenderer {
         // slot highlight, drawn topmost.
         let drag_insts: Vec<DragInstance> = drag
             .iter()
-            .take(MAX_SLOTS + 3)
+            .take(MAX_SLOTS * 2 + 4)
             .map(|q| DragInstance {
                 rect: [q.rect.0, q.rect.1, q.rect.2, q.rect.3],
                 color: q.color,
-                shape: [q.radius, q.glow, 0.0, 0.0],
+                shape: [q.radius, q.glow, q.kind as f32, 0.0],
             })
             .collect();
         let drag_count = drag_insts.len() as u32;
@@ -2221,9 +2226,31 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
     queue.write_buffer(&slotlines.instance_buf, 0, bytemuck::cast_slice(&line_insts));
 
     // CYBERDESK_CAPTURE_DRAG=1 renders a sample favorite-drag overlay (CD-12): the
-    // gutter drop zones (the middle one hot) + a ghost, so the drag reads headless.
-    let drag = DragOverlay::new(&device, format, MAX_SLOTS as u32 + 3);
+    // gutter drop zones (the middle one hot) + a ghost; CYBERDESK_CAPTURE_CLOSE=1
+    // renders a per-slot close orb on each slot's top-right corner. Headless checks.
+    let drag = DragOverlay::new(&device, format, MAX_SLOTS as u32 * 2 + 4);
     let mut drag_insts: Vec<DragInstance> = Vec::new();
+    if std::env::var("CYBERDESK_CAPTURE_CLOSE").is_ok() {
+        let d = theme.command.close_size;
+        let rad = d * 0.5;
+        let m = 8.0 + rad;
+        for r in &rects {
+            let ox = r.x + r.w - m;
+            let oy = r.y + m;
+            let rect = [ox - rad, oy - rad, d, d];
+            // Backing disc (kind 0) + ring/cross (kind 1).
+            drag_insts.push(DragInstance {
+                rect,
+                color: [0.02, 0.03, 0.05, 0.55],
+                shape: [rad, 2.0, 0.0, 0.0],
+            });
+            drag_insts.push(DragInstance {
+                rect,
+                color: [brand[0], brand[1], brand[2], 0.92],
+                shape: [rad, 1.2, 1.0, 0.0],
+            });
+        }
+    }
     if std::env::var("CYBERDESK_CAPTURE_DRAG").is_ok() {
         let g = (theme.slots.gutter).round();
         let (sy, sh) = rects.first().map(|r| (r.y, r.h)).unwrap_or((0.0, 0.0));
@@ -2253,6 +2280,8 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
             color: [brand[0], brand[1], brand[2], 0.85],
             shape: [gs * 0.5, 13.0, 0.0, 0.0],
         });
+    }
+    if !drag_insts.is_empty() {
         queue.write_buffer(
             &drag.globals_buf,
             0,

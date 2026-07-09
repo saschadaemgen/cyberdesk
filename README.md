@@ -18,9 +18,9 @@ feathered compositing, and an isolated in-shell settings surface.
 * **Shell:** Borderless fullscreen on the primary monitor, dark background
   (`#04070A`), vsync. The shell background is the Pulse Grid alone — the CARVILON
   ring was removed from the shell in CD-06 (its motif migrates to the Season-2
-  start animation / Energy Core, D-0013). `ESC` walks a small chain — hide the
-  top bar, else close settings, else quit (CD-08) — and otherwise quits cleanly
-  from anywhere. Dev mode via `--windowed` (1600×900).
+  start animation / Energy Core, D-0013). `ESC` walks a small chain — cancel a
+  favorite drag, else hide the command set, else close settings, else quit (CD-12)
+  — and otherwise quits cleanly from anywhere. Dev mode via `--windowed` (1600×900).
 * **Pulse Grid background:** a seeded circuit board that lives behind the shell,
   built as **three depth layers** (far → mid → near) baked into one
   full-resolution HDR texture — a crisp bright front, a dimmer middle, and a
@@ -39,6 +39,18 @@ feathered compositing, and an isolated in-shell settings surface.
   a scan sweep) is preserved as a token-selectable "Calm" variant
   (`background.kind = "deep_field"`). See `docs/cyberdesk-decisions.md` (D-0012,
   D-0013).
+* **Floating command elements — the bar dies (CD-12, D-0021):** the single top bar
+  is retired. **Every column carries its own floating command set** — back/forward/
+  reload orbs and an address capsule — that reveals above *that* column and drives
+  it; move the mouse into the gap above a column, or press `Ctrl+L` for the active
+  one. They float on a **transparent band** over the Pulse Grid (only the pills
+  paint; the background breathes between them) and glide as columns reflow. Favorites
+  become **round tiles** in one shared launcher row. **Drag a favorite tile into a
+  control gutter and it opens there as a new column** — the shell draws a ghost on
+  the cursor and lights the gutters as drop zones, dropping into the nearest (at full
+  capacity it navigates the column under the ghost instead; `ESC` cancels). Each
+  column also gets a **floating close orb** (a ring + cross) at its top-outer corner,
+  revealed on hover — a click closes that column.
 * **The main frame — side zones + reflow-to-rails (CD-11, D-0020):** the slot group
   no longer owns the full width. **Side zones flank it left and right** (placeholder
   now — a subtle fill, a thin outline, a small diamond glyph; the Spine and the
@@ -83,20 +95,22 @@ feathered compositing, and an isolated in-shell settings surface.
   4 loaded columns on the ultrawide the render loop stays well inside the 60 fps
   budget; the accelerated zero-copy OSR path (D-0009) is recommended but not yet
   needed (see `docs/cyberdesk-decisions.md`, D-0017).
-* **Free surfing (hover-reveal top bar + memory):** the command surface is a
-  **top bar** that slides down above the active column (CD-08, D-0016) — move the
-  mouse into the gap above it, or press `Ctrl+L` (which focuses + selects the
-  input). It drives the active column (prefill, star and scheme hint reflect it). It holds the address input (classified host-side as a URL or a search on
-  the chosen engine) with your **favorites as clickable chips** below; start
-  typing and the chips give way to up to six live **suggestions** from favorites +
-  history — favorites first, then history by a simple frecency. `Arrow` keys move
-  the selection, `Enter` navigates the selected entry (or the raw text), a click
-  (chip or suggestion) navigates. **`Ctrl+D`** favorites the current page and the
-  star reflects and toggles it live. The bar slides away when the mouse leaves it
-  (after a short grace period, never while you are typing), when a navigation
-  commits, or on `ESC`. Back / forward / reload and the mouse's forward/back
-  buttons drive the page history, an amber glyph flags a plain-`http://` page, and
-  a loading line traces the top of each column. Popups follow a gesture-aware
+* **Free surfing (floating command sets + memory):** the command surface is a set of
+  **floating ensembles** — one per column (CD-12, D-0021), evolved from the CD-08
+  hover-reveal bar. Each reveals above its column on hover-into-the-gap or `Ctrl+L`
+  and drives it (prefill, star and scheme hint reflect that column). An ensemble
+  holds the address input (classified host-side as a URL or a search on the chosen
+  engine); the shared launcher shows your **favorites as round tiles**. Start typing
+  and up to six live **suggestions** appear from favorites + history — favorites
+  first, then history by a simple frecency. `Arrow` keys move the selection, `Enter`
+  navigates the selected entry (or the raw text), a click navigates; a favorite tile
+  clicks to navigate the engaged column or **drags into a gutter to open a new one**.
+  **`Ctrl+D`** favorites the current page and the star reflects and toggles it live.
+  An ensemble retreats when the mouse leaves it (after a short grace period, never
+  while you are typing), when a navigation commits, or on `ESC`. Back / forward /
+  reload and the mouse's forward/back buttons drive the page history, an amber glyph
+  flags a plain-`http://` page, and a loading line traces the top of each column.
+  Popups follow a gesture-aware
   policy (D-0011): a real click on a `target=_blank` link navigates its own column
   in place, script `window.open` is dropped — no second window ever opens.
 * **Settings:** a gear button (top-right) opens an in-shell settings card — a
@@ -177,9 +191,10 @@ cargo run --release -- --windowed
 `CYBERDESK_WINDOW_SIZE=WxH` overrides the dev-window size (e.g. `2560x900` to
 exercise multi-column layouts on a non-ultrawide).
 
-* Move the mouse to the **top edge** (or press **`Ctrl+L`**) to reveal the command
-  top bar; **`ESC`** walks the chain — hide the bar, else close settings, else
-  quit. See **Controls** below for the full map.
+* Move the mouse into the gap above a column (or press **`Ctrl+L`**) to reveal that
+  column's floating command set; **`ESC`** walks the chain — cancel a favorite drag,
+  else hide the command set, else close settings, else quit. See **Controls** below
+  for the full map.
 * The **gear** button (top-right) opens the settings card; the search-engine
   select, the slider, and the toggles apply live and persist across restarts.
 * The first build is slow because CMake+Ninja compile `libcef_dll_wrapper`. The
@@ -203,6 +218,9 @@ shadow, index glyphs — can be eyeballed headlessly (e.g. `=4` on the ultrawide
 `CYBERDESK_CAPTURE_UNITS=2,1,…` overrides it with an explicit per-column
 width-unit sequence (CD-10 double slots), and `CYBERDESK_CAPTURE_PENDING=N` marks
 the first N columns as restored-pending (the scheme-colored placeholder dot).
+`CYBERDESK_CAPTURE_CLOSE=1` overlays a per-column **close orb** (ring + cross) and
+`CYBERDESK_CAPTURE_DRAG=1` a **favorite-drag** sample (gutter drop zones + ghost) so
+the CD-12 overlays can be eyeballed headlessly.
 
 ---
 
@@ -214,32 +232,34 @@ to thin rails), fewer with the side zones at full width on smaller panels. The f
 reflows automatically; there are no controls for it. Each column is a stripped-down
 browser with no visible chrome until you summon it. Keyboard shortcuts act on the
 **active slot** (a thin brand accent underlines it); mouse actions act on the slot
-under the cursor.
+under the cursor. Each column carries its own floating command set (CD-12).
 
 | Input | Action |
 | --- | --- |
-| `Ctrl+T` | Add a column to the right (up to what fits the width); it becomes active and the bar opens, empty — type an address to load it |
+| `Ctrl+T` | Add a column to the right (up to what fits the width); it becomes active and its command set opens, empty — type an address to load it |
 | `Ctrl+W` | Close the active column (the last one can't be closed); the rest recenter and a neighbor becomes active |
+| Click a column's **close orb** (hover its top-outer corner) | Close that column (the last one can't be closed) |
 | `Ctrl+1` … `Ctrl+4` | Focus the 1st … 4th column |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle the active column forward / backward |
 | `Ctrl+Shift+←` / `Ctrl+Shift+→` | Swap the active column with its left / right neighbor |
 | `Ctrl+Shift+D` | Toggle the active column between single and double width (no-op if a double won't fit) |
 | Click a column | Make it the active column |
 | Click a `target=_blank` link, or `Ctrl+click` / middle-click a link | Open it in a new column beside the source (or in place if the grid is full) |
-| Mouse to a column's top edge | Reveal the top bar above it (slides down); it retreats when the mouse leaves it, after a short grace period |
-| `Ctrl+L` | Reveal the top bar (active column) with the input focused + selected |
-| type (in the bar) | Chips give way to live suggestions from favorites + history; moving the mouse away no longer hides the bar while you type |
+| Mouse into a column's top gap | Reveal that column's command set (fades in); it retreats when the mouse leaves it, after a short grace period |
+| `Ctrl+L` | Reveal the active column's command set with the input focused + selected |
+| type (in the capsule) | The launcher gives way to live suggestions from favorites + history; moving the mouse away no longer hides the set while you type |
 | `↑` / `↓` | Move the suggestion selection |
-| click a favorite chip | Navigate the active column to that favorite (the bar retreats) |
-| `Enter` (in the bar) | Navigate the active column to the selected suggestion, or the typed text — a scheme, a dotted host, or `localhost` loads as a URL (default `https://`); anything else searches the chosen engine |
+| click a favorite tile | Navigate the engaged column to that favorite (the set retreats) |
+| drag a favorite tile into a gutter | Open that favorite as a new column there (or navigate the column under the ghost when the grid is full); `ESC` cancels |
+| `Enter` (in the capsule) | Navigate the ensemble's column to the selected suggestion, or the typed text — a scheme, a dotted host, or `localhost` loads as a URL (default `https://`); anything else searches the chosen engine |
 | `Ctrl+D` | Favorite / unfavorite the active column's page (star reflects it live) |
 | `Alt+←` / `Alt+→` | History back / forward (active column) |
 | Mouse button 4 / 5 | History back / forward (column under the cursor) |
 | `F5` / `Ctrl+R` | Reload (active column) |
 | `Ctrl+Shift+R` | Hard reload, ignore cache (active column) |
-| `ESC` | Hide the top bar, else close the settings card, else quit |
+| `ESC` | Cancel a favorite drag, else hide the command set, else close the settings card, else quit |
 
-An amber glyph in the top bar marks a page served over plain `http://`
+An amber glyph in the address capsule marks a page served over plain `http://`
 (e.g. `neverssl.com`, which stays http by design); `https` and internal pages
 show no warning. The **gear** (top-right) opens the settings card with a live,
 persisted **search-engine** select (Google / DuckDuckGo / Bing / Startpage — the
@@ -259,7 +279,7 @@ cyberdesk/
 │  ├─ main.rs        # entry point, CLI, process model
 │  ├─ app.rs         # winit event loop, window, slot layout, per-slot input routing, nav keys, foreground guard
 │  ├─ renderer.rs    # wgpu renderer: shell + per-slot page/placeholder/line compositing, capture
-│  ├─ browser.rs     # CEF OSR (N slot views + 1 internal), custom scheme, isolation, settings/nav/top-bar IPC
+│  ├─ browser.rs     # CEF OSR (N slot views + 1 internal), custom scheme, isolation, settings/nav/command-set IPC
 │  ├─ slots.rs       # slot layout engine (max_slots, slot_rects) + order management, pure + unit-tested
 │  ├─ theme.rs       # theme tokens -> shader uniforms + settings/command CSS vars
 │  ├─ theme.toml     # the embedded "cyber" token set (single style source; [slots] section)
@@ -269,13 +289,14 @@ cyberdesk/
 │  ├─ session.rs     # slot-workspace persistence (save/restore, plan_restore) over the store
 │  ├─ pulsegrid.rs   # Pulse Grid background: seeded generator + life simulation
 │  ├─ settings.html/.css/.js   # embedded internal settings page assets
-│  ├─ command.html/.css/.js    # embedded command-bar page assets
+│  ├─ command.html/.css/.js    # embedded floating command-set page assets (CD-12)
 │  ├─ ring.wgsl      # CARVILON ring — dormant since CD-06 (Season-2 motif)
 │  ├─ pulsegrid_*.wgsl  # Pulse Grid: lattice (3 depth weaves) · sprite (SDF prims/pulses) · composite
 │  ├─ deepfield.wgsl # Deep Field ("Calm" variant) background  ·  blit.wgsl (upscale)
 │  ├─ page.wgsl      # per-slot page / settings panel compositing (feathering)
 │  ├─ slot_placeholder.wgsl  # lazy-slot placeholder (fill + 7-segment index glyph)
 │  ├─ slot_lines.wgsl        # per-slot loading line (top) + active accent (bottom)
+│  ├─ drag.wgsl      # topmost command overlay: favorite-drag ghost/zones + close orbs (CD-12)
 │  └─ gear.wgsl      # settings gear button
 ├─ scripts/
 │  └─ fetch-cef.ps1  # downloads the pinned CEF version into vendor/cef/

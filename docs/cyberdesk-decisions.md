@@ -2,6 +2,91 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0021 - 2026-07-09 - CD-12: floating command elements — the bar dies, per-window command sets
+
+Sascha's ruling: **the bar dies, and nothing global replaces it.** A single top
+bar that drove "the active column" was the last centralized surface — wrong for a
+workspace of autonomous windows. It is retired. In its place, **every column owns
+its own floating command set**, and favorites become a shared launcher of round
+tiles. The top region is no longer a bar; it is a transparent band on which
+per-window ensembles and one launcher row float over the Pulse Grid.
+
+**One transparent internal view, N floating ensembles (the CD-11 IPC precedent).**
+The band is a single OSR CEF view spanning the top, composited with a fully
+transparent background (`BrowserSettings.background_color = 0x00000000`, premultiplied
+BGRA in on_paint) so only its pills paint and the Pulse Grid breathes between them.
+The page builds one `.ensemble` per slot (each = back/forward/reload orbs + an
+address capsule with a lock icon, url input and star). The host supplies **frame
+state** — the engaged slot and each slot's band-DIP x/width — and pushes it **on
+change only** (`window.cdFrame`), exactly the CD-11 cadence: no per-frame IPC. The
+page glides its ensembles to the new positions via CSS (~220 ms), so an ensemble
+visually trailing the column by a frame during a reflow **is correct**, not a bug.
+Because the ensembles are DIP-positioned HTML and the band is one view, the
+transparent view casts **no zone shadow** (dimming the whole top would darken the
+grid where nothing shows) — only the opaque settings card still dims its rect.
+
+**Generalized reveal state machine.** CD-08's single-bar reveal/hysteresis/typing
+machinery generalizes to N: hovering the top gap above a column engages *that*
+column's ensemble (`band_hot_slot`), Ctrl+L engages the keyboard-active column's
+capsule with autofocus (`reveal_active_capsule`), and the band disengages on
+mouse-out (+hysteresis, typing exception), a committed navigation, or ESC. A
+compositing linger (`band_off_at`, ~300 ms) keeps the band painted until the CSS
+fade-out finishes, then finalizes to `Closed`. Autofocus is a **transient**: the
+push change-signature excludes it and the page pulls `get_frame` on load, so a
+per-frame push(false) can never clobber a pending Ctrl+L focus.
+
+**Every command carries its slot.** The nav/palette commands (`get_nav_state`,
+`navigate`, `go_back/forward`, `reload`) gained an optional `slot` field: each
+ensemble drives its own column. The host's `target_slot` reads it (clamped), else
+falls back to the active slot. This revises CD-09's "the bar targets the active
+slot" — targeting is now per-ensemble. See docs/cyberdesk-wire-format.md.
+
+**Drag a favorite into a gutter → a new column there.** Favorites live once, as
+round launcher tiles. The page owns only the gesture *start*: a tile drag past a
+6 px threshold fires `drag_start {url,title}`; the **host owns the whole drag**
+(the page has no cross-column coordinates and the OSR view can't draw outside
+itself). The shell draws, topmost, a ghost circle on the cursor and the control
+gutters as drop zones (the nearest to the cursor hot), captures the mouse (slot
+views get no events, ESC cancels — chained before the band), and on release either
+inserts + spawns the favorite as a new column at the nearest gutter, or — at full
+capacity, where no gutter can accept an insert — navigates the slot under the
+ghost. The CD-11 gutter widening (24 → 40) reserved exactly this control surface.
+
+**Floating per-slot close orb.** Each column reveals a shell-drawn close orb (a
+brand ring + inset cross on a dark backing disc) at its **top-outer corner** when
+the cursor enters that corner's hot-zone; a click closes that column (the last
+refuses; a non-active close leaves the active column as is), and the frame reflows.
+Reasoned realization of "top-outer-corner": the orb sits at the **top-right** of
+every slot — the universal close convention — rather than mirrored per side, which
+would make the middle columns' "outer" ambiguous and break muscle memory.
+
+**Rendering — one shared overlay pass.** The drag visuals and the close orbs are
+one instanced soft-rounded-rect pass (`drag.wgsl` + `DragOverlay`, in the
+placeholder/lines family, premultiplied OVER, drawn topmost). A `kind` field in
+the instance selects the fragment: `0` a filled soft rounded rect (a circle when
+`corner_radius` = half — the ghost, drop-zone bars, slot highlight, orb backing),
+`1` a ring + cross (the close orb). Drag and close orbs never coexist (the drag
+captures the mouse, suppressing hover), so the app feeds the pass whichever is
+live. `CYBERDESK_CAPTURE_DRAG` / `CYBERDESK_CAPTURE_CLOSE` render samples over the
+`--capture` frame for headless verification, alongside the CD-09/CD-10 CAPTURE_* knobs.
+
+**Tokens.** A `[command]` block carries the band geometry (`band_height`,
+`launcher_top`, `ensemble_top`, `capsule_height`, `orb_size`, `tile_size`,
+`tile_gap`) as both host sizing and page CSS vars (`Theme::to_css_vars`), plus
+`close_size` (host-only — the orb is shell-drawn, so no CSS var). One token source,
+as always.
+
+**Verification honesty.** The live transparent compositing of ensembles over the
+Pulse Grid is only fully verifiable on Sascha's monitor. Machine-checkable here:
+the page layout (headless Edge one-shot of `command.html`), the overlay geometry
+(`--capture` with the CLOSE/DRAG sample knobs), the host logic (compile / clippy /
+unit tests / a throwaway-profile boot). The 2560 dev width holds one column; the
+drag-into-gutter path needs ≥ ~2800 (`CYBERDESK_WINDOW_SIZE`) or the 5120 ultrawide.
+
+**Forward note.** CD-13's info area / status glyphs follow this floating law — a
+shell-drawn or transparent-view element positioned from host frame state, not a new
+global surface. NetGuard (D-0004) is untouched: the band opens no network of its own.
+
 ## D-0020 - 2026-07-09 - CD-11: the main frame — side zones, reflow-to-rails, control gutters
 
 Sascha's ruling: this IS the main system, and it was missing. The slot group did

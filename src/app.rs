@@ -123,6 +123,7 @@ pub fn run(windowed: bool) {
         band_off_at: None,
         frame_sig: String::new(),
         drag: None,
+        close_hover: [0.0; MAX_SLOTS],
     };
     event_loop.run_app(&mut app).expect("event loop error");
 
@@ -207,6 +208,9 @@ struct Shell {
     /// An in-progress favorite-tile drag `(url, title)` (CD-12): the host owns it
     /// (ghost + drop zones) and slot views receive no mouse until it ends.
     drag: Option<(String, String)>,
+    /// Per-slot close-orb reveal fraction, eased toward 1 while the cursor is in
+    /// the slot's top-outer corner hot-zone, else 0 (CD-12). Indexed by slot id.
+    close_hover: [f32; MAX_SLOTS],
 }
 
 fn window_hwnd(window: &Window) -> isize {
@@ -619,6 +623,7 @@ impl Shell {
                     color: [b[0], b[1], b[2], a],
                     radius: r.w * 0.5,
                     glow,
+                    kind: 0,
                 });
             }
         } else if let Some((_, r)) = self.slot_at_cursor() {
@@ -628,6 +633,7 @@ impl Shell {
                 color: [b[0], b[1], b[2], 0.16],
                 radius: self.theme.page.corner_radius,
                 glow: 10.0 * self.scale,
+                kind: 0,
             });
         }
         // The ghost: a glowing brand circle at the cursor.
@@ -637,6 +643,7 @@ impl Shell {
             color: [b[0], b[1], b[2], 0.85],
             radius: gs * 0.5,
             glow: 13.0 * self.scale,
+            kind: 0,
         });
         out
     }
@@ -667,10 +674,18 @@ impl Shell {
     /// browser shuts down cleanly, the group recenters, and the nearest neighbor
     /// becomes active.
     fn close_active_slot(&mut self) {
-        if self.order.len() <= 1 {
+        let pos = self.active_position();
+        self.close_slot_at(pos);
+    }
+
+    /// Close the slot at display position `pos` (Ctrl+W on the active slot, or a
+    /// click on that slot's floating close orb — CD-12). The last slot refuses to
+    /// close; a closed active slot promotes a neighbor. The frame then reflows.
+    fn close_slot_at(&mut self, pos: usize) {
+        if self.order.len() <= 1 || pos >= self.order.len() {
             return;
         }
-        let pos = self.active_position();
+        let closed_active = self.order[pos] == self.active_slot;
         let id = self.order.remove(pos);
         browser::close_slot(id);
         if let Some(r) = self.renderer.as_mut() {
@@ -680,14 +695,111 @@ impl Shell {
         self.armed[id] = None;
         self.width_units[id] = 1;
         self.disp_rects[id] = None;
-        let new_pos = slots::neighbor_position(pos, self.order.len());
-        self.active_slot = self.order[new_pos];
-        browser::set_active_slot(self.active_slot);
-        if self.overlay == Overlay::Closed {
-            browser::set_focus(Role::Slot(self.active_slot), true);
+        self.close_hover[id] = 0.0;
+        // Promote a neighbor only if the active slot itself was the one closed;
+        // closing a non-active slot (via its orb) leaves the active slot as is.
+        if closed_active {
+            let new_pos = slots::neighbor_position(pos, self.order.len());
+            self.active_slot = self.order[new_pos];
+            browser::set_active_slot(self.active_slot);
+            if self.overlay == Overlay::Closed {
+                browser::set_focus(Role::Slot(self.active_slot), true);
+            }
         }
         self.push_geometry();
         self.notify_all_resized();
+    }
+
+    // --- Floating per-slot close orb (CD-12, D-0021) ------------------------
+
+    /// The close orb's center + radius (device px) for slot `id`: it rides the
+    /// slot's top-outer (top-right) corner, just inside, following the animated
+    /// rect so it glides with a reflow.
+    fn close_orb(&self, id: usize) -> (f32, f32, f32) {
+        let r = self.disp_rect(id);
+        let d = self.theme.command.close_size * self.scale;
+        let rad = d * 0.5;
+        let m = 8.0 * self.scale + rad; // inset so the orb sits fully inside
+        (r.x + r.w - m, r.y + m, rad)
+    }
+
+    /// The slot whose close-orb corner hot-zone contains the cursor, if the orb is
+    /// eligible (more than one slot, no drag, band not engaged). The hot-zone is a
+    /// generous box around the orb so the affordance is easy to find.
+    fn close_hot_slot(&self) -> Option<usize> {
+        if self.order.len() <= 1 || self.drag.is_some() || self.overlay != Overlay::Closed {
+            return None;
+        }
+        let (cx, cy) = (self.cursor_phys.x as f32, self.cursor_phys.y as f32);
+        self.order.iter().copied().find(|&id| {
+            let (ox, oy, rad) = self.close_orb(id);
+            let reach = rad * 2.2;
+            (cx - ox).abs() <= reach && (cy - oy).abs() <= reach
+        })
+    }
+
+    /// The slot whose (revealed) close orb the cursor is actually within — a click
+    /// here closes that slot instead of reaching the page underneath (CD-12).
+    fn close_orb_at_cursor(&self) -> Option<usize> {
+        if self.order.len() <= 1 || self.overlay != Overlay::Closed {
+            return None;
+        }
+        let (cx, cy) = (self.cursor_phys.x as f32, self.cursor_phys.y as f32);
+        self.order.iter().copied().find(|&id| {
+            if self.close_hover[id] < 0.5 {
+                return false;
+            }
+            let (ox, oy, rad) = self.close_orb(id);
+            let dx = cx - ox;
+            let dy = cy - oy;
+            dx * dx + dy * dy <= rad * rad
+        })
+    }
+
+    /// Ease each slot's close-orb reveal toward its target (1 for the hot slot,
+    /// else 0). Called once per frame. Snappy enough to feel responsive.
+    fn update_close_orbs(&mut self) {
+        let hot = self.close_hot_slot();
+        for &id in self.order.iter() {
+            let target = if Some(id) == hot { 1.0 } else { 0.0 };
+            self.close_hover[id] += (target - self.close_hover[id]) * 0.3;
+        }
+    }
+
+    /// The close-orb overlay quads (CD-12): for each revealed orb, a dark backing
+    /// disc (for legibility over any page) topped by a brand ring + cross. Drawn
+    /// topmost by the shared overlay pass. Empty while dragging (the drag owns it).
+    fn close_orb_quads(&self) -> Vec<renderer::DragQuad> {
+        if self.drag.is_some() {
+            return Vec::new();
+        }
+        let brand = self.theme.colors.brand_rgb();
+        let mut out = Vec::new();
+        for &id in self.order.iter() {
+            let rev = self.close_hover[id];
+            if rev < 0.02 {
+                continue;
+            }
+            let (ox, oy, rad) = self.close_orb(id);
+            let rect = (ox - rad, oy - rad, rad * 2.0, rad * 2.0);
+            // Backing disc: a soft dark circle so the ring/cross reads on any page.
+            out.push(renderer::DragQuad {
+                rect,
+                color: [0.02, 0.03, 0.05, 0.55 * rev],
+                radius: rad,
+                glow: 2.0,
+                kind: 0,
+            });
+            // Ring + cross in the brand color.
+            out.push(renderer::DragQuad {
+                rect,
+                color: [brand[0], brand[1], brand[2], 0.92 * rev],
+                radius: rad,
+                glow: 1.2,
+                kind: 1,
+            });
+        }
+        out
     }
 
     /// Swap the active slot with its neighbor (Ctrl+Shift+Left/Right). A pure
@@ -1343,6 +1455,16 @@ impl ApplicationHandler for Shell {
                     self.toggle_settings();
                     return;
                 }
+                // A click on a revealed per-slot close orb closes that slot (CD-12);
+                // it never reaches the page underneath.
+                if button == MouseButton::Left
+                    && down
+                    && let Some(id) = self.close_orb_at_cursor()
+                {
+                    let pos = self.order.iter().position(|&s| s == id).expect("orb slot is live");
+                    self.close_slot_at(pos);
+                    return;
+                }
                 let target = self.mouse_target();
                 // Mouse buttons 4/5 are Back/Forward on the slot under the cursor
                 // (only when a slot is the actual target — not over an overlay).
@@ -1575,13 +1697,19 @@ impl ApplicationHandler for Shell {
                         (self.disp_left.x, self.disp_left.y, self.disp_left.w, self.disp_left.h),
                         (self.disp_right.x, self.disp_right.y, self.disp_right.w, self.disp_right.h),
                     ];
-                    let drag = self.drag_quads();
+                    // The topmost overlay pass carries the favorite-drag visuals
+                    // while a drag is live, else the per-slot close orbs (CD-12).
+                    let overlay_quads = if self.drag.is_some() {
+                        self.drag_quads()
+                    } else {
+                        self.close_orb_quads()
+                    };
                     if let Some(r) = self.renderer.as_mut() {
                         r.render(
                             time,
                             &slot_views,
                             &sides,
-                            &drag,
+                            &overlay_quads,
                             internal,
                             gear_geom(w, scale),
                             settings::feather_edges(),
@@ -1669,6 +1797,8 @@ impl ApplicationHandler for Shell {
 
         // Ease the gear hover glow toward its target.
         self.gear_hover += (self.gear_hover_target - self.gear_hover) * 0.25;
+        // Ease the per-slot close-orb reveal toward the hot corner (CD-12).
+        self.update_close_orbs();
 
         // Advance the CD-11 frame reflow (side zones + slot recenter) one step.
         self.update_frame();

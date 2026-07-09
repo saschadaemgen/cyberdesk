@@ -162,6 +162,7 @@ capsule_height = 48.0  # address-capsule (pill) height
 orb_size      = 34.0   # back/forward/reload orb diameter
 tile_size     = 46.0   # favorites launcher tile diameter
 tile_gap      = 12.0   # gap between launcher tiles
+close_size    = 26.0   # shell-drawn per-slot close orb diameter (host-only)
 
 # Slot engine (CD-09, D-0017) — fixed-width content columns instead of a single
 # proportional surf zone. A slot is `width` logical px wide, as tall as the surf

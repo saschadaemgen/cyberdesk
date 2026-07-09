@@ -1,13 +1,15 @@
-// CARVILON CyberDesk — drag overlay (CD-12): the shell-drawn favorite-drag
-// ghost, the control-gutter drop zones, and the full-capacity slot highlight.
-// One instanced pass of soft-glowing rounded rects (a circle is a rounded rect
-// with corner_radius = half). Premultiplied OVER, in the placeholder/lines
-// visual family.
+// CARVILON CyberDesk — command overlay (CD-12): the topmost transparent pass
+// shared by the favorite-drag visuals (ghost, control-gutter drop zones, the
+// full-capacity slot highlight) and the per-slot close orbs. One instanced pass
+// of soft-glowing rounded rects (a circle is a rounded rect with corner_radius =
+// half); `kind` switches the fragment to a ring + cross for a close orb.
+// Premultiplied OVER, in the placeholder/lines visual family.
 //
 // Instance layout:
 //   @location(0) rect  = (x, y, w, h) device px
 //   @location(1) color = (r, g, b, a)
-//   @location(2) shape = (corner_radius_px, glow_softness_px, _, _)
+//   @location(2) shape = (corner_radius_px, glow_softness_px, kind, _)
+//                        kind 0 = filled soft rounded rect; kind 1 = close orb
 
 struct Globals {
     resolution : vec2<f32>,
@@ -56,13 +58,39 @@ fn rounded_box_sdf(p : vec2<f32>, half : vec2<f32>, radius : f32) -> f32 {
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
+// A close orb (kind 1): a thin brand ring with an inset diagonal cross, both
+// anti-aliased, within the instance's (square) rect. `local` is center-origin px.
+fn close_orb_mask(local : vec2<f32>, half : vec2<f32>) -> f32 {
+    let R = min(half.x, half.y);
+    let dist = length(local);
+    let aa = 1.2;
+    // Ring: an annulus just inside the radius.
+    let ro = R - 1.5;
+    let thick = max(R * 0.09, 1.6);
+    let ri = ro - thick;
+    let ring = smoothstep(ri - aa, ri, dist) - smoothstep(ro, ro + aa, dist);
+    // Cross: two diagonal bars, rotated 45 degrees, clipped to a smaller radius.
+    let rc = ri - R * 0.16;
+    let u = (local.x + local.y) * 0.70710678;
+    let v = (local.x - local.y) * 0.70710678;
+    let ct = max(R * 0.075, 1.4);
+    let bar1 = (1.0 - smoothstep(ct - aa, ct + aa, abs(u))) * (1.0 - smoothstep(rc, rc + aa, abs(v)));
+    let bar2 = (1.0 - smoothstep(ct - aa, ct + aa, abs(v))) * (1.0 - smoothstep(rc, rc + aa, abs(u)));
+    return max(ring, max(bar1, bar2));
+}
+
 @fragment
 fn fs_main(in : VOut) -> @location(0) vec4<f32> {
-    let radius = min(in.shape.x, min(in.half.x, in.half.y));
-    let soft = max(in.shape.y, 0.75);
-    let d = rounded_box_sdf(in.local, in.half, radius);
-    // Solid core inside; a soft glow fading over `soft` px outside.
-    let mask = 1.0 - smoothstep(0.0, soft, d);
+    var mask : f32;
+    if (in.shape.z >= 0.5) {
+        mask = close_orb_mask(in.local, in.half);
+    } else {
+        let radius = min(in.shape.x, min(in.half.x, in.half.y));
+        let soft = max(in.shape.y, 0.75);
+        let d = rounded_box_sdf(in.local, in.half, radius);
+        // Solid core inside; a soft glow fading over `soft` px outside.
+        mask = 1.0 - smoothstep(0.0, soft, d);
+    }
     let a = in.color.a * mask;
     return vec4<f32>(in.color.rgb * a, a);
 }

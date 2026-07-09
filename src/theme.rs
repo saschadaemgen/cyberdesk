@@ -169,6 +169,9 @@ pub struct Command {
     pub orb_size: f32,
     pub tile_size: f32,
     pub tile_gap: f32,
+    /// Shell-drawn per-slot close orb diameter (CD-12, D-0021). Host-only (the
+    /// ring + cross are drawn by the renderer), so it is not emitted as a CSS var.
+    pub close_size: f32,
 }
 
 /// Slot engine (CD-09, D-0017). Fixed-width content columns; these dimensions

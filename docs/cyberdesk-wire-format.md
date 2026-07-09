@@ -72,9 +72,21 @@ CD-11 (the main frame — side zones, reflow-to-rails; D-0020) is likewise **no
 IPC**: the frame is pure host-side layout math (`slots::frame_layout`) and shell
 rendering. The wire format is unchanged.
 
+CD-12 (floating command sets; D-0021) **retires the single top bar**. The command
+view becomes N floating **ensembles** (one per column) plus a shared favorites
+launcher, so every navigation command below now accepts an **optional `slot`
+field** — the id of the ensemble's column. The host's `target_slot` reads it
+(clamped to a live slot), else falls back to the keyboard-active slot (so an
+omitted `slot` preserves the CD-09 behaviour). No commands were removed and no
+fields renamed; `slot` is purely additive. Two new pieces — the host→page frame
+push (`window.cdFrame`) and `drag_start` — are documented under "Floating command
+sets IPC" below.
+
 ### `get_nav_state` (view -> host)
 
-- Request: `{"cmd":"get_nav_state"}`
+- Request: `{"cmd":"get_nav_state"[,"slot":<int>]}` — `slot` (CD-12) selects the
+  ensemble's column; omitted → the active slot. Each ensemble's capsule shows its
+  own column's url/title/scheme/star.
 - Success: `{"url":<str>,"title":<str>,"can_back":<bool>,"can_forward":<bool>,"loading":<bool>,"scheme":<str>,"favorite":<bool>,"autofocus":<bool>}`
   - `scheme` ∈ { `https`, `http`, `other` }, derived host-side from `url`. The
     command bar paints the amber "insecure" hint when `scheme == "http"`.
@@ -88,7 +100,8 @@ rendering. The wire format is unchanged.
 
 ### `navigate` (view -> host)
 
-- Request: `{"cmd":"navigate","input":"<str>"}`
+- Request: `{"cmd":"navigate","input":"<str>"[,"slot":<int>]}` — `slot` (CD-12)
+  targets the ensemble's column; omitted → the active slot.
 - `input` is the raw command-bar text; the host classifies it (URL vs. search):
   - contains `://` -> used verbatim (an explicit `http://` stays http)
   - `localhost` (optionally `:port`/`/path`), or a dot with no whitespace ->
@@ -96,16 +109,18 @@ rendering. The wire format is unchanged.
   - empty -> `about:blank`
   - otherwise -> `https://www.google.com/search?q=<urlencoded>` (or the selected
     search engine, CD-07)
-- Effect: loads the resolved URL in the active slot (spawning its browser if the
-  slot is still lazy, CD-09) and slides the top bar away (CD-08; a committed
-  navigation is one of the bar's hide triggers).
+- Effect: loads the resolved URL in the target slot (spawning its browser if the
+  slot is still lazy, CD-09) and disengages the command band (CD-12; a committed
+  navigation is one of the band's hide triggers).
 - Success: `{"ok":true,"url":"<resolved-url>"}`
 - Failure: code 1 (malformed request), 2 (missing `input`).
 
 ### `go_back` / `go_forward` / `reload` (view -> host)
 
-- Request: `{"cmd":"go_back"}` | `{"cmd":"go_forward"}` | `{"cmd":"reload"}`
-- Effect: the active slot steps back / forward in session history, or reloads.
+- Request: `{"cmd":"go_back"[,"slot":<int>]}` | `{"cmd":"go_forward"[,"slot":<int>]}`
+  | `{"cmd":"reload"[,"slot":<int>]}` — `slot` (CD-12) targets the ensemble's
+  column; omitted → the active slot.
+- Effect: the target slot steps back / forward in session history, or reloads.
   Back/forward are no-ops when `can_back` / `can_forward` (from `get_nav_state`)
   is false.
 - Success: `{"ok":true}`
@@ -172,6 +187,58 @@ above — there is no separate favorites command.
 The reveal (hover into the top gap, or Ctrl+L which sets `autofocus`) and the hide
 (mouse-out + ~250 ms hysteresis, a committed `navigate`, or ESC — with the typing
 exception above) are decided host-side; see docs/cyberdesk-decisions.md D-0016.
+
+## Floating command sets IPC (CD-12, live)
+
+The bar retires into N transparent floating **ensembles** on one internal band view
+plus a shared favorites **launcher** (D-0021). The band still uses the message-router
+bridge (`cyberdesk://command/`, process messages, allowlisted) for the nav/palette
+commands above (now with the `slot` field). CD-12 adds one host→page push, one pull,
+and one page→host command. Same error-code space (1 malformed, 2 missing/typed, 4
+unknown `cmd`).
+
+### `cdFrame(json)` (host -> view, push)
+
+Not a `cefQuery` — the host calls `window.cdFrame(<json-string>)` on the band view
+via `Frame::execute_java_script` whenever the frame state **changes** (engaged slot
+or any column's target x/width), never per frame (the CD-11 on-change cadence). The
+page positions/reveals its ensembles from it and glides via CSS (~220 ms).
+
+- Payload: `{"slots":[{"id":<int>,"x":<num>,"w":<num>}, …],"engaged":<int|null>,"autofocus":<bool>}`
+  - `slots` — one entry per live column in display order; `x`/`w` are **band-DIP**
+    (the band's origin = the window origin), so the page places each ensemble above
+    its column. `id` is the stable slot id (the same id the `slot` field carries back).
+  - `engaged` — the id of the column whose ensemble is revealed, or `null` (all hidden).
+  - `autofocus` — focus + select the engaged capsule's input on this reveal (Ctrl+L).
+    A **transient**: it is excluded from the host's change-signature, so a routine
+    position-only push cannot clear a pending focus.
+
+### `get_frame` (view -> host, pull)
+
+- Request: `{"cmd":"get_frame"}`
+- Effect: the page pulls the last-pushed frame state once on load (the band view can
+  reload independently of the host's push), then relies on `cdFrame` pushes.
+- Success: the current frame-state JSON string (the same payload as `cdFrame`), or an
+  empty string if none has been pushed yet.
+- Failure: code 1 (malformed request JSON).
+
+### `drag_start` (view -> host)
+
+- Request: `{"cmd":"drag_start","url":"<str>","title":"<str>"}`
+  - Fired by a favorites launcher **tile** once the pointer leaves a 6 px threshold
+    (a plain click still navigates the engaged column). A missing `title` defaults
+    to empty.
+- Effect: the host **takes over the drag** — it draws a ghost circle on the cursor
+  and the control gutters as drop zones, captures the mouse (slot views receive no
+  events), and on release inserts + spawns the favorite as a new column at the
+  nearest gutter, or (at full capacity) navigates the slot under the ghost. ESC
+  cancels. All of this is host-side; the page's only role is this one signal.
+- Success: `{"ok":true}`
+- Failure: code 1 (malformed request), 2 (missing `url`).
+
+The per-slot **close orb** (a shell-drawn ring + cross revealed on top-outer-corner
+hover, a click closes that column) is **no IPC** — it is drawn by the renderer and
+hit-tested host-side, like the gear button.
 
 ## NetGuard policy (sketch)
 
