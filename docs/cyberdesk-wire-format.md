@@ -24,7 +24,8 @@ Transport: `window.cefQuery({ request, persistent: false, onSuccess, onFailure }
 ### `get_settings` (view -> host)
 
 - Request: `{"cmd":"get_settings"}`
-- Success: `{"feather_edges":<bool>,"animated_background":<bool>,"stay_foreground":<bool>,"glow_intensity":<int>,"search_engine":<str>}`
+- Success: `{"feather_edges":<bool>,"animated_background":<bool>,"stay_foreground":<bool>,"glow_intensity":<int>,"search_engine":<str>,"tor_enabled":<bool>,"tor_default":<bool>}`
+  (`tor_enabled` / `tor_default` added in CD-15.)
   - `glow_intensity` is a whole percent (50..=220).
   - `search_engine` ∈ { `google`, `duckduckgo`, `bing`, `startpage` } (CD-07).
 - Failure: code 1 (malformed request JSON).
@@ -255,6 +256,36 @@ page positions/reveals its ensembles from it and glides via CSS (~220 ms).
 The per-slot **close orb** (a shell-drawn ring + cross revealed on top-outer-corner
 hover, a click closes that column) is **no IPC** — it is drawn by the renderer and
 hit-tested host-side, like the gear button.
+
+### `toggle_tor` (view -> host, CD-15)
+
+- Request: `{"cmd":"toggle_tor"[,"slot":<int>]}` — the ensemble's Tor shield glyph.
+  `slot` is the column id; omitted → the active slot.
+- Effect: queues a per-window Tor flip for the main thread, which tears the slot's
+  browser down and respawns it under the other request context (Tor: a proxied
+  per-slot context; clearnet: the direct global context) at the start page. No-op if
+  the engine master switch (`tor_enabled`) is off and the target is turning Tor ON.
+- Success: `{"ok":true}`. Failure: code 1 (malformed request JSON).
+
+The **frame-state push** (`cdFrame`, CD-12) gained a per-slot `"tor":<bool>` field
+and a top-level `"tor_status":<int>` (0 off / 1 connecting / 2 ready / 3 failed), so
+the shield glyph lights when the column is on Tor and pulses while the engine
+bootstraps.
+
+## Per-window Tor + settings IPC (CD-15, live)
+
+### `tor_status` (view -> host)
+
+- Request: `{"cmd":"tor_status"}` (the settings page polls it).
+- Success: `{"status":<int>}` — 0 off (not started), 1 bootstrapping, 2 ready,
+  3 failed. Failure: code 1 (malformed request JSON).
+
+### Tor settings (via the existing `get_settings` / `set_setting`)
+
+Two boolean settings join the `get_settings` reply and are writable via
+`set_setting` (the generic boolean path, D-0014): `tor_enabled` (engine master
+switch, default `true`) and `tor_default` (open new windows on Tor, default
+`false`). No new command — the wire shape is the CD-03 settings channel.
 
 ## Update-awareness IPC (CD-13, live)
 

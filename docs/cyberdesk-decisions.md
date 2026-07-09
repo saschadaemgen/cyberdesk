@@ -2,6 +2,65 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0027 - 2026-07-10 - CD-15: per-window Tor via per-CefRequestContext proxy + the leak checklist + honest scope
+
+The per-window switching, the leak checklist, and the honest-scope UI on top of
+the D-0026 engine (arti + per-slot SOCKS).
+
+**Per-window switching = per-`CefRequestContext` proxy (NOT the global context).**
+Verified in the pinned cef 149.3.0 crate: `browser_host_create_browser`'s last arg
+takes `Option<&mut RequestContext>`; `request_context_create_context` + `RequestContext::
+set_preference` set the `proxy` pref. A Tor slot's browser is created under its OWN
+context whose `proxy` = `{mode:"fixed_servers", server:"socks5://127.0.0.1:<per-slot
+-port>"}` (its own arti circuit, D-0026); a clearnet slot keeps the direct global
+context. Setting the proxy on the GLOBAL context is the classic "proxy changes for
+all windows" bug — avoided by per-slot contexts. `set_preference` is UI-thread-only
+under `multi_threaded_message_loop`, so the whole Tor-slot creation is posted to the
+CEF UI thread via `post_task(ThreadId::UI, …)`. Toggling tears the slot's browser
+down and respawns it under the other context at the start page (a fresh identity, no
+state bleed) — never mutating a live browser's proxy.
+
+**The leak checklist.** On each Tor context: `proxy` (above); the WebRTC prefs
+`webrtc.ip_handling_policy = "disable_non_proxied_udp"` + `webrtc.multiple_routes_
+enabled=false` + `webrtc.nonproxied_udp_enabled=false`; QUIC disabled **globally**
+via the `--disable-quic` command-line switch (no per-context QUIC pref exists; QUIC
+rides UDP and can bypass a SOCKS proxy). Remote DNS is enforced host-side in the
+SOCKS relay (D-0026). **Whether `webrtc.*` apply per request-context in CEF 149 is
+not verifiable here (no network) — it is on Sascha's empirical WebRTC test**; the
+documented fallback if they don't hold per-context is the global
+`--force-webrtc-ip-handling-policy` switch (which also constrains clearnet — a
+breakage tradeoff to weigh). The proxy pref is the fail-closed guarantee.
+
+**FAIL-CLOSED, hardened by an adversarial security review.** A 5-lens review
+(fail-open / thread-MTML / pref-correctness / DNS-remote / toggle-isolation),
+verified in two rounds, found and closed three real fail-open IP leaks before they
+shipped: (1) if the proxy pref does not apply, **no browser is created** — a "Tor"
+slot never falls back to a direct connection; (2) a link/popup opened from a Tor
+slot (`open_in_new_slot`) **inherits** the source's Tor mode, so it can't silently
+open clearnet; (3) each browser is tagged with its creation mode and
+`on_after_created` **closes** a mode-mismatched browser, so a rapid double-toggle
+(TOCTOU) can't leave a clearnet browser bound to a Tor slot; and fresh slot ids set
+the mode explicitly so a reused id can't inherit a closed Tor slot's stale flag. The
+review's second round came back dry.
+
+**Settings + honest scope (mandatory).** A Tor settings section: an engine master
+switch (`tor_enabled`, default on) that gates turning Tor on, a "Tor for new windows"
+default (`tor_default`, default off) read at every slot creation, and a live status
+readout (off / connecting / ready / failed) via the `tor_status` IPC. The **honesty
+label** states plainly: Tor mode routes the window through Tor and hides the IP, but
+does NOT provide Tor Browser's anti-fingerprinting and cannot change the
+network-layer (TLS/JA3) fingerprint — so it is **not equivalent to Tor Browser** for
+anonymity. No overclaiming (Vision Law + marketing rule). CD-16 (browser hardening)
+narrows the fingerprinting gap and its strong tier will auto-engage in Tor windows;
+it does not close the gap.
+
+**Verification honesty.** Machine-checkable here: compile / clippy / 42 tests, the
+adversarial review (fail-open logic), the toggle-glyph + settings render (headless),
+clearnet boots. NOT checkable here (no network) and gated on Sascha's live run:
+check.torproject.org shows a Tor exit, DNS-leak shows no local resolver, WebRTC
+doesn't leak, two Tor windows differ (different circuits). These are hard acceptance
+gates before the feature ships.
+
 ## D-0026 - 2026-07-09 - CD-15: the embedded Tor engine (arti) + per-slot local SOCKS relay
 
 Sascha's ruling: build Tor in, per window, securely. Stage A is the engine; the

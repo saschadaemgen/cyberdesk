@@ -39,6 +39,22 @@ feathered compositing, and an isolated in-shell settings surface.
   a scan sweep) is preserved as a token-selectable "Calm" variant
   (`background.kind = "deep_field"`). See `docs/cyberdesk-decisions.md` (D-0012,
   D-0013).
+* **Per-window Tor (CD-15, D-0026/D-0027):** clearnet is the default; each column has
+  its own **Tor toggle** — a shield glyph in its floating command set. Flipping it
+  routes **that window** through the Tor network (embedded **arti**, pure-Rust Tor, on
+  a background runtime) via its own local SOCKS circuit — the glyph lights and pulses
+  while the engine bootstraps, and other windows are unaffected (per-`CefRequestContext`
+  proxy, so no "proxy changes all windows" bug). Each Tor window is on its **own
+  circuit** (two Tor windows are unlinkable), a leak checklist is enforced per context
+  (SOCKS proxy, WebRTC constrained, QUIC off, remote DNS), and the wiring is
+  **fail-closed** (a slot never silently falls back to a direct connection — verified
+  by an adversarial security review that caught three real leaks). Settings expose the
+  engine switch, a "route new windows through Tor by default" toggle, and a live status
+  readout. **Honest scope:** Tor mode hides your IP but is **not** Tor-Browser-grade —
+  it does not provide anti-fingerprinting or change the TLS-layer fingerprint (browser
+  hardening is a separate upcoming feature). *This is the host's second sanctioned
+  outbound path (D-0004 → D-0027); the live routing/leak checks run on the maintainer's
+  networked machine.*
 * **Own start page, no Google, no saved websites (CD-14, D-0025):** every empty/new
   slot opens to an **own start page** served from the binary at `cyberdesk://start/`
   (same isolation as settings, **zero network**) — Google is gone. It is a black
@@ -283,6 +299,7 @@ its own floating command set (CD-12).
 | `F5` / `Ctrl+R` | Reload (active column) |
 | `Ctrl+Shift+R` | Hard reload, ignore cache (active column) |
 | Click the **info glyph** (top-right, beside the gear) | Open / close the update-awareness panel; it fills + pulses when an update is available |
+| Click the **Tor shield** (in a column's command set) | Route that window through Tor (or back to clearnet); the shield lights on Tor and pulses while the engine connects |
 | `ESC` | Cancel a favorite drag, else hide the command set / info panel, else close the settings card, else quit |
 
 An amber glyph in the address capsule marks a page served over plain `http://`
@@ -313,6 +330,7 @@ cyberdesk/
 │  ├─ settings.rs    # live settings state (search engine, glow, toggles) over the shared store
 │  ├─ memory.rs      # history + favorites domain layer (frecency suggestions) over the store
 │  ├─ updates.rs     # update awareness (CD-13): pinned-manifest fetch/parse/compare, info items, background worker
+│  ├─ tor.rs         # embedded Tor engine (CD-15): arti-client + per-slot local SOCKS5 relay, isolated circuits, off-thread bootstrap
 │  ├─ pulsegrid.rs   # Pulse Grid background: seeded generator + life simulation
 │  ├─ settings.html/.css/.js   # embedded internal settings page assets
 │  ├─ command.html/.css/.js    # embedded floating command-set page assets (CD-12)
