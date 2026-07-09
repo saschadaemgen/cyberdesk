@@ -1458,6 +1458,71 @@ impl SlotLines {
     }
 }
 
+// --- Drag overlay (CD-12): favorite-drag ghost + gutter drop zones ----------
+
+/// One soft-glowing rounded rect for the drag overlay (`drag.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct DragInstance {
+    rect: [f32; 4],  // x, y, w, h (device px)
+    color: [f32; 4], // rgb + alpha
+    shape: [f32; 4], // corner_radius, glow_softness, _, _
+}
+
+const DRAG_ATTRS: [wgpu::VertexAttribute; 3] =
+    wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
+
+/// A drag-overlay quad (CD-12): the drag ghost (a circle: `radius` = half its
+/// size), a drop-zone gutter bar, or a slot highlight. Premultiplied OVER.
+pub struct DragQuad {
+    pub rect: (f32, f32, f32, f32),
+    pub color: [f32; 4],
+    pub radius: f32,
+    pub glow: f32,
+}
+
+/// The drag overlay pass — instanced soft rounded rects, drawn topmost.
+struct DragOverlay {
+    pipeline: wgpu::RenderPipeline,
+    globals_buf: wgpu::Buffer,
+    globals_bg: wgpu::BindGroup,
+    instance_buf: wgpu::Buffer,
+}
+
+impl DragOverlay {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, cap: u32) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("drag-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("drag.wgsl").into()),
+        });
+        let (globals_buf, bgl, globals_bg) = globals_bind_group(
+            device,
+            "drag-globals",
+            std::mem::size_of::<PlaceholderGlobals>() as u64,
+        );
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("drag-pl"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+        let pipeline = instanced_over_pipeline(
+            device,
+            &shader,
+            &layout,
+            format,
+            std::mem::size_of::<DragInstance>() as u64,
+            &DRAG_ATTRS,
+        );
+        let instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("drag-instances"),
+            size: (cap as usize * std::mem::size_of::<DragInstance>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        Self { pipeline, globals_buf, globals_bg, instance_buf }
+    }
+}
+
 /// One slot to draw this frame (CD-09): its rect (device px), loading intensity,
 /// whether it is the active slot, and its 0-based index (→ its page target and
 /// its placeholder glyph digit `index + 1`). `pending` (CD-10) is the scheme
@@ -1482,6 +1547,7 @@ pub struct SurfaceRenderer {
     panel: PageTarget,
     placeholder: SlotPlaceholder,
     slotlines: SlotLines,
+    drag: DragOverlay,
     gear: Gear,
     field: DeepField,
     pulse: PulseGrid,
@@ -1533,6 +1599,9 @@ impl SurfaceRenderer {
         // Placeholder instances: up to MAX_SLOTS empty slots + 2 side zones.
         let placeholder = SlotPlaceholder::new(&device, SURFACE_FORMAT, MAX_SLOTS as u32 + 2);
         let slotlines = SlotLines::new(&device, SURFACE_FORMAT, MAX_SLOTS as u32);
+        // Drag overlay: up to MAX_SLOTS+1 gutter drop zones + the ghost + a slot
+        // highlight (CD-12).
+        let drag = DragOverlay::new(&device, SURFACE_FORMAT, MAX_SLOTS as u32 + 3);
         let gear = Gear::new(&device, SURFACE_FORMAT);
         let field = DeepField::new(&device, SURFACE_FORMAT);
         let pulse = PulseGrid::new(&device, SURFACE_FORMAT);
@@ -1547,6 +1616,7 @@ impl SurfaceRenderer {
             panel,
             placeholder,
             slotlines,
+            drag,
             gear,
             field,
             pulse,
@@ -1603,6 +1673,7 @@ impl SurfaceRenderer {
         time: f32,
         slots: &[SlotView],
         sides: &[(f32, f32, f32, f32)],
+        drag: &[DragQuad],
         panel: (f32, f32, f32, f32),
         gear: (f32, f32, f32),
         feather: bool,
@@ -1770,6 +1841,26 @@ impl SurfaceRenderer {
                 0,
                 bytemuck::cast_slice(&lines[..line_count as usize]),
             );
+        }
+
+        // Drag overlay instances (CD-12): the drag ghost + gutter drop zones +
+        // slot highlight, drawn topmost.
+        let drag_insts: Vec<DragInstance> = drag
+            .iter()
+            .take(MAX_SLOTS + 3)
+            .map(|q| DragInstance {
+                rect: [q.rect.0, q.rect.1, q.rect.2, q.rect.3],
+                color: q.color,
+                shape: [q.radius, q.glow, 0.0, 0.0],
+            })
+            .collect();
+        let drag_count = drag_insts.len() as u32;
+        if drag_count > 0 {
+            let dg = PlaceholderGlobals { resolution: [win_w, win_h], _pad: [0.0, 0.0] };
+            self.queue
+                .write_buffer(&self.drag.globals_buf, 0, bytemuck::bytes_of(&dg));
+            self.queue
+                .write_buffer(&self.drag.instance_buf, 0, bytemuck::cast_slice(&drag_insts));
         }
 
         // Panel uniforms: the internal overlay (settings card or command bar) —
@@ -1962,10 +2053,18 @@ impl SurfaceRenderer {
                 pass.draw(0..6, 0..1);
             }
 
-            // Gear button, on top of everything.
+            // Gear button, over the pages / overlay.
             pass.set_pipeline(&self.gear.pipeline);
             pass.set_bind_group(0, &self.gear.bind_group, &[]);
             pass.draw(0..3, 0..1);
+
+            // Drag overlay (CD-12): ghost + drop zones, topmost of all.
+            if drag_count > 0 {
+                pass.set_pipeline(&self.drag.pipeline);
+                pass.set_bind_group(0, &self.drag.globals_bg, &[]);
+                pass.set_vertex_buffer(0, self.drag.instance_buf.slice(..));
+                pass.draw(0..6, 0..drag_count);
+            }
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         self.queue.present(frame);
@@ -2121,6 +2220,47 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
     );
     queue.write_buffer(&slotlines.instance_buf, 0, bytemuck::cast_slice(&line_insts));
 
+    // CYBERDESK_CAPTURE_DRAG=1 renders a sample favorite-drag overlay (CD-12): the
+    // gutter drop zones (the middle one hot) + a ghost, so the drag reads headless.
+    let drag = DragOverlay::new(&device, format, MAX_SLOTS as u32 + 3);
+    let mut drag_insts: Vec<DragInstance> = Vec::new();
+    if std::env::var("CYBERDESK_CAPTURE_DRAG").is_ok() {
+        let g = (theme.slots.gutter).round();
+        let (sy, sh) = rects.first().map(|r| (r.y, r.h)).unwrap_or((0.0, 0.0));
+        // Gutter bars before slot 0, between pairs, and after the last.
+        let mut bars: Vec<f32> = vec![rects[0].x - g];
+        for p in 1..rects.len() {
+            bars.push(rects[p - 1].x + rects[p - 1].w);
+        }
+        if let Some(last) = rects.last() {
+            bars.push(last.x + last.w);
+        }
+        let hot = bars.len() / 2;
+        for (i, &bx) in bars.iter().enumerate() {
+            let a = if i == hot { 0.6 } else { 0.16 };
+            drag_insts.push(DragInstance {
+                rect: [bx, sy, g, sh],
+                color: [brand[0], brand[1], brand[2], a],
+                shape: [g * 0.5, if i == hot { 16.0 } else { 6.0 }, 0.0, 0.0],
+            });
+        }
+        // Ghost circle over the hot gutter.
+        let gx = bars[hot] + g * 0.5;
+        let gy = sy + sh * 0.4;
+        let gs = 40.0;
+        drag_insts.push(DragInstance {
+            rect: [gx - gs * 0.5, gy - gs * 0.5, gs, gs],
+            color: [brand[0], brand[1], brand[2], 0.85],
+            shape: [gs * 0.5, 13.0, 0.0, 0.0],
+        });
+        queue.write_buffer(
+            &drag.globals_buf,
+            0,
+            bytemuck::bytes_of(&PlaceholderGlobals { resolution: [width as f32, height as f32], _pad: [0.0, 0.0] }),
+        );
+        queue.write_buffer(&drag.instance_buf, 0, bytemuck::cast_slice(&drag_insts));
+    }
+
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("capture-target"),
         size: wgpu::Extent3d {
@@ -2194,6 +2334,12 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
         pass.set_bind_group(0, &slotlines.globals_bg, &[]);
         pass.set_vertex_buffer(0, slotlines.instance_buf.slice(..));
         pass.draw(0..6, 0..n as u32);
+        if !drag_insts.is_empty() {
+            pass.set_pipeline(&drag.pipeline);
+            pass.set_bind_group(0, &drag.globals_bg, &[]);
+            pass.set_vertex_buffer(0, drag.instance_buf.slice(..));
+            pass.draw(0..6, 0..drag_insts.len() as u32);
+        }
     }
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {

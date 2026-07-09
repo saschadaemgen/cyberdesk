@@ -228,11 +228,29 @@
     var c = (s || "?").trim().charAt(0);
     return c ? c.toUpperCase() : "?";
   }
-  // Click navigates the engaged column; drag (Stage B) is wired here later.
+  // Click navigates the engaged column; a mousedown + movement past a small
+  // threshold starts a host-owned drag (CD-12): the page fires drag_start and the
+  // shell draws the ghost + gutter drop zones from there on.
   function wireTile(tile) {
-    tile.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
-    tile.addEventListener("click", function () {
-      if (engaged != null && ensembles[engaged]) navigate(ensembles[engaged], tile.dataset.url);
+    var down = false, fired = false, sx = 0, sy = 0;
+    tile.addEventListener("mousedown", function (ev) {
+      ev.preventDefault();
+      down = true; fired = false; sx = ev.clientX; sy = ev.clientY;
+    });
+    tile.addEventListener("mousemove", function (ev) {
+      if (!down || fired) return;
+      var dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (dx * dx + dy * dy > 36) {      // ~6 px threshold
+        fired = true; down = false;
+        tile.classList.add("dragging");
+        query({ cmd: "drag_start", url: tile.dataset.url, title: tile.dataset.ttl }).catch(function () {});
+      }
+    });
+    tile.addEventListener("mouseup", function () {
+      if (down && !fired && engaged != null && ensembles[engaged]) {
+        navigate(ensembles[engaged], tile.dataset.url); // a click, not a drag
+      }
+      down = false;
     });
   }
 

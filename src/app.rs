@@ -12,7 +12,7 @@ use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{CursorIcon, Fullscreen, Window, WindowId, WindowLevel};
 
 use crate::browser::{self, Role};
-use crate::renderer::{SlotView, SurfaceRenderer};
+use crate::renderer::{self, SlotView, SurfaceRenderer};
 use crate::session;
 use crate::settings;
 use crate::slots::{self, MAX_SLOTS};
@@ -122,6 +122,7 @@ pub fn run(windowed: bool) {
         bar_hide_at: None,
         band_off_at: None,
         frame_sig: String::new(),
+        drag: None,
     };
     event_loop.run_app(&mut app).expect("event loop error");
 
@@ -203,6 +204,9 @@ struct Shell {
     /// The last frame state pushed to the page, so a push fires only on change
     /// (target rects + engaged slot) — not per frame (the CD-11 IPC cadence).
     frame_sig: String,
+    /// An in-progress favorite-tile drag `(url, title)` (CD-12): the host owns it
+    /// (ghost + drop zones) and slot views receive no mouse until it ends.
+    drag: Option<(String, String)>,
 }
 
 fn window_hwnd(window: &Window) -> isize {
@@ -522,6 +526,143 @@ impl Shell {
         self.notify_all_resized();
     }
 
+    /// Insert a new lazy slot at display position `pos`, spawn it with `url`, and
+    /// make it active (CD-12 drag drop; shared with open-in-new-slot). No-op if no
+    /// free id.
+    fn insert_slot_at(&mut self, pos: usize, url: &str) {
+        let Some(free) = slots::free_id(&self.order) else {
+            return;
+        };
+        if self.overlay == Overlay::Closed {
+            browser::set_focus(Role::Slot(self.active_slot), false);
+        }
+        let pos = pos.min(self.order.len());
+        self.order.insert(pos, free);
+        self.width_units[free] = 1;
+        self.armed[free] = None;
+        self.loading[free] = 0.0;
+        self.disp_rects[free] = None;
+        self.active_slot = free;
+        browser::set_active_slot(free);
+        if let Some(window) = self.window.clone() {
+            self.push_geometry();
+            let hwnd = window_hwnd(&window);
+            browser::create_browser_url(Role::Slot(free), hwnd, url);
+        }
+        self.notify_all_resized();
+    }
+
+    /// The control-gutter drop zones (CD-12): a gutter-wide bar before slot 0,
+    /// between each pair, and after the last slot — paired with the display
+    /// position a drop there inserts at (0..=n).
+    fn gutter_drops(&self) -> Vec<(usize, slots::Rect)> {
+        let (w, h) = match self.renderer.as_ref().map(|r| r.size()) {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+        let rects = self.slot_rects_wh(w, h);
+        if rects.is_empty() {
+            return Vec::new();
+        }
+        let g = self.theme.slots.gutter * self.scale;
+        let (sy, sh) = (rects[0].y, rects[0].h);
+        let mut out = Vec::with_capacity(rects.len() + 1);
+        out.push((0, slots::Rect { x: rects[0].x - g, y: sy, w: g, h: sh }));
+        for p in 1..rects.len() {
+            let left = rects[p - 1].x + rects[p - 1].w;
+            out.push((p, slots::Rect { x: left, y: sy, w: g, h: sh }));
+        }
+        let last = rects[rects.len() - 1];
+        out.push((rects.len(), slots::Rect { x: last.x + last.w, y: sy, w: g, h: sh }));
+        out
+    }
+
+    /// Index into `gutters` nearest the cursor x.
+    fn nearest_gutter(&self, gutters: &[(usize, slots::Rect)]) -> usize {
+        let cx = self.cursor_phys.x as f32;
+        gutters
+            .iter()
+            .enumerate()
+            .min_by(|a, b| {
+                let da = (a.1.1.x + a.1.1.w * 0.5 - cx).abs();
+                let db = (b.1.1.x + b.1.1.w * 0.5 - cx).abs();
+                da.total_cmp(&db)
+            })
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    }
+
+    /// Whether the frame has room for one more column (drop-into-gutter allowed).
+    fn drag_has_room(&self) -> bool {
+        self.order.len() < MAX_SLOTS && self.total_units() < self.capacity() as u32
+    }
+
+    /// The drag overlay quads for the current drag (CD-12): the drop-zone gutter
+    /// bars (nearest hot) with room, else a highlight on the slot under the cursor,
+    /// plus the glowing ghost circle at the cursor. Empty if not dragging.
+    fn drag_quads(&self) -> Vec<renderer::DragQuad> {
+        if self.drag.is_none() {
+            return Vec::new();
+        }
+        let b = crate::theme::hex3(&self.theme.colors.brand);
+        let (cx, cy) = (self.cursor_phys.x as f32, self.cursor_phys.y as f32);
+        let mut out = Vec::new();
+        if self.drag_has_room() {
+            let gutters = self.gutter_drops();
+            let hot = self.nearest_gutter(&gutters);
+            for (i, (_pos, r)) in gutters.iter().enumerate() {
+                let is_hot = i == hot;
+                let a = if is_hot { 0.6 } else { 0.16 };
+                let glow = (if is_hot { 16.0 } else { 6.0 }) * self.scale;
+                out.push(renderer::DragQuad {
+                    rect: (r.x, r.y, r.w, r.h),
+                    color: [b[0], b[1], b[2], a],
+                    radius: r.w * 0.5,
+                    glow,
+                });
+            }
+        } else if let Some((_, r)) = self.slot_at_cursor() {
+            // Full grid: dropping over a slot navigates it — hint by glowing it.
+            out.push(renderer::DragQuad {
+                rect: (r.x, r.y, r.w, r.h),
+                color: [b[0], b[1], b[2], 0.16],
+                radius: self.theme.page.corner_radius,
+                glow: 10.0 * self.scale,
+            });
+        }
+        // The ghost: a glowing brand circle at the cursor.
+        let gs = 40.0 * self.scale;
+        out.push(renderer::DragQuad {
+            rect: (cx - gs * 0.5, cy - gs * 0.5, gs, gs),
+            color: [b[0], b[1], b[2], 0.85],
+            radius: gs * 0.5,
+            glow: 13.0 * self.scale,
+        });
+        out
+    }
+
+    /// Finish a drag by releasing the mouse: drop into the nearest gutter (insert
+    /// + spawn) with room, else navigate the slot under the cursor (CD-12).
+    fn drop_favorite(&mut self) {
+        let Some((url, _title)) = self.drag.take() else {
+            return;
+        };
+        if self.drag_has_room() {
+            let gutters = self.gutter_drops();
+            if !gutters.is_empty() {
+                let pos = gutters[self.nearest_gutter(&gutters)].0;
+                self.insert_slot_at(pos, &url);
+            }
+        } else if let Some((id, _)) = self.slot_at_cursor() {
+            browser::navigate_slot(id, &url);
+        }
+    }
+
+    /// Cancel an in-progress drag (ESC) — no drop.
+    fn cancel_drag(&mut self) {
+        self.drag = None;
+    }
+
     /// Close the active slot (Ctrl+W). The last slot cannot be closed. The
     /// browser shuts down cleanly, the group recenters, and the nearest neighbor
     /// becomes active.
@@ -734,6 +875,10 @@ impl Shell {
     /// Drive the floating command band once per frame: engage on band hover,
     /// hysteresis disengage (typing exception), and the compositing linger.
     fn update_band(&mut self) {
+        // During a favorite drag the host owns the mouse — don't engage/disengage.
+        if self.drag.is_some() {
+            return;
+        }
         match self.overlay {
             Overlay::Closed => {
                 if let Some(s) = self.band_hot_slot() {
@@ -1155,6 +1300,11 @@ impl ApplicationHandler for Shell {
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_phys = position;
+                // During a favorite drag the host captures the mouse: no view gets
+                // events; the cursor drives the ghost + drop zones (CD-12).
+                if self.drag.is_some() {
+                    return;
+                }
                 let over_gear = self.gear_hit();
                 self.gear_hover_target = if over_gear { 1.0 } else { 0.0 };
                 // Route the move to the view under the cursor (a slot, or the
@@ -1178,6 +1328,15 @@ impl ApplicationHandler for Shell {
 
             WindowEvent::MouseInput { state, button, .. } => {
                 let down = state == ElementState::Pressed;
+                // While dragging a favorite, the host owns the mouse: releasing the
+                // left button drops it (into a gutter, or onto a slot); other
+                // buttons are ignored, and no view receives the event (CD-12).
+                if self.drag.is_some() {
+                    if button == MouseButton::Left && !down {
+                        self.drop_favorite();
+                    }
+                    return;
+                }
                 // The gear button toggles the settings view; the click is not
                 // forwarded to any page.
                 if button == MouseButton::Left && down && self.gear_hit() {
@@ -1230,6 +1389,9 @@ impl ApplicationHandler for Shell {
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
+                if self.drag.is_some() {
+                    return;
+                }
                 let (dx, dy) = match delta {
                     MouseScrollDelta::LineDelta(x, y) => (x * 120.0, y * 120.0),
                     MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
@@ -1245,8 +1407,14 @@ impl ApplicationHandler for Shell {
                     PhysicalKey::Code(code) => keycode_to_vk(code),
                     _ => 0,
                 };
-                // Ctrl+L reveals the top bar (from any state) with the input
-                // focused + selected.
+                // ESC cancels an in-progress favorite drag before anything else.
+                if self.drag.is_some() {
+                    if vk == 0x1B && event.state == ElementState::Pressed {
+                        self.cancel_drag();
+                    }
+                    return;
+                }
+                // Ctrl+L reveals the active slot's own capsule, focused (CD-12).
                 if event.state == ElementState::Pressed
                     && self.mods.control_key()
                     && event.physical_key == PhysicalKey::Code(KeyCode::KeyL)
@@ -1407,11 +1575,13 @@ impl ApplicationHandler for Shell {
                         (self.disp_left.x, self.disp_left.y, self.disp_left.w, self.disp_left.h),
                         (self.disp_right.x, self.disp_right.y, self.disp_right.w, self.disp_right.h),
                     ];
+                    let drag = self.drag_quads();
                     if let Some(r) = self.renderer.as_mut() {
                         r.render(
                             time,
                             &slot_views,
                             &sides,
+                            &drag,
                             internal,
                             gear_geom(w, scale),
                             settings::feather_edges(),
@@ -1461,6 +1631,14 @@ impl ApplicationHandler for Shell {
             for (source, url) in browser::take_pending_new_slots() {
                 self.open_in_new_slot(source, url);
             }
+        }
+
+        // A favorite-tile drag the page started — the host takes over (CD-12).
+        if self.views_started
+            && self.drag.is_none()
+            && let Some((url, title)) = browser::take_pending_drag()
+        {
+            self.drag = Some((url, title));
         }
 
         // Drive the top bar's reveal/hide state machine and slide easing.

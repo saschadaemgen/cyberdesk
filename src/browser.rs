@@ -230,6 +230,18 @@ pub fn take_pending_new_slots() -> Vec<(usize, String)> {
     std::mem::take(&mut pending_new_slot().lock().unwrap())
 }
 
+/// A favorite-tile drag the page started (CD-12 `drag_start`): the host then owns
+/// the drag (ghost + drop zones). Holds `(url, title)`.
+fn pending_drag() -> &'static Mutex<Option<(String, String)>> {
+    static P: OnceLock<Mutex<Option<(String, String)>>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new(None))
+}
+
+/// Take a queued favorite drag `(url, title)`, if any (main thread).
+pub fn take_pending_drag() -> Option<(String, String)> {
+    pending_drag().lock().unwrap().take()
+}
+
 // The command bar's `navigate` sets this on the CEF UI thread; the main thread
 // consumes it to close the overlay after a submission.
 static CLOSE_OVERLAY: AtomicBool = AtomicBool::new(false);
@@ -803,6 +815,17 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             let title = v.get("title").and_then(|x| x.as_str()).unwrap_or("");
             let favorite = crate::memory::toggle_favorite(url, title);
             Ok(serde_json::json!({ "favorite": favorite }).to_string())
+        }
+        // Favorite-tile drag start (CD-12): the page reports a tile drag; the host
+        // takes over (ghost + drop zones). Internal view only, allowlisted.
+        "drag_start" => {
+            let url = v
+                .get("url")
+                .and_then(|x| x.as_str())
+                .ok_or((2, "missing 'url'".to_string()))?;
+            let title = v.get("title").and_then(|x| x.as_str()).unwrap_or("");
+            *pending_drag().lock().unwrap() = Some((url.to_string(), title.to_string()));
+            Ok(serde_json::json!({ "ok": true }).to_string())
         }
         // Bar typing state (CD-08): the page reports whether the user is actively
         // typing so the host's mouse-out hide does not interrupt them.
