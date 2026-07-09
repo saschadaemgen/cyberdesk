@@ -156,15 +156,20 @@ chip_row     = 54.0   # logical px — the favorites chip row (CD-08 top bar)
 # Slot engine (CD-09, D-0017) — fixed-width content columns instead of a single
 # proportional surf zone. A slot is `width` logical px wide, as tall as the surf
 # zone (`height_frac` of the window, vertically centered), with `gutter` between
-# slots; the group is horizontally centered and never comes within `min_margin`
-# of the screen edge. `width` is tuned so four columns fit the 5120 ultrawide
-# (4·1200 + 3·24 = 4872 < 5120). All sizes are logical px (scaled by DPI).
+# slots. CD-11 (D-0020) frames the slot group with side zones and widens the
+# gutter into control territory; the whole frame (side zones + gutters + slot
+# group) is centered in the window. `gutter` was widened 24 → 40 (the ~48 target,
+# calibrated down so four 1200px slots still fit the 5120 ultrawide at rail
+# state: 2·48 + 2·40 + 4·1200 + 3·40 = 5096 ≤ 5120). All sizes are logical px
+# (scaled by DPI).
 [slots]
 width            = 1200.0  # fixed content-column width (four fit on 5120)
-gutter           = 24.0    # gap between adjacent slots
-min_margin       = 48.0    # minimum group side margin — never edge-to-edge
-height_frac      = 0.70    # slot height as a fraction of window height (centered)
+gutter           = 40.0    # gap between slots AND between the group and side zones (CD-11)
+min_margin       = 48.0    # legacy edge margin (still used by max_slots; the CD-11 frame centers in the window)
+height_frac      = 0.70    # slot / side-zone height as a fraction of window height (centered)
 max_count        = 4       # hard cap: the four-column product vision
 active_line      = 2.0     # active-slot bottom accent line thickness
 placeholder_fill = 0.05    # placeholder fill lift above the base color (additive)
 placeholder_glyph = 0.18   # placeholder index-glyph brightness (0..1 of brand)
+side_zone_width  = 320.0   # CD-11 side zone width (Full state) — Spine / rails live here later
+side_rail_width  = 48.0    # CD-11 side rail width (Rail state) — the retreated thin strip

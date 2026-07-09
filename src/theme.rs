@@ -176,6 +176,10 @@ pub struct Slots {
     pub active_line: f32,
     pub placeholder_fill: f32,
     pub placeholder_glyph: f32,
+    /// CD-11 (D-0020) side-zone widths: `side_zone_width` in the Full state,
+    /// `side_rail_width` when the slots demand the width and the sides retreat.
+    pub side_zone_width: f32,
+    pub side_rail_width: f32,
 }
 
 impl Background {
