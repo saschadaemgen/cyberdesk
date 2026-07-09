@@ -15,7 +15,7 @@ use std::sync::{Mutex, OnceLock};
 
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// History is capped at this many rows; the oldest are pruned on each insert
 /// (D-0014). Local only — no sync, no export.
@@ -26,17 +26,6 @@ pub struct Suggestion {
     pub url: String,
     pub title: String,
     pub favorite: bool,
-}
-
-/// One persisted slot in the session workspace (CD-10, D-0019). `position` is
-/// implicit (the row order). `url` is the slot's committed page ("" for an empty
-/// / internal / blank slot); `width_units` is 1 or 2; `active` marks the slot
-/// that was active at save time.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SessionSlot {
-    pub url: String,
-    pub width_units: u32,
-    pub active: bool,
 }
 
 pub struct Store {
@@ -159,6 +148,15 @@ impl Store {
                      );",
                 )
                 .expect("failed to migrate to schema v4 (update awareness)");
+        }
+        if version < 5 {
+            // CD-14 (D-0025): websites are not saved. Drop the session workspace
+            // table — this also PURGES any open-website URLs a prior build had
+            // persisted (the privacy reversal of CD-10/D-0019). Slots always start
+            // fresh at the own start page.
+            self.conn
+                .execute_batch("DROP TABLE IF EXISTS session_slots;")
+                .expect("failed to migrate to schema v5 (drop session_slots)");
         }
         self.conn
             .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -321,51 +319,6 @@ impl Store {
                 .ok();
             true
         }
-    }
-
-    // --- Session slots (D-0019) ---------------------------------------------
-
-    /// Persist the slot workspace, replacing the whole table (the session is a
-    /// single implicit set of rows; `position` is the index in `slots`).
-    pub fn save_session(&self, slots: &[SessionSlot]) {
-        let tx = match self.conn.unchecked_transaction() {
-            Ok(tx) => tx,
-            Err(_) => return,
-        };
-        if tx.execute("DELETE FROM session_slots", []).is_err() {
-            return;
-        }
-        for (position, s) in slots.iter().enumerate() {
-            let _ = tx.execute(
-                "INSERT INTO session_slots (position, url, width_units, active)
-                 VALUES (?1, ?2, ?3, ?4)",
-                (
-                    position as i64,
-                    s.url.as_str(),
-                    s.width_units.max(1) as i64,
-                    s.active as i64,
-                ),
-            );
-        }
-        let _ = tx.commit();
-    }
-
-    /// Load the persisted slot workspace in position order (empty on a fresh
-    /// install / no session).
-    pub fn load_session(&self) -> Vec<SessionSlot> {
-        let mut out = Vec::new();
-        if let Ok(mut stmt) = self.conn.prepare(
-            "SELECT url, width_units, active FROM session_slots ORDER BY position ASC",
-        ) && let Ok(rows) = stmt.query_map([], |r| {
-            Ok(SessionSlot {
-                url: r.get::<_, String>(0)?,
-                width_units: (r.get::<_, i64>(1)?.clamp(1, 2)) as u32,
-                active: r.get::<_, i64>(2)? != 0,
-            })
-        }) {
-            out.extend(rows.filter_map(Result::ok));
-        }
-        out
     }
 
     // --- Update awareness (D-0023) ------------------------------------------
@@ -563,26 +516,5 @@ mod tests {
         let only_b = s.query_suggestions("b.example", 6);
         assert_eq!(only_b.len(), 1);
         assert_eq!(only_b[0].url, "https://b.example/");
-    }
-
-    /// The session workspace round-trips (order, urls, widths, the active flag),
-    /// and each save replaces the whole table (no stale rows accumulate).
-    #[test]
-    fn session_round_trips_and_replaces_wholesale() {
-        let s = Store::open_in_memory();
-        assert!(s.load_session().is_empty(), "fresh store has no session");
-
-        let slots = vec![
-            SessionSlot { url: "https://a.example/".into(), width_units: 2, active: false },
-            SessionSlot { url: String::new(), width_units: 1, active: true },
-            SessionSlot { url: "https://c.example/".into(), width_units: 1, active: false },
-        ];
-        s.save_session(&slots);
-        assert_eq!(s.load_session(), slots);
-
-        // A shorter save must not leave the old third row behind.
-        let fewer = vec![SessionSlot { url: "https://only.example/".into(), width_units: 1, active: true }];
-        s.save_session(&fewer);
-        assert_eq!(s.load_session(), fewer);
     }
 }
