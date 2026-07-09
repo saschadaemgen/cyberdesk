@@ -109,6 +109,7 @@ pub fn run(windowed: bool) {
         gear_hover_target: 0.0,
         order: vec![0],
         active_slot: 0,
+        mouse_role: None,
         loading: [0.0; MAX_SLOTS],
         applied_title: String::new(),
         applied_topmost: false,
@@ -149,6 +150,11 @@ struct Shell {
     /// The active slot id: keyboard input, the top bar and the scheme hint act on
     /// it. Always a member of `order`.
     active_slot: usize,
+    /// The view the mouse was last over (a slot or the internal overlay), so a
+    /// move onto another view sends a mouse-leave to the old one and the cursor
+    /// icon is taken from the hovered view (CD-09 Stage C). `None` over a gutter
+    /// / margin / the gear.
+    mouse_role: Option<Role>,
     /// Per-slot loading-line intensity, eased toward on (loading) / off (done).
     loading: [f32; MAX_SLOTS],
     applied_title: String,
@@ -246,11 +252,68 @@ impl Shell {
         rects[self.active_position().min(rects.len().saturating_sub(1))]
     }
 
-    /// The active slot's rectangle at the current surface size.
-    #[allow(dead_code)] // wired into the mouse router in Stage C
-    fn active_rect(&self) -> slots::Rect {
+    /// The slot id + rect whose rectangle contains the cursor, if any (Stage C
+    /// mouse routing). Slots never overlap, so the first hit is the one.
+    fn slot_at_cursor(&self) -> Option<(usize, slots::Rect)> {
         let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
-        self.active_rect_wh(w, h)
+        let rects = self.slot_rects_wh(w, h);
+        let (cx, cy) = (self.cursor_phys.x as f32, self.cursor_phys.y as f32);
+        self.order
+            .iter()
+            .enumerate()
+            .find(|&(p, _)| rects[p].contains(cx, cy))
+            .map(|(p, &id)| (id, rects[p]))
+    }
+
+    /// Top-left origin (device px) of a role's rectangle (a slot's rect, or the
+    /// internal overlay's).
+    fn origin_of_role(&self, role: Role) -> (f32, f32) {
+        let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
+        match role {
+            Role::Internal => {
+                let (x, y, _, _) = self.internal_rect(w, h);
+                (x, y)
+            }
+            Role::Slot(id) => self
+                .order
+                .iter()
+                .position(|&i| i == id)
+                .map(|p| {
+                    let r = self.slot_rects_wh(w, h)[p];
+                    (r.x, r.y)
+                })
+                .unwrap_or((0.0, 0.0)),
+        }
+    }
+
+    /// The view the mouse currently routes to and its origin: the internal
+    /// overlay when the cursor is over its visible rect, otherwise the slot under
+    /// the cursor. `None` over a gutter / margin (no page there).
+    fn mouse_target(&self) -> Option<(Role, (f32, f32))> {
+        let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
+        let (cx, cy) = (self.cursor_phys.x as f32, self.cursor_phys.y as f32);
+        match self.overlay {
+            Overlay::Settings => {
+                let (x, y, pw, ph) = self.internal_rect(w, h);
+                if cx >= x && cx <= x + pw && cy >= y && cy <= y + ph {
+                    Some((Role::Internal, (x, y)))
+                } else {
+                    None
+                }
+            }
+            Overlay::Bar => {
+                // Over the visible (slid-down) bar strip -> the internal view;
+                // elsewhere the slot under the cursor.
+                let (bx, by, bw, bh) = self.bar_rect(w, h);
+                let visible_bottom = by + bh * self.bar_progress;
+                if cx >= bx && cx <= bx + bw && cy >= by && cy <= visible_bottom {
+                    Some((Role::Internal, (bx, by)))
+                } else {
+                    self.slot_at_cursor().map(|(id, r)| (Role::Slot(id), (r.x, r.y)))
+                }
+            }
+            Overlay::Closed => self.slot_at_cursor().map(|(id, r)| (Role::Slot(id), (r.x, r.y))),
+        }
     }
 
     /// How many slots fit the current surface width (1..=MAX_SLOTS).
@@ -403,19 +466,6 @@ impl Shell {
             bottom,
             6.0 * self.scale,
         )
-    }
-
-    /// Top-left origin (device px) of the active view's rectangle (the active
-    /// slot when no overlay is open, else the internal overlay).
-    fn active_origin(&self) -> (f32, f32) {
-        let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
-        if self.overlay == Overlay::Closed {
-            let r = self.active_rect_wh(w, h);
-            (r.x, r.y)
-        } else {
-            let (x, y, _, _) = self.internal_rect(w, h);
-            (x, y)
-        }
     }
 
     /// Reveal the bar (hover-to-top or Ctrl+L). `autofocus` selects the input on
@@ -699,9 +749,22 @@ impl ApplicationHandler for Shell {
                 self.cursor_phys = position;
                 let over_gear = self.gear_hit();
                 self.gear_hover_target = if over_gear { 1.0 } else { 0.0 };
-                if !over_gear {
-                    let (x, y) = self.view_coords(self.active_origin());
-                    browser::send_mouse_move(self.active_role(), x, y, self.mouse_mods(), false);
+                // Route the move to the view under the cursor (a slot, or the
+                // overlay). When the cursor crosses from one view to another, send
+                // a mouse-leave to the one it left so its hover states clear.
+                let target = if over_gear { None } else { self.mouse_target() };
+                let next_role = target.map(|(r, _)| r);
+                if self.mouse_role != next_role
+                    && let Some(prev) = self.mouse_role
+                {
+                    let origin = self.origin_of_role(prev);
+                    let (x, y) = self.view_coords(origin);
+                    browser::send_mouse_move(prev, x, y, self.mouse_mods(), true);
+                }
+                self.mouse_role = next_role;
+                if let Some((role, origin)) = target {
+                    let (x, y) = self.view_coords(origin);
+                    browser::send_mouse_move(role, x, y, self.mouse_mods(), false);
                 }
             }
 
@@ -713,15 +776,19 @@ impl ApplicationHandler for Shell {
                     self.toggle_settings();
                     return;
                 }
-                // Mouse buttons 4/5 are Back/Forward on the active slot.
-                if down && self.overlay == Overlay::Closed {
+                let target = self.mouse_target();
+                // Mouse buttons 4/5 are Back/Forward on the slot under the cursor
+                // (only when a slot is the actual target — not over an overlay).
+                if down
+                    && let Some((Role::Slot(id), _)) = target
+                {
                     match button {
                         MouseButton::Back => {
-                            browser::go_back(Role::Slot(self.active_slot));
+                            browser::go_back(Role::Slot(id));
                             return;
                         }
                         MouseButton::Forward => {
-                            browser::go_forward(Role::Slot(self.active_slot));
+                            browser::go_forward(Role::Slot(id));
                             return;
                         }
                         _ => {}
@@ -738,8 +805,20 @@ impl ApplicationHandler for Shell {
                 } else {
                     self.button_flags &= !flag;
                 }
-                let (x, y) = self.view_coords(self.active_origin());
-                browser::send_mouse_button(self.active_role(), x, y, self.mouse_mods(), button, down, 1);
+                if let Some((role, origin)) = target {
+                    // Clicking inside a slot makes it active; if the bar was open,
+                    // let it retreat (the click is outside its keep region).
+                    if down
+                        && let Role::Slot(id) = role
+                    {
+                        self.set_active(id);
+                        if self.overlay == Overlay::Bar {
+                            self.hide_bar();
+                        }
+                    }
+                    let (x, y) = self.view_coords(origin);
+                    browser::send_mouse_button(role, x, y, self.mouse_mods(), button, down, 1);
+                }
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -747,8 +826,10 @@ impl ApplicationHandler for Shell {
                     MouseScrollDelta::LineDelta(x, y) => (x * 120.0, y * 120.0),
                     MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
                 };
-                let (x, y) = self.view_coords(self.active_origin());
-                browser::send_mouse_wheel(self.active_role(), x, y, self.mouse_mods(), dx as i32, dy as i32);
+                if let Some((role, origin)) = self.mouse_target() {
+                    let (x, y) = self.view_coords(origin);
+                    browser::send_mouse_wheel(role, x, y, self.mouse_mods(), dx as i32, dy as i32);
+                }
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1001,8 +1082,14 @@ impl ApplicationHandler for Shell {
             }
         }
 
-        // Apply a pending cursor request from the active view.
-        if let Some(icon) = browser::take_cursor(self.active_role())
+        // Cursor feedback comes from whichever view the cursor is over (CD-09):
+        // the hovered slot's / overlay's requested icon, or the default arrow over
+        // a gutter / margin / the gear.
+        let cursor_icon = match self.mouse_role {
+            Some(role) => browser::take_cursor(role),
+            None => Some(CursorIcon::Default),
+        };
+        if let Some(icon) = cursor_icon
             && icon != self.applied_cursor
             && let Some(window) = self.window.as_ref()
         {

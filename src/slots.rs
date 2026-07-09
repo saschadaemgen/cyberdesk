@@ -29,8 +29,7 @@ pub struct Rect {
 }
 
 impl Rect {
-    /// Does this rect contain the device-pixel point `(px, py)`?
-    #[allow(dead_code)] // wired into the mouse router in Stage C
+    /// Does this rect contain the device-pixel point `(px, py)`? (Mouse router.)
     pub fn contains(&self, px: f32, py: f32) -> bool {
         px >= self.x && px <= self.x + self.w && py >= self.y && py <= self.y + self.h
     }
@@ -73,25 +72,6 @@ pub fn slot_rects(width: u32, height: u32, n: usize, scale: f32, t: &Slots) -> V
             h: zh,
         })
         .collect()
-}
-
-/// The centered index of the slot rect nearest the device-pixel x — used by the
-/// mouse router to pick a slot even when the cursor is in a gutter/margin. `n`
-/// is assumed ≥ 1. Returns a slot index in `0..n`.
-#[allow(dead_code)] // wired into the mouse router in Stage C
-pub fn nearest_slot(width: u32, height: u32, n: usize, scale: f32, t: &Slots, px: f32) -> usize {
-    let rects = slot_rects(width, height, n.max(1), scale, t);
-    let mut best = 0usize;
-    let mut best_d = f32::INFINITY;
-    for (i, r) in rects.iter().enumerate() {
-        let cx = r.x + r.w * 0.5;
-        let d = (px - cx).abs();
-        if d < best_d {
-            best_d = d;
-            best = i;
-        }
-    }
-    best
 }
 
 // --- Slot-order management (CD-09 Stage B) ----------------------------------
@@ -235,21 +215,18 @@ mod tests {
     }
 
     #[test]
-    fn nearest_slot_picks_the_column_under_and_around_the_cursor() {
+    fn slot_rects_containment_maps_a_cursor_to_its_column() {
         let t = slots();
         let r = slot_rects(5120, 1440, 4, 1.0, &t);
-        // Dead-centre of each slot resolves to that slot.
+        // Dead-centre of each slot is contained by exactly that slot.
         for (i, slot) in r.iter().enumerate() {
-            let cx = slot.x + slot.w * 0.5;
-            assert_eq!(nearest_slot(5120, 1440, 4, 1.0, &t, cx), i);
+            let (cx, cy) = (slot.x + slot.w * 0.5, slot.y + slot.h * 0.5);
+            let hit = r.iter().position(|q| q.contains(cx, cy));
+            assert_eq!(hit, Some(i));
         }
-        // A point in the first gutter is nearer slot 0 or 1, not slot 3.
+        // A point in the first gutter is inside no column (routes nowhere).
         let gutter_x = r[0].x + r[0].w + 12.0;
-        let pick = nearest_slot(5120, 1440, 4, 1.0, &t, gutter_x);
-        assert!(pick == 0 || pick == 1);
-        // Far-left margin -> slot 0; far-right margin -> slot 3.
-        assert_eq!(nearest_slot(5120, 1440, 4, 1.0, &t, 0.0), 0);
-        assert_eq!(nearest_slot(5120, 1440, 4, 1.0, &t, 5119.0), 3);
+        assert!(r.iter().all(|q| !q.contains(gutter_x, r[0].y + 10.0)));
     }
 
     #[test]
