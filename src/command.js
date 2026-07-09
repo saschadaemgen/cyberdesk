@@ -30,7 +30,9 @@
     fwd: '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     reload: '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M20 11a8 8 0 10-.9 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     lock: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="5" y="11" width="14" height="9" rx="1.5" fill="currentColor"/><path d="M8 11V8a4 4 0 018 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
-    star: '<svg viewBox="0 0 24 24" width="17" height="17"><path class="star-path" d="' + STAR_PATH + '" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>'
+    star: '<svg viewBox="0 0 24 24" width="17" height="17"><path class="star-path" d="' + STAR_PATH + '" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    // A shield (privacy motif) for the per-window Tor toggle (CD-15).
+    tor: '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 3l7 3v5c0 4.6-3 7.6-7 9-4-1.4-7-4.4-7-9V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>'
   };
 
   var band = document.getElementById("band");
@@ -48,6 +50,7 @@
         '<button class="orb" data-act="go_back" title="Back" aria-label="Back">' + SVG.back + '</button>' +
         '<button class="orb" data-act="go_forward" title="Forward" aria-label="Forward">' + SVG.fwd + '</button>' +
         '<button class="orb" data-act="reload" title="Reload" aria-label="Reload">' + SVG.reload + '</button>' +
+        '<button class="tor-orb" title="Route this window through Tor" aria-label="Toggle Tor for this window" aria-pressed="false">' + SVG.tor + '</button>' +
         '<div class="capsule">' +
           '<span class="scheme neutral" aria-hidden="true">' + SVG.lock + '</span>' +
           '<input class="url" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="Search or enter address">' +
@@ -62,6 +65,7 @@
       input: el.querySelector(".url"),
       scheme: el.querySelector(".scheme"),
       star: el.querySelector(".star"),
+      tor: el.querySelector(".tor-orb"),
       capsule: el.querySelector(".capsule"),
       list: el.querySelector(".suggestions"),
       currentUrl: "", currentTitle: "", pristine: "",
@@ -186,6 +190,12 @@
       }
     });
     e.star.addEventListener("click", function () { toggleFav(e); });
+    // Per-window Tor toggle (CD-15): flips THIS column between clearnet and Tor;
+    // the host respawns its browser under the new context. The lit/connecting
+    // state is set from the frame push (cdFrame), not optimistically.
+    e.tor.addEventListener("click", function () {
+      query({ cmd: "toggle_tor", slot: e.id }).catch(function () {});
+    });
     var orbs = e.el.querySelectorAll(".orb");
     for (var i = 0; i < orbs.length; i++) {
       (function (b) {
@@ -262,12 +272,18 @@
     var f; try { f = JSON.parse(json); } catch (x) { return; }
     var seen = {};
     var newlyEngaged = f.engaged != null && f.engaged !== engaged;
+    var torStatus = f.tor_status | 0; // 0 idle, 1 bootstrapping, 2 ready, 3 failed
     for (var i = 0; i < (f.slots || []).length; i++) {
       var sl = f.slots[i];
       seen[sl.id] = true;
       var e = ensembles[sl.id] || makeEnsemble(sl.id);
       e.el.style.left = sl.x + "px";
       e.el.style.width = sl.w + "px";
+      // Tor glyph: lit when this column is on Tor; a pulse while the engine is
+      // still bootstrapping (its stream can't route until READY).
+      e.tor.classList.toggle("on", !!sl.tor);
+      e.tor.classList.toggle("connecting", !!sl.tor && torStatus === 1);
+      e.tor.setAttribute("aria-pressed", sl.tor ? "true" : "false");
     }
     // Drop ensembles for slots that no longer exist.
     for (var id in ensembles) {

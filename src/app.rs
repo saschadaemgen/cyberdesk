@@ -487,7 +487,12 @@ impl Shell {
         let pos = slots::insert_position(&self.order, self.active_slot);
         self.order.insert(pos, free);
         self.loading[free] = 0.0;
-        self.width_units[free] = 1;        self.active_slot = free;
+        self.width_units[free] = 1;
+        // A fresh slot is clearnet by default — set it explicitly so a reused id
+        // never inherits a closed Tor slot's stale mode (CD-15). Stage C's "Tor for
+        // new windows" default reads the setting here instead.
+        browser::set_slot_tor(free, false);
+        self.active_slot = free;
         browser::set_active_slot(free);
         // Recentre the group and re-size every view, then spawn the new slot at the
         // own start page (Energy Core + search + favorites). The lazy-slot
@@ -498,6 +503,34 @@ impl Shell {
             browser::create_browser(Role::Slot(free), hwnd);
         }
         self.notify_all_resized();
+    }
+
+    /// Flip slot `id` between clearnet and Tor (CD-15 Stage B): start the Tor engine
+    /// if needed, set the slot's mode, then tear its browser down and respawn it
+    /// under the new request context at the start page — a fresh identity, no state
+    /// bleed. Other slots are untouched (per-window switching, per-CefRequestContext).
+    fn toggle_tor(&mut self, id: usize) {
+        if !self.order.contains(&id) {
+            return;
+        }
+        let now_tor = !browser::slot_is_tor(id);
+        if now_tor {
+            crate::tor::init(); // idempotent — ensure the engine is bootstrapping
+        }
+        browser::set_slot_tor(id, now_tor);
+        // Respawn the slot's browser under the new context (read from the mode).
+        if let Some(window) = self.window.clone() {
+            browser::close_slot(id);
+            if let Some(r) = self.renderer.as_mut() {
+                r.clear_slot(id);
+            }
+            self.loading[id] = 0.0;
+            self.push_geometry();
+            let hwnd = window_hwnd(&window);
+            browser::create_browser(Role::Slot(id), hwnd); // → cyberdesk://start/
+        }
+        // Reflect the new mode/status on the glyph.
+        self.push_frame(false);
     }
 
     /// Open `url` in a new slot beside the source slot — a user-gesture popup or
@@ -517,9 +550,21 @@ impl Shell {
         // with the source id instead of the active id).
         let pos = slots::insert_position(&self.order, source_id);
         self.order.insert(pos, free);
-        self.width_units[free] = 1;        self.loading[free] = 0.0;
+        self.width_units[free] = 1;
+        self.loading[free] = 0.0;
         self.active_slot = free;
         browser::set_active_slot(free);
+        // FAIL-CLOSED (CD-15, D-0027): a link opened from a Tor slot must STAY on
+        // Tor — inherit the source's mode BEFORE the browser is created, since
+        // create_browser_url reads slot_is_tor to pick the context. Otherwise a
+        // popup from a Tor page would silently open on the direct connection and
+        // leak the real IP. (The no-room fallback above navigates the source's own
+        // browser in place, so it keeps the source's mode already.)
+        let src_tor = browser::slot_is_tor(source_id);
+        if src_tor {
+            crate::tor::init();
+        }
+        browser::set_slot_tor(free, src_tor);
         if let Some(window) = self.window.clone() {
             self.push_geometry();
             let hwnd = window_hwnd(&window);
@@ -540,8 +585,12 @@ impl Shell {
         }
         let pos = pos.min(self.order.len());
         self.order.insert(pos, free);
-        self.width_units[free] = 1;        self.loading[free] = 0.0;
+        self.width_units[free] = 1;
+        self.loading[free] = 0.0;
         self.disp_rects[free] = None;
+        // A dragged-in favorite opens a fresh clearnet slot — set the mode explicitly
+        // so a reused id never inherits a closed Tor slot's stale mode (CD-15).
+        browser::set_slot_tor(free, false);
         self.active_slot = free;
         browser::set_active_slot(free);
         if let Some(window) = self.window.clone() {
@@ -939,14 +988,18 @@ impl Shell {
         // each slot's band-DIP x/w. It EXCLUDES autofocus (a transient) so a
         // per-frame push(false) can't overwrite a pending Ctrl+L focus intent
         // before the page (which pulls get_frame on load) consumes it.
-        let mut sig = format!("{:?}", self.engaged_slot);
+        // The Tor engine status also drives the glyph, so it is part of the sig
+        // (a bootstrapping→ready transition re-pushes while the band is up, CD-15).
+        let tor_status = crate::tor::status();
+        let mut sig = format!("{:?}#{tor_status}", self.engaged_slot);
         for (p, &id) in self.order.iter().enumerate() {
             let _ = write!(
                 sig,
-                ";{}:{},{}",
+                ";{}:{},{},{}",
                 id,
                 (rects[p].x as f64 / scale).round(),
-                (rects[p].w as f64 / scale).round()
+                (rects[p].w as f64 / scale).round(),
+                browser::slot_is_tor(id) as u32
             );
         }
         if !autofocus && sig == self.frame_sig {
@@ -963,6 +1016,7 @@ impl Shell {
                     "id": id,
                     "x": (rects[p].x as f64 / scale).round(),
                     "w": (rects[p].w as f64 / scale).round(),
+                    "tor": browser::slot_is_tor(id),
                 })
             })
             .collect();
@@ -970,6 +1024,7 @@ impl Shell {
             "slots": slots,
             "engaged": self.engaged_slot,
             "autofocus": autofocus,
+            "tor_status": tor_status,
         })
         .to_string();
         browser::set_frame_state(&payload);
@@ -1701,6 +1756,13 @@ impl ApplicationHandler for Shell {
         if self.views_started {
             for (source, url) in browser::take_pending_new_slots() {
                 self.open_in_new_slot(source, url);
+            }
+        }
+
+        // Per-window Tor toggles queued by the command glyph (CD-15 Stage B).
+        if self.views_started {
+            for id in browser::take_pending_tor_toggles() {
+                self.toggle_tor(id);
             }
         }
 

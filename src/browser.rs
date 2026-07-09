@@ -366,10 +366,25 @@ pub fn create_browser(role: Role, parent_hwnd: isize) {
 /// navigation. `parent_hwnd` is used only for monitor / DPI info — no child
 /// window. The view geometry must be set (see [`set_view_geometry`]) first.
 pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
+    // A Tor slot's browser must be created under its OWN proxied request context,
+    // and `set_preference` is UI-thread-only (MTML) — so post the whole creation to
+    // the CEF UI thread (CD-15 Stage B). Clearnet slots / the internal view use the
+    // direct global context on the current thread, unchanged.
+    if let Role::Slot(i) = role
+        && slot_is_tor(i)
+    {
+        let mut task = TorSpawnTask::new(i, url.to_string(), parent_hwnd);
+        post_task(ThreadId::UI, Some(&mut task));
+        return;
+    }
+
     let window_info =
         WindowInfo::default().set_as_windowless(sys::HWND(parent_hwnd as *mut sys::HWND__));
 
-    let mut client = CyberClient::new(role);
+    // This path is clearnet (the global/direct context) — the Tor path is
+    // spawn_tor_browser. Tag the browser clearnet so on_after_created can reject it
+    // if the slot has since been toggled to Tor.
+    let mut client = CyberClient::new(role, false);
     let url = CefString::from(url);
     let background_color = match role {
         // Slot: opaque white backing (the page paints its own background).
@@ -395,6 +410,138 @@ pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
         None,
     );
     assert_eq!(created, 1, "CefBrowserHost::CreateBrowser failed");
+}
+
+// --- Per-window Tor (CD-15 Stage B, D-0027) ---------------------------------
+// Each slot tracks its connection mode. A Tor slot's browser is created under its
+// OWN CefRequestContext whose `proxy` pref points at that slot's local SOCKS5 port
+// (per-slot circuit, CD-15 Stage A) plus the WebRTC leak prefs — NEVER the global
+// context (the classic "proxy changes for all windows" bug). Clearnet slots keep
+// the global (direct) context. The toggle tears the browser down and respawns it
+// under the other context at the start page (a fresh identity, no state bleed).
+
+static SLOT_TOR: [AtomicBool; MAX_SLOTS] = [const { AtomicBool::new(false) }; MAX_SLOTS];
+
+/// Set slot `i`'s mode (Tor on/off). Read at browser-creation time to pick the
+/// request context. Set by the toggle BEFORE the respawn.
+pub fn set_slot_tor(i: usize, on: bool) {
+    if i < MAX_SLOTS {
+        SLOT_TOR[i].store(on, Ordering::Relaxed);
+    }
+}
+
+/// Is slot `i` in Tor mode?
+pub fn slot_is_tor(i: usize) -> bool {
+    i < MAX_SLOTS && SLOT_TOR[i].load(Ordering::Relaxed)
+}
+
+/// Tor-toggle requests from the page (CEF UI thread), drained by the main thread
+/// (which owns the slot lifecycle). Holds the slot ids to flip.
+fn pending_tor_toggle() -> &'static Mutex<Vec<usize>> {
+    static P: OnceLock<Mutex<Vec<usize>>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// Drain queued Tor toggles (main thread).
+pub fn take_pending_tor_toggles() -> Vec<usize> {
+    std::mem::take(&mut pending_tor_toggle().lock().unwrap())
+}
+
+wrap_task! {
+    struct TorSpawnTask {
+        slot: usize,
+        url: String,
+        hwnd: isize,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            spawn_tor_browser(self.slot, &self.url, self.hwnd);
+        }
+    }
+}
+
+/// Create slot `slot`'s browser under a Tor request context (runs on the CEF UI
+/// thread). FAIL-CLOSED: if the proxy pref does not apply, NO browser is created —
+/// a "Tor" browser must never fall back to a direct connection and leak the real IP.
+fn spawn_tor_browser(slot: usize, url: &str, hwnd: isize) {
+    let port = crate::tor::socks_port(slot);
+    let Some(mut ctx) = build_tor_context(port) else {
+        eprintln!("[tor] proxy pref failed for slot {slot}; browser not created (fail-closed)");
+        return;
+    };
+    let window_info = WindowInfo::default().set_as_windowless(sys::HWND(hwnd as *mut sys::HWND__));
+    let mut client = CyberClient::new(Role::Slot(slot), true); // built for Tor
+    let url = CefString::from(url);
+    let browser_settings = BrowserSettings {
+        windowless_frame_rate: 60,
+        background_color: 0xFFFF_FFFFu32,
+        ..Default::default()
+    };
+    let created = browser_host_create_browser(
+        Some(&window_info),
+        Some(&mut client),
+        Some(&url),
+        Some(&browser_settings),
+        None,
+        Some(&mut ctx),
+    );
+    if created != 1 {
+        eprintln!("[tor] CreateBrowser failed for slot {slot}");
+    }
+}
+
+/// Build a Tor request context: a fresh context with the `proxy` pref (fail-closed)
+/// and the WebRTC leak prefs. Returns `None` if the proxy pref did not apply.
+///
+/// Leak checklist (D-0027): `proxy` = fixed SOCKS5 to the slot's Tor port; WebRTC
+/// IP handling constrained so it can't leak the real IP past the proxy; QUIC is
+/// off globally (App::on_before_command_line_processing). Whether the `webrtc.*`
+/// prefs apply *per request context* in CEF 149 needs an empirical WebRTC leak
+/// test (Sascha's live machine) — the proxy pref is the fail-closed guarantee.
+fn build_tor_context(port: u16) -> Option<RequestContext> {
+    let ctx = request_context_create_context(None, None)?;
+    if !set_proxy_pref(&ctx, port) {
+        return None; // fail-closed: no proxy, no browser
+    }
+    set_pref_string(&ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
+    set_pref_bool(&ctx, "webrtc.multiple_routes_enabled", false);
+    set_pref_bool(&ctx, "webrtc.nonproxied_udp_enabled", false);
+    Some(ctx)
+}
+
+/// Set the `proxy` preference to a fixed SOCKS5 server on the slot's loopback port.
+fn set_proxy_pref(ctx: &RequestContext, port: u16) -> bool {
+    let Some(mut dict) = dictionary_value_create() else {
+        return false;
+    };
+    dict.set_string(Some(&CefString::from("mode")), Some(&CefString::from("fixed_servers")));
+    let server = format!("socks5://127.0.0.1:{port}");
+    dict.set_string(Some(&CefString::from("server")), Some(&CefString::from(server.as_str())));
+    let Some(mut val) = value_create() else {
+        return false;
+    };
+    val.set_dictionary(Some(&mut dict));
+    let mut err = CefString::default();
+    ctx.set_preference(Some(&CefString::from("proxy")), Some(&mut val), Some(&mut err)) == 1
+}
+
+fn set_pref_string(ctx: &RequestContext, key: &str, value: &str) -> bool {
+    let Some(mut val) = value_create() else {
+        return false;
+    };
+    val.set_string(Some(&CefString::from(value)));
+    let mut err = CefString::default();
+    ctx.set_preference(Some(&CefString::from(key)), Some(&mut val), Some(&mut err)) == 1
+}
+
+fn set_pref_bool(ctx: &RequestContext, key: &str, value: bool) -> bool {
+    let Some(mut val) = value_create() else {
+        return false;
+    };
+    val.set_bool(value as c_int);
+    let mut err = CefString::default();
+    ctx.set_preference(Some(&CefString::from(key)), Some(&mut val), Some(&mut err)) == 1
 }
 
 /// Close slot `i`'s browser cleanly (Ctrl+W, or a resize that drops columns).
@@ -883,6 +1030,14 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             crate::updates::request_check();
             Ok(serde_json::json!({ "ok": true }).to_string())
         }
+        // Per-window Tor toggle (CD-15 Stage B): flip the ensemble's slot between
+        // clearnet and Tor. The main thread respawns the browser under the new
+        // context; queued here because it owns the slot lifecycle.
+        "toggle_tor" => {
+            let slot = target_slot(&v);
+            pending_tor_toggle().lock().unwrap().push(slot);
+            Ok(serde_json::json!({ "ok": true }).to_string())
+        }
         other => Err((4, format!("unknown cmd: {other}"))),
     }
 }
@@ -927,6 +1082,20 @@ wrap_app! {
             }
         }
 
+        fn on_before_command_line_processing(
+            &self,
+            _process_type: Option<&CefString>,
+            command_line: Option<&mut CommandLine>,
+        ) {
+            // Disable QUIC globally (CD-15, D-0027): QUIC rides UDP and can bypass a
+            // SOCKS proxy, leaking a Tor window's real IP. There is no per-context
+            // QUIC pref, so it is off everywhere — clearnet still works over TCP
+            // (QUIC is only a transport optimization; no site breaks).
+            if let Some(cmd) = command_line {
+                cmd.append_switch(Some(&CefString::from("disable-quic")));
+            }
+        }
+
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
             Some(CyberBrowserProcessHandler::new())
         }
@@ -965,6 +1134,12 @@ wrap_browser_process_handler! {
 wrap_client! {
     struct CyberClient {
         role: Role,
+        // The connection mode this browser was CREATED for (CD-15). Validated in
+        // on_after_created against the slot's CURRENT mode: a rapid re-toggle can
+        // leave a browser built under a stale mode racing to register, and
+        // installing a clearnet browser on a Tor slot (or vice versa) is a fail-open
+        // IP leak — so a mismatched browser is closed instead of installed.
+        tor: bool,
     }
 
     impl Client {
@@ -982,7 +1157,7 @@ wrap_client! {
             }
         }
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
-            Some(CyberLifeSpanHandler::new(self.role))
+            Some(CyberLifeSpanHandler::new(self.role, self.tor))
         }
         fn request_handler(&self) -> Option<RequestHandler> {
             // Web isolation + IPC lifecycle only on the internal view.
@@ -1164,6 +1339,7 @@ wrap_load_handler! {
 wrap_life_span_handler! {
     struct CyberLifeSpanHandler {
         role: Role,
+        tor: bool,
     }
 
     impl LifeSpanHandler {
@@ -1200,6 +1376,18 @@ wrap_life_span_handler! {
 
         fn on_after_created(&self, browser: Option<&mut Browser>) {
             if let Some(browser) = browser {
+                // FAIL-CLOSED (CD-15, D-0027): reject a browser built under a mode
+                // that no longer matches the slot (a rapid re-toggle raced two
+                // creations). Installing a clearnet browser on a Tor slot — or the
+                // reverse — is an IP leak, so close it instead of registering it.
+                if let Role::Slot(i) = self.role
+                    && self.tor != slot_is_tor(i)
+                {
+                    if let Some(host) = browser.host() {
+                        host.close_browser(1);
+                    }
+                    return;
+                }
                 // Give the OSR browser keyboard focus so the page accepts input.
                 if let Some(host) = browser.host() {
                     host.set_focus(1);

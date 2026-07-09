@@ -93,6 +93,36 @@ html, body {
 .orb:active { background: color-mix(in srgb, var(--brand) 28%, transparent); }
 .orb:disabled { opacity: 0.32; cursor: default; background: color-mix(in srgb, var(--panel) 80%, transparent); color: var(--text-dim); border-color: var(--panel-border); }
 
+/* Per-window Tor toggle glyph (CD-15): an orb-sized shield. Lit (brand) when the
+   column is routed through Tor; a subtle pulse while the engine is bootstrapping. */
+.tor-orb {
+  flex: none;
+  width: var(--cmd-orb-size);
+  height: var(--cmd-orb-size);
+  border-radius: 50%;
+  border: 1px solid var(--panel-border);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.tor-orb:hover { color: var(--text); border-color: var(--brand); }
+.tor-orb.on {
+  color: var(--brand);
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--brand) 35%, transparent);
+}
+.tor-orb.connecting { animation: tor-pulse 1.4s ease-in-out infinite; }
+@keyframes tor-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) { .tor-orb.connecting { animation: none; } }
+
 .capsule {
   flex: 1 1 auto;
   min-width: 0;
