@@ -86,6 +86,37 @@
       </div>
     </section>
 
+    <!-- Per-window Tor (CD-15). The honesty label is mandatory (Vision Law). -->
+    <section class="rows tor-section" aria-label="Tor">
+      <h2 class="section-head">Tor <span id="tor-status" class="tor-status"></span></h2>
+
+      <div class="row">
+        <div class="label">
+          <span class="name">Route new windows through Tor</span>
+          <span class="hint">New windows open on Tor by default; each still has its own toggle</span>
+        </div>
+        <div class="switch" data-key="tor_default" role="switch" tabindex="0" aria-checked="false">
+          <span class="knob"></span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="label">
+          <span class="name">Tor engine enabled</span>
+          <span class="hint">Master switch — when off, the per-window Tor toggle does nothing</span>
+        </div>
+        <div class="switch" data-key="tor_enabled" role="switch" tabindex="0" aria-checked="false">
+          <span class="knob"></span>
+        </div>
+      </div>
+
+      <p class="honesty">Tor mode routes that window through the Tor network and hides
+      your IP address. It does <strong>not</strong> provide Tor Browser's
+      anti-fingerprinting, and it cannot change the network-layer (TLS) fingerprint —
+      so it is <strong>not equivalent to Tor Browser</strong> for anonymity. Stronger
+      browser hardening is a separate, upcoming feature.</p>
+    </section>
+
     <p class="status" id="status"></p>
   </main>
 

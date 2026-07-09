@@ -192,3 +192,26 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
 
 .status { font-size: 12px; color: var(--text-dim); min-height: 15px; }
 .status.error { color: #E0736B; }
+
+/* Per-window Tor section (CD-15). */
+.tor-section { margin-top: 6px; }
+.section-head {
+  font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-dim); font-weight: 600;
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 2px 2px;
+}
+.tor-status {
+  font-size: 11px; letter-spacing: 0.5px; text-transform: none; font-weight: 500;
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--panel-border); color: var(--text-dim);
+}
+.tor-status.s1 { color: var(--brand); border-color: var(--brand); }             /* connecting */
+.tor-status.s2 { color: color-mix(in srgb, var(--accent) 85%, var(--text)); border-color: var(--accent); } /* ready */
+.tor-status.s3 { color: var(--warn); border-color: var(--warn); }               /* failed */
+.honesty {
+  font-size: 12.5px; color: var(--text-dim); line-height: 1.55;
+  padding: 12px 2px 0; margin-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 55%, transparent);
+}
+.honesty strong { color: var(--text); font-weight: 600; }

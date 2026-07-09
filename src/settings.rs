@@ -28,6 +28,11 @@ static GLOW_INTENSITY: AtomicU32 = AtomicU32::new(115);
 /// Search engine for the command-bar search fallback, as a small id (0=google
 /// default, 1=duckduckgo, 2=bing, 3=startpage).
 static SEARCH_ENGINE: AtomicU8 = AtomicU8::new(0);
+/// Whether the per-window Tor engine is available at all (CD-15). When off, the
+/// toggle glyph does nothing and new windows never default to Tor.
+static TOR_ENABLED: AtomicBool = AtomicBool::new(true);
+/// Whether new windows open in Tor by default (CD-15). Off by default (clearnet).
+static TOR_DEFAULT: AtomicBool = AtomicBool::new(false);
 
 /// The settings keys the internal view is allowed to read and write. Anything
 /// outside this list is rejected by [`set`] / [`set_glow_intensity`].
@@ -40,6 +45,9 @@ pub const KEY_STAY_FOREGROUND: &str = "stay_foreground";
 pub const KEY_GLOW_INTENSITY: &str = "glow_intensity";
 /// The command-bar search-engine choice (CD-07). One of the ids below.
 pub const KEY_SEARCH_ENGINE: &str = "search_engine";
+/// Per-window Tor: the engine master switch and the new-window default (CD-15).
+pub const KEY_TOR_ENABLED: &str = "tor_enabled";
+pub const KEY_TOR_DEFAULT: &str = "tor_default";
 
 /// Glow-intensity slider bounds (percent).
 pub const GLOW_MIN: u32 = 50;
@@ -87,6 +95,19 @@ pub fn init() {
     GLOW_INTENSITY.store(glow, Ordering::Relaxed);
     let engine = s.get(KEY_SEARCH_ENGINE).and_then(|v| engine_id(&v)).unwrap_or(0);
     SEARCH_ENGINE.store(engine, Ordering::Relaxed);
+    TOR_ENABLED.store(s.get_bool(KEY_TOR_ENABLED, true), Ordering::Relaxed);
+    TOR_DEFAULT.store(s.get_bool(KEY_TOR_DEFAULT, false), Ordering::Relaxed);
+}
+
+/// Is the Tor engine available (the master switch)?
+pub fn tor_enabled() -> bool {
+    TOR_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Should a new window open in Tor by default? (Only meaningful when the engine
+/// is enabled.)
+pub fn tor_default() -> bool {
+    TOR_ENABLED.load(Ordering::Relaxed) && TOR_DEFAULT.load(Ordering::Relaxed)
 }
 
 pub fn feather_edges() -> bool {
@@ -114,12 +135,14 @@ pub fn glow_intensity() -> f32 {
 /// Current settings as a JSON object string, for the `get_settings` IPC reply.
 pub fn snapshot_json() -> String {
     format!(
-        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"glow_intensity\":{},\"search_engine\":\"{}\"}}",
+        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"glow_intensity\":{},\"search_engine\":\"{}\",\"tor_enabled\":{},\"tor_default\":{}}}",
         feather_edges(),
         animated_background(),
         stay_foreground(),
         glow_intensity_percent(),
-        search_engine()
+        search_engine(),
+        TOR_ENABLED.load(Ordering::Relaxed),
+        TOR_DEFAULT.load(Ordering::Relaxed)
     )
 }
 
@@ -131,6 +154,8 @@ pub fn set(key: &str, value: bool) -> Result<String, String> {
         KEY_FEATHER_EDGES => &FEATHER_EDGES,
         KEY_ANIMATED_BACKGROUND => &ANIMATED_BACKGROUND,
         KEY_STAY_FOREGROUND => &STAY_FOREGROUND,
+        KEY_TOR_ENABLED => &TOR_ENABLED,
+        KEY_TOR_DEFAULT => &TOR_DEFAULT,
         other => return Err(format!("unknown setting key: {other}")),
     };
     atomic.store(value, Ordering::Relaxed);

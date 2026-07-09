@@ -488,10 +488,14 @@ impl Shell {
         self.order.insert(pos, free);
         self.loading[free] = 0.0;
         self.width_units[free] = 1;
-        // A fresh slot is clearnet by default — set it explicitly so a reused id
-        // never inherits a closed Tor slot's stale mode (CD-15). Stage C's "Tor for
-        // new windows" default reads the setting here instead.
-        browser::set_slot_tor(free, false);
+        // Set the new slot's mode explicitly (so a reused id never inherits a closed
+        // Tor slot's stale mode): the "Tor for new windows" default (CD-15 Stage C),
+        // else clearnet.
+        let tor = settings::tor_default();
+        if tor {
+            crate::tor::init();
+        }
+        browser::set_slot_tor(free, tor);
         self.active_slot = free;
         browser::set_active_slot(free);
         // Recentre the group and re-size every view, then spawn the new slot at the
@@ -514,6 +518,11 @@ impl Shell {
             return;
         }
         let now_tor = !browser::slot_is_tor(id);
+        // The engine master switch (CD-15 Stage C) gates turning Tor ON; a slot can
+        // always be reverted to clearnet even if the engine is disabled.
+        if now_tor && !settings::tor_enabled() {
+            return;
+        }
         if now_tor {
             crate::tor::init(); // idempotent — ensure the engine is bootstrapping
         }
@@ -588,9 +597,13 @@ impl Shell {
         self.width_units[free] = 1;
         self.loading[free] = 0.0;
         self.disp_rects[free] = None;
-        // A dragged-in favorite opens a fresh clearnet slot — set the mode explicitly
-        // so a reused id never inherits a closed Tor slot's stale mode (CD-15).
-        browser::set_slot_tor(free, false);
+        // Set the mode explicitly (a reused id must not inherit a closed Tor slot's
+        // stale mode): the "Tor for new windows" default (CD-15), else clearnet.
+        let tor = settings::tor_default();
+        if tor {
+            crate::tor::init();
+        }
+        browser::set_slot_tor(free, tor);
         self.active_slot = free;
         browser::set_active_slot(free);
         if let Some(window) = self.window.clone() {
@@ -1282,6 +1295,12 @@ impl Shell {
         self.order = vec![0];
         self.active_slot = 0;
         browser::set_active_slot(0);
+        // The first window honours the "Tor for new windows" default (CD-15).
+        let tor = settings::tor_default();
+        if tor {
+            crate::tor::init();
+        }
+        browser::set_slot_tor(0, tor);
         self.push_geometry();
         browser::create_browser(Role::Internal, hwnd);
         browser::create_browser(Role::Slot(0), hwnd); // → cyberdesk://start/

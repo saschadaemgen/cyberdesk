@@ -135,8 +135,25 @@
       paint("feather_edges", s.feather_edges);
       paint("animated_background", s.animated_background);
       paint("stay_foreground", s.stay_foreground);
+      paint("tor_default", s.tor_default);
+      paint("tor_enabled", s.tor_enabled);
       paintGlow(s.glow_intensity);
       paintEngine(s.search_engine);
     })
     .catch(function (err) { setStatus(String(err), true); });
+
+  // Tor engine status readout (CD-15): polled while the settings page is open.
+  var torStatusEl = document.getElementById("tor-status");
+  var TOR_LABELS = ["off", "connecting…", "ready", "failed"];
+  function pollTorStatus() {
+    query({ cmd: "tor_status" }).then(function (r) {
+      var st = 0; try { st = JSON.parse(r).status | 0; } catch (x) {}
+      if (torStatusEl) {
+        torStatusEl.textContent = TOR_LABELS[st] || "off";
+        torStatusEl.className = "tor-status s" + st;
+      }
+    }).catch(function () {});
+  }
+  pollTorStatus();
+  setInterval(pollTorStatus, 2000);
 })();

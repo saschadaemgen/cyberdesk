@@ -181,6 +181,9 @@ impl Store {
         self.set_if_absent("stay_foreground", "true");
         // CD-07: the command-bar search-engine choice, default Google.
         self.set_if_absent("search_engine", "google");
+        // CD-15: the Tor engine is available by default; new windows are clearnet.
+        self.set_if_absent("tor_enabled", "true");
+        self.set_if_absent("tor_default", "false");
         // glow_intensity is seeded lazily from the background.glow_default token
         // in settings::init (kept out of the store until the user changes it).
     }
