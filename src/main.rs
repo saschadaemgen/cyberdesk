@@ -14,6 +14,7 @@ mod browser;
 mod memory;
 mod pulsegrid;
 mod renderer;
+mod session;
 mod settings;
 mod slots;
 mod store;

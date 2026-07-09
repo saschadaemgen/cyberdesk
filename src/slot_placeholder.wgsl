@@ -10,6 +10,7 @@
 //   @location(0) rect  = (x, y, w, h) in device px
 //   @location(1) fill  = (r, g, b, corner_radius_px)   fill color + rounding
 //   @location(2) glyph = (r, g, b, digit)              faint glyph color + 1..4
+//   @location(3) dot   = (r, g, b, present)            pending-URL dot (CD-10)
 
 struct Globals {
     resolution : vec2<f32>,
@@ -23,6 +24,7 @@ struct VOut {
     @location(1) half  : vec2<f32>,   // rect half-extents (px)
     @location(2) fill  : vec4<f32>,
     @location(3) glyph : vec4<f32>,
+    @location(4) dot   : vec4<f32>,
 };
 
 @vertex
@@ -31,6 +33,7 @@ fn vs_main(
     @location(0) rect : vec4<f32>,
     @location(1) fill : vec4<f32>,
     @location(2) glyph : vec4<f32>,
+    @location(3) dot : vec4<f32>,
 ) -> VOut {
     var corners = array<vec2<f32>, 6>(
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0),
@@ -45,6 +48,7 @@ fn vs_main(
     out.local = (c - vec2<f32>(0.5)) * rect.zw;
     out.fill = fill;
     out.glyph = glyph;
+    out.dot = dot;
     return out;
 }
 
@@ -101,6 +105,17 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
     if (is2 || is3 || is4) { cov = max(cov, Gm); }
 
     // Fill (opaque) plus the faint glyph added over it; premultiplied OVER.
-    let col = in.fill.rgb + in.glyph.rgb * cov;
+    var col = in.fill.rgb + in.glyph.rgb * cov;
+
+    // Pending-URL dot (CD-10): a small scheme-colored disk above the digit, so a
+    // restored-but-unspawned column reads as "a page is waiting here".
+    if (in.dot.a > 0.5) {
+        let dot_c = vec2<f32>(0.0, -(gh * 1.8));
+        let dot_r = max(gh * 0.17, 2.0);
+        let dd = length(p - dot_c) - dot_r;
+        let dcov = 1.0 - smoothstep(-0.9, 0.9, dd);
+        col = mix(col, in.dot.rgb, dcov);
+    }
+
     return vec4<f32>(col * fillmask, fillmask);
 }

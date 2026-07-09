@@ -2,8 +2,9 @@
 //!
 //! A schema-versioned `settings` key/value table plus a `meta` table holding the
 //! selected `template` (only value: "cyber"). CD-07 (D-0014) adds the `history`
-//! and `favorites` tables — the local memory behind the command palette. Lives
-//! in the OS app-data directory, never in the repo.
+//! and `favorites` tables — the local memory behind the command palette. CD-10
+//! (D-0019) adds `session_slots` — the persisted slot workspace. Lives in the OS
+//! app-data directory, never in the repo.
 
 // Some store methods are consumed only by specific IPC paths (settings, memory);
 // keep the surface complete even where a given build doesn't touch every method.
@@ -14,7 +15,7 @@ use std::sync::{Mutex, OnceLock};
 
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// History is capped at this many rows; the oldest are pruned on each insert
 /// (D-0014). Local only — no sync, no export.
@@ -25,6 +26,17 @@ pub struct Suggestion {
     pub url: String,
     pub title: String,
     pub favorite: bool,
+}
+
+/// One persisted slot in the session workspace (CD-10, D-0019). `position` is
+/// implicit (the row order). `url` is the slot's committed page ("" for an empty
+/// / internal / blank slot); `width_units` is 1 or 2; `active` marks the slot
+/// that was active at save time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionSlot {
+    pub url: String,
+    pub width_units: u32,
+    pub active: bool,
 }
 
 pub struct Store {
@@ -114,6 +126,20 @@ impl Store {
                      );",
                 )
                 .expect("failed to migrate to schema v2 (history + favorites)");
+        }
+        if version < 3 {
+            // CD-10 (D-0019): the persisted slot workspace. One implicit session;
+            // `position` is the display order, rewritten wholesale on each save.
+            self.conn
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS session_slots (
+                         position    INTEGER PRIMARY KEY,
+                         url         TEXT NOT NULL DEFAULT '',
+                         width_units INTEGER NOT NULL DEFAULT 1,
+                         active      INTEGER NOT NULL DEFAULT 0
+                     );",
+                )
+                .expect("failed to migrate to schema v3 (session_slots)");
         }
         self.conn
             .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -278,6 +304,51 @@ impl Store {
         }
     }
 
+    // --- Session slots (D-0019) ---------------------------------------------
+
+    /// Persist the slot workspace, replacing the whole table (the session is a
+    /// single implicit set of rows; `position` is the index in `slots`).
+    pub fn save_session(&self, slots: &[SessionSlot]) {
+        let tx = match self.conn.unchecked_transaction() {
+            Ok(tx) => tx,
+            Err(_) => return,
+        };
+        if tx.execute("DELETE FROM session_slots", []).is_err() {
+            return;
+        }
+        for (position, s) in slots.iter().enumerate() {
+            let _ = tx.execute(
+                "INSERT INTO session_slots (position, url, width_units, active)
+                 VALUES (?1, ?2, ?3, ?4)",
+                (
+                    position as i64,
+                    s.url.as_str(),
+                    s.width_units.max(1) as i64,
+                    s.active as i64,
+                ),
+            );
+        }
+        let _ = tx.commit();
+    }
+
+    /// Load the persisted slot workspace in position order (empty on a fresh
+    /// install / no session).
+    pub fn load_session(&self) -> Vec<SessionSlot> {
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = self.conn.prepare(
+            "SELECT url, width_units, active FROM session_slots ORDER BY position ASC",
+        ) && let Ok(rows) = stmt.query_map([], |r| {
+            Ok(SessionSlot {
+                url: r.get::<_, String>(0)?,
+                width_units: (r.get::<_, i64>(1)?.clamp(1, 2)) as u32,
+                active: r.get::<_, i64>(2)? != 0,
+            })
+        }) {
+            out.extend(rows.filter_map(Result::ok));
+        }
+        out
+    }
+
     // --- Suggestions (D-0014) -----------------------------------------------
 
     /// Command-palette suggestions for `input`, capped at `limit`: matching
@@ -408,5 +479,26 @@ mod tests {
         let only_b = s.query_suggestions("b.example", 6);
         assert_eq!(only_b.len(), 1);
         assert_eq!(only_b[0].url, "https://b.example/");
+    }
+
+    /// The session workspace round-trips (order, urls, widths, the active flag),
+    /// and each save replaces the whole table (no stale rows accumulate).
+    #[test]
+    fn session_round_trips_and_replaces_wholesale() {
+        let s = Store::open_in_memory();
+        assert!(s.load_session().is_empty(), "fresh store has no session");
+
+        let slots = vec![
+            SessionSlot { url: "https://a.example/".into(), width_units: 2, active: false },
+            SessionSlot { url: String::new(), width_units: 1, active: true },
+            SessionSlot { url: "https://c.example/".into(), width_units: 1, active: false },
+        ];
+        s.save_session(&slots);
+        assert_eq!(s.load_session(), slots);
+
+        // A shorter save must not leave the old third row behind.
+        let fewer = vec![SessionSlot { url: "https://only.example/".into(), width_units: 1, active: true }];
+        s.save_session(&fewer);
+        assert_eq!(s.load_session(), fewer);
     }
 }

@@ -9,7 +9,9 @@ use crate::store::{self, Suggestion};
 
 /// URLs that must never be recorded or favorited: the internal scheme and blank
 /// navigations. Only real web pages from the surf view enter history/favorites.
-fn is_recordable(url: &str) -> bool {
+/// Also the filter for what a slot persists into the session (CD-10): an
+/// internal/blank/empty slot persists as an empty URL.
+pub fn is_recordable(url: &str) -> bool {
     !url.is_empty() && url != "about:blank" && !url.starts_with("cyberdesk://")
 }
 

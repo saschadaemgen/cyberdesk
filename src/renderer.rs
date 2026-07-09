@@ -1257,6 +1257,7 @@ struct PlaceholderInstance {
     rect: [f32; 4],  // x, y, w, h (device px)
     fill: [f32; 4],  // fill rgb + corner_radius (a)
     glyph: [f32; 4], // glyph rgb + digit 1..4 (a)
+    dot: [f32; 4],   // pending-dot rgb + present flag (a: 0 = none, 1 = shown)
 }
 
 /// One slot-line instance (`slot_lines.wgsl`) — the loading line + active accent.
@@ -1287,8 +1288,8 @@ struct SlotLineGlobals {
 
 const SLOTLINE_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4];
-const PLACEHOLDER_ATTRS: [wgpu::VertexAttribute; 3] =
-    wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
+const PLACEHOLDER_ATTRS: [wgpu::VertexAttribute; 4] =
+    wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4];
 
 /// A unit-quad, instance-stepped pipeline (premultiplied OVER) for the slot
 /// decorations — one draw covers every slot.
@@ -1458,12 +1459,15 @@ impl SlotLines {
 
 /// One slot to draw this frame (CD-09): its rect (device px), loading intensity,
 /// whether it is the active slot, and its 0-based index (→ its page target and
-/// its placeholder glyph digit `index + 1`).
+/// its placeholder glyph digit `index + 1`). `pending` (CD-10) is the scheme
+/// color of a restored-but-not-yet-spawned slot's armed URL, drawn as a small dot
+/// on the placeholder so it reads as "a page is waiting here"; `None` otherwise.
 pub struct SlotView {
     pub rect: (f32, f32, f32, f32),
     pub loading: f32,
     pub active: bool,
     pub index: usize,
+    pub pending: Option<[f32; 3]>,
 }
 
 /// Renders the shell + N surf-slot pages to a winit window surface.
@@ -1699,10 +1703,15 @@ impl SurfaceRenderer {
                     self.queue
                         .write_buffer(&target.uniform_buf, 0, bytemuck::bytes_of(&u));
                 } else {
+                    let dot = match s.pending {
+                        Some(c) => [c[0], c[1], c[2], 1.0],
+                        None => [0.0, 0.0, 0.0, 0.0],
+                    };
                     placeholders.push(PlaceholderInstance {
                         rect: [x, y, w, h],
                         fill: [fill_rgb[0], fill_rgb[1], fill_rgb[2], corner_radius],
                         glyph: [glyph_rgb[0], glyph_rgb[1], glyph_rgb[2], (s.index + 1) as f32],
+                        dot,
                     });
                 }
             }
@@ -2040,6 +2049,13 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
         brand[1] * st.placeholder_glyph,
         brand[2] * st.placeholder_glyph,
     ];
+    // CYBERDESK_CAPTURE_PENDING=N marks the first N columns as restored-pending
+    // (a scheme-colored dot), so the CD-10 session placeholder reads headlessly.
+    let pending = std::env::var("CYBERDESK_CAPTURE_PENDING")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    let accent = crate::theme::hex3(&theme.colors.accent);
     let ph_insts: Vec<PlaceholderInstance> = rects
         .iter()
         .enumerate()
@@ -2047,6 +2063,11 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
             rect: [r.x, r.y, r.w, r.h],
             fill: [fill_rgb[0], fill_rgb[1], fill_rgb[2], corner],
             glyph: [glyph_rgb[0], glyph_rgb[1], glyph_rgb[2], (i + 1) as f32],
+            dot: if i < pending {
+                [accent[0], accent[1], accent[2], 1.0]
+            } else {
+                [0.0, 0.0, 0.0, 0.0]
+            },
         })
         .collect();
     let line_insts: Vec<SlotLineInstance> = rects

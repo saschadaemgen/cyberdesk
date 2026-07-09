@@ -13,6 +13,7 @@ use winit::window::{CursorIcon, Fullscreen, Window, WindowId, WindowLevel};
 
 use crate::browser::{self, Role};
 use crate::renderer::{SlotView, SurfaceRenderer};
+use crate::session;
 use crate::settings;
 use crate::slots::{self, MAX_SLOTS};
 use crate::theme::Theme;
@@ -25,6 +26,10 @@ const BAR_EASE: f32 = 0.22;
 /// Grace period after the cursor leaves the bar's keep region before it hides
 /// (hysteresis — no flicker on grazing touches, CD-08).
 const BAR_HIDE_HYSTERESIS: Duration = Duration::from_millis(250);
+
+/// Debounce for session-workspace saves (CD-10): a meaningful change arms a save
+/// this far in the future, coalescing bursts off the render hot path.
+const SESSION_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// Bar content height in logical px, from the shared theme tokens (so the page
 /// and the host-side sizing agree): the input row, plus the favorites chip row
@@ -111,6 +116,11 @@ pub fn run(windowed: bool) {
         active_slot: 0,
         mouse_role: None,
         loading: [0.0; MAX_SLOTS],
+        width_units: [1; MAX_SLOTS],
+        armed: std::array::from_fn(|_| None),
+        overflow: Vec::new(),
+        session_dirty: None,
+        session_saved_sig: String::new(),
         applied_title: String::new(),
         applied_topmost: false,
         isolation_tested: false,
@@ -157,6 +167,20 @@ struct Shell {
     mouse_role: Option<Role>,
     /// Per-slot loading-line intensity, eased toward on (loading) / off (done).
     loading: [f32; MAX_SLOTS],
+    /// Per-slot width in units (1 or 2, CD-10). Indexed by slot id.
+    width_units: [u32; MAX_SLOTS],
+    /// Per-slot pre-armed URL (CD-10): a restored lazy slot's page, loaded on the
+    /// slot's first interaction (activation / click). `None` once spawned or for
+    /// an empty slot. Indexed by slot id.
+    armed: [Option<String>; MAX_SLOTS],
+    /// Session slots that did not fit the current width at restore (windowed
+    /// shrink). Kept out of the display but re-saved, so a wider restart brings
+    /// them back (CD-10).
+    overflow: Vec<crate::store::SessionSlot>,
+    /// When set, a debounced session save is due at this instant (CD-10).
+    session_dirty: Option<Instant>,
+    /// Signature of the last-saved session, so a save fires only on real change.
+    session_saved_sig: String,
     applied_title: String,
     applied_topmost: bool,
     isolation_tested: bool,
@@ -334,6 +358,8 @@ impl Shell {
         }
         self.active_slot = id;
         browser::set_active_slot(id);
+        // First interaction with a restored lazy slot spawns its browser (CD-10).
+        self.spawn_if_armed(id);
         if self.overlay == Overlay::Closed {
             browser::set_focus(Role::Slot(id), true);
         }
@@ -363,7 +389,8 @@ impl Shell {
     /// The new slot is lazy (placeholder, no browser); it becomes active and the
     /// top bar reveals focused + empty so the user can type its first address.
     fn add_slot(&mut self) {
-        if self.order.len() >= self.capacity() {
+        // A new slot is one unit; it must fit both the count and the unit budget.
+        if self.order.len() >= MAX_SLOTS || self.total_units() + 1 > self.capacity() as u32 {
             return;
         }
         let Some(free) = slots::free_id(&self.order) else {
@@ -377,6 +404,8 @@ impl Shell {
         let pos = slots::insert_position(&self.order, self.active_slot);
         self.order.insert(pos, free);
         self.loading[free] = 0.0;
+        self.width_units[free] = 1;
+        self.armed[free] = None;
         self.active_slot = free;
         browser::set_active_slot(free);
         // Recentre the group and re-size every view for the new column count.
@@ -401,6 +430,8 @@ impl Shell {
             r.clear_slot(id);
         }
         self.loading[id] = 0.0;
+        self.armed[id] = None;
+        self.width_units[id] = 1;
         let new_pos = slots::neighbor_position(pos, self.order.len());
         self.active_slot = self.order[new_pos];
         browser::set_active_slot(self.active_slot);
@@ -630,19 +661,41 @@ impl Shell {
         browser::notify_resized(Role::Internal);
     }
 
-    /// Re-clamp the live slot count to what the current width allows (called on
-    /// resize / DPI change): close the excess columns from the right (clean
-    /// browser shutdown; CD-10 will preserve their URLs). Keeps `active_slot`
-    /// valid, promoting a neighbor if the active column was closed.
+    /// Total width in units of the live slots (CD-10).
+    fn total_units(&self) -> u32 {
+        self.order.iter().map(|&id| self.width_units[id]).sum()
+    }
+
+    /// Re-clamp the live slots to what the current width allows (called on resize
+    /// / DPI change): close excess columns from the right and preserve each in the
+    /// session overflow, so a wider restart brings them back (CD-10). Keeps
+    /// `active_slot` valid, promoting a neighbor if the active column was closed.
     fn reflow_slots(&mut self) {
-        let cap = self.capacity().max(1);
-        while self.order.len() > cap {
+        let cap = self.capacity().max(1) as u32;
+        while self.total_units() > cap && self.order.len() > 1 {
             let id = self.order.pop().expect("order is non-empty");
+            self.overflow.insert(
+                0,
+                crate::store::SessionSlot {
+                    url: self.slot_persist_url(id),
+                    width_units: self.width_units[id],
+                    active: false,
+                },
+            );
             browser::close_slot(id);
             if let Some(r) = self.renderer.as_mut() {
                 r.clear_slot(id);
             }
             self.loading[id] = 0.0;
+            self.armed[id] = None;
+            self.width_units[id] = 1;
+        }
+        // A lone double-width slot narrower than the window shrinks to one unit
+        // (it cannot be closed, and cannot fit at two).
+        if self.total_units() > cap
+            && let Some(&id) = self.order.first()
+        {
+            self.width_units[id] = 1;
         }
         if !self.order.contains(&self.active_slot) {
             self.active_slot = *self.order.last().expect("order is non-empty");
@@ -650,6 +703,155 @@ impl Shell {
             if self.overlay == Overlay::Closed {
                 browser::set_focus(Role::Slot(self.active_slot), true);
             }
+        }
+    }
+
+    // --- Session workspace (CD-10) ------------------------------------------
+
+    /// The scheme color of a restored-pending slot (no browser yet, armed URL) —
+    /// its placeholder shows a small dot in this color (CD-10). `None` if the slot
+    /// is live or genuinely empty.
+    fn slot_pending_color(&self, id: usize) -> Option<[f32; 3]> {
+        if browser::slot_has_browser(id) {
+            return None;
+        }
+        let url = self.armed[id].as_deref()?;
+        let c = &self.theme.colors;
+        let hex = if url.starts_with("https://") {
+            &c.accent
+        } else if url.starts_with("http://") {
+            &c.warn
+        } else {
+            &c.text_dim
+        };
+        Some(crate::theme::hex3(hex))
+    }
+
+    /// The URL slot `id` persists into the session: its live page (once loaded),
+    /// else its pre-armed restored URL, filtered to real web pages ("" otherwise).
+    fn slot_persist_url(&self, id: usize) -> String {
+        let live = if browser::slot_has_browser(id) {
+            browser::slot_url(id)
+        } else {
+            String::new()
+        };
+        let url = if live.is_empty() {
+            self.armed[id].clone().unwrap_or_default()
+        } else {
+            live
+        };
+        session::persist_url(&url)
+    }
+
+    /// A compact signature of the current session state, so a save fires only on a
+    /// real change (order, per-slot url/width, the active slot, and overflow).
+    fn session_signature(&self) -> String {
+        use std::fmt::Write;
+        let mut s = String::new();
+        for &id in &self.order {
+            let _ = write!(
+                s,
+                "{}|{}|{};",
+                self.slot_persist_url(id),
+                self.width_units[id],
+                (id == self.active_slot) as u32
+            );
+        }
+        s.push('#');
+        for o in &self.overflow {
+            let _ = write!(s, "{}|{}|{};", o.url, o.width_units, o.active as u32);
+        }
+        s
+    }
+
+    /// Persist the current session now (displayed slots in order, then overflow).
+    fn save_session_now(&mut self) {
+        let mut slots: Vec<crate::store::SessionSlot> = self
+            .order
+            .iter()
+            .map(|&id| crate::store::SessionSlot {
+                url: self.slot_persist_url(id),
+                width_units: self.width_units[id],
+                active: id == self.active_slot,
+            })
+            .collect();
+        slots.extend(self.overflow.iter().cloned());
+        session::save(&slots);
+        self.session_saved_sig = self.session_signature();
+        self.session_dirty = None;
+    }
+
+    /// Drive the debounced session save: arm on a detected change, fire when due.
+    fn maybe_save_session(&mut self) {
+        if !self.views_started {
+            return;
+        }
+        if self.session_dirty.is_none() && self.session_signature() != self.session_saved_sig {
+            self.session_dirty = Some(Instant::now() + SESSION_DEBOUNCE);
+        }
+        if let Some(deadline) = self.session_dirty
+            && Instant::now() >= deadline
+        {
+            self.save_session_now();
+        }
+    }
+
+    /// If slot `id` is a restored lazy slot (no browser but a pre-armed URL),
+    /// spawn its browser now with that URL — its "first interaction" (CD-10).
+    fn spawn_if_armed(&mut self, id: usize) {
+        if browser::slot_has_browser(id) {
+            return;
+        }
+        let Some(url) = self.armed[id].clone() else {
+            return;
+        };
+        if let Some(window) = self.window.clone() {
+            self.push_geometry();
+            let hwnd = window_hwnd(&window);
+            browser::create_browser_url(Role::Slot(id), hwnd, &url);
+        }
+    }
+
+    /// Restore the saved slot workspace (called once at startup). Builds the slot
+    /// order / widths / armed URLs / active from the session, fitting from the
+    /// left by width units (the rest kept in overflow), then spawns the active
+    /// slot immediately and leaves the rest lazy. A fresh / no session falls back
+    /// to the CD-09 default: one slot on the home page.
+    fn restore_session(&mut self, window: &Window) {
+        let hwnd = window_hwnd(window);
+        let (w, _) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
+        let cap = slots::max_slots(w, self.scale, &self.theme.slots) as u32;
+        let saved = session::load();
+
+        if saved.is_empty() {
+            // Fresh install / no session: the CD-09 default — one home-page slot.
+            self.order = vec![0];
+            self.active_slot = 0;
+            browser::set_active_slot(0);
+            self.push_geometry();
+            browser::create_browser(Role::Internal, hwnd);
+            browser::create_browser(Role::Slot(0), hwnd);
+            return;
+        }
+
+        // Fit saved slots from the left by width units (pure, unit-tested); the
+        // shell assigns fresh contiguous ids (id = display index at startup).
+        let plan = session::plan_restore(&saved, cap, MAX_SLOTS);
+        self.order = (0..plan.slots.len()).collect();
+        for (id, ps) in plan.slots.iter().enumerate() {
+            self.width_units[id] = ps.width_units;
+            self.armed[id] = ps.url.clone();
+        }
+        self.overflow = plan.overflow;
+        let active_id = plan.active;
+        self.active_slot = active_id;
+        browser::set_active_slot(active_id);
+        self.push_geometry();
+        browser::create_browser(Role::Internal, hwnd);
+        // The active slot spawns immediately if it carries a page; otherwise it is
+        // an empty active placeholder.
+        if let Some(url) = self.armed[active_id].clone() {
+            browser::create_browser_url(Role::Slot(active_id), hwnd, &url);
         }
     }
 
@@ -978,6 +1180,7 @@ impl ApplicationHandler for Shell {
                             loading: self.loading[id],
                             active: id == self.active_slot,
                             index: id,
+                            pending: self.slot_pending_color(id),
                         })
                         .collect();
                     if let Some(r) = self.renderer.as_mut() {
@@ -1004,18 +1207,17 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        // Create the eager slot 0 + the internal overlay view once the CEF
-        // context is initialised. Slots 1..N are lazy (spawned on first navigate).
+        // Restore the saved slot workspace once the CEF context is initialised
+        // (CD-10): the active slot spawns immediately, the rest stay lazy with
+        // their URL pre-armed. A fresh install falls back to the CD-09 default
+        // (one slot, home page).
         if !self.views_started
             && browser::context_ready()
             && let Some(window) = self.window.clone()
         {
-            self.push_geometry();
-            let hwnd = window_hwnd(&window);
-            browser::set_active_slot(0);
-            browser::create_browser(Role::Slot(0), hwnd);
-            browser::create_browser(Role::Internal, hwnd);
+            self.restore_session(&window);
             self.views_started = true;
+            self.session_saved_sig = self.session_signature();
         }
 
         // Spawn a lazy slot's browser on its first navigation (queued by the
@@ -1118,6 +1320,9 @@ impl ApplicationHandler for Shell {
             browser::load_url(Role::Internal, "https://example.com/");
             self.isolation_tested = true;
         }
+
+        // Persist the slot workspace when it changes (debounced, off the hot path).
+        self.maybe_save_session();
 
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
