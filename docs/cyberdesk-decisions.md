@@ -2,6 +2,100 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0017 - 2026-07-09 - CD-09: the multi-slot engine (columns, lazy spawn, focus routing) and the D-0009 verdict
+
+CD-09 turns the single surf zone into the zone system the whole season was built
+for: up to four **fixed-width content columns** side by side, aligned by the
+layout math, never crooked. This is the heart ticket.
+
+**Slot model (the law).** A **slot** is a fixed-width content column: `slot_width`
+(1200 logical px) wide, as tall as the surf zone (`height_frac` = 70 % of the
+window, vertically centered), with `slot_gutter` (24 px) between slots; the group
+is horizontally centered and never comes within `min_margin` (48 px) of the edge.
+All in the new `[slots]` theme section (one token source, as always). `slot_width`
+is tuned so **four columns fit the 5120 ultrawide** (4·1200 + 3·24 = 4872 < 5120);
+`max_slots(width)` returns what fits (4 on 5120, 3 on 3840, 2 on 2560, 1 on 1920),
+clamped to `MAX_SLOTS` = 4, never below 1. The Pulse Grid glows in the gutters and
+margins — intended and beautiful.
+
+- **Lazy slots.** A new slot has NO browser until its first navigation; until then
+  the shell draws a placeholder (a rounded fill lifted above the base color, with
+  the slot's index as a faint 7-segment glyph — purely shell-side, no CEF, so a new
+  column appears instantly with no white about:blank flash). Slot 0 loads the home
+  page eagerly (parity); the rest spawn on the first `navigate` targeted at them
+  (queued to the main thread, which owns the HWND).
+- **One active slot.** Keyboard input, the top bar and the scheme hint act on it.
+  Active indication: a thin 2 px brand accent along the slot's BOTTOM edge (the top
+  edge belongs to the loading line). Only the active slot's browser holds CEF focus;
+  switching moves focus (set_focus 0 on the old, 1 on the new).
+
+**Stable-id order model (the key architecture decision).** Slots are tracked as an
+ordered list of stable **ids** (`order: Vec<usize>`), each id a fixed index into the
+per-slot browser/texture arrays. A slot keeps its id — and therefore its CEF client/
+handlers (which bake in `Role::Slot(id)`) and its wgpu texture — for its whole life;
+only its *position* in `order` changes when columns are added, closed or recentered.
+This avoids ever migrating a live browser between indices (which would desync the
+handlers' baked role from where their `on_paint` writes). Ctrl+T inserts a free id
+right of the active one; Ctrl+W removes the active id and promotes the nearest
+neighbor; Ctrl+1..4 focus by position; Ctrl+Tab / Ctrl+Shift+Tab cycle. The
+positional index logic is pure and unit-tested (`slots.rs`).
+
+**Rendering.** The single page pass became a shared `PagePipeline` + per-target
+`PageTarget` (one per slot + the overlay); the render loop draws each painted slot's
+texture (feathered, at its rect), one instanced placeholder pass for empty slots, and
+one instanced slot-lines pass (per-slot loading line at the top edge + the active
+accent at the bottom). The zone-shadow uniform grew from 4 to **6 rects** (up to
+MAX_SLOTS slots + the one open overlay; std140 array of vec4, both pulse shaders
+updated). `--capture` gained `CYBERDESK_CAPTURE_SLOTS=N` to render N placeholder
+columns, so the four-column money shot is verifiable headlessly (no desktop scrape).
+
+**Input routing.** Mouse events route to the view under the cursor (the slot whose
+rect *contains* it, or the overlay) at coordinates relative to that view; crossing
+views sends a mouse-leave so hover states clear; a click inside a slot makes it
+active; cursor-icon feedback comes from the hovered view. Keyboard routes to the
+active slot; the slot-management shortcuts are intercepted host-side first. The top
+bar acts on the active slot — and this needed **no new IPC**: the existing
+`get_nav_state` / `navigate` / `go_back` / `go_forward` / `reload` now read and drive
+`browser::active_slot()` internally, so the wire format is unchanged (verified). All
+slots' visits record into the one shared history. The gesture-aware popup policy
+(D-0011) stays per-slot (a user-gesture popup navigates its own slot's main frame).
+
+**Reasoned deviations (documented per the standing rule).** The single-slot state is
+no longer pixel-identical to CD-08: a lone column is now a fixed 1200 px wide (the
+slot model's natural single form) rather than the old 60 %-of-width zone — wider on
+the 1600 dev window, narrower on the 5120 ultrawide (where a single centered column
+with generous glowing margins is the intended aesthetic) — and it carries the active
+accent line (the slot law mandates exactly one active slot at all times). Behavior
+(feathering, loading line, bar, favorites, history, popups, nav keys) is identical;
+"parity" is behavioral, not pixel-exact. This is the deliberate consequence of
+adopting the slot model, not a regression.
+
+**Performance gate — the D-0009 measurement moment. VERDICT: the trigger did NOT
+fire.** Measured on an NVIDIA RTX 3090 at 5120×1440 with **4 slots** (1200×1008 each,
+**18.5 MB/frame** of page uploads), 300 frames after warmup, via a temporary headless
+harness (main-thread `write_texture` staging + the full shell composite + submit +
+GPU wait; since removed):
+
+- Per-slot upload (4 slots, staging): **median 3.0 ms, p99 4.0 ms, max 4.9 ms**.
+- Full frame (upload + composite + submit + wait): **median 4.45 ms, p99 6.2 ms,
+  max 6.8 ms**.
+- 60 fps frame budget: 16.667 ms.
+
+The worst frame (6.8 ms) sits well under the budget with ~10 ms of headroom, so
+4-slot browsing does **not** stutter and the CPU OSR path stays viable — D-0009's
+stutter trigger has not fired for this ticket. **But** the uploads are already the
+single dominant frame cost (3.0 of 4.45 ms, ~68 %) and scale linearly with slot
+count and resolution, exactly as D-0009 predicted once per-pixel throughput started
+to matter. So the **recommendation** stands as D-0009 framed it: the accelerated,
+zero-copy shared-texture path (D-0009 option a — replicate cef-rs's D3D11 importer
+against wgpu-30's DX12 hal) is the well-scoped next optimization to reclaim that
+headroom, and becomes necessary sooner on weaker GPUs, higher DPI, or if slot counts
+grow — but it is **not required now** and stays out of scope for CD-09 (measure,
+record, recommend). Caveat: the harness measures the main-thread upload + composite
+(what governs the render loop's 60 fps), not the CEF-side `on_paint` memcpy (a
+separate thread), and forces a full GPU sync per frame (more pessimistic than
+vsync-pipelined real frames), so the real on-screen margin is at least as good.
+
 ## D-0016 - 2026-07-09 - CD-08: the command surface is a hover-reveal top bar
 
 Sascha's CD-07 acceptance changed the command surface: from the centered command

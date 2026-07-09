@@ -13,7 +13,7 @@ feathered compositing, and an isolated in-shell settings surface.
 
 ---
 
-## State after CD-08 (Season 1 extended)
+## State after CD-09 (Season 1 extended)
 
 * **Shell:** Borderless fullscreen on the primary monitor, dark background
   (`#04070A`), vsync. The shell background is the Pulse Grid alone — the CARVILON
@@ -39,18 +39,31 @@ feathered compositing, and an isolated in-shell settings surface.
   a scan sweep) is preserved as a token-selectable "Calm" variant
   (`background.kind = "deep_field"`). See `docs/cyberdesk-decisions.md` (D-0012,
   D-0013).
-* **Surf zone (CEF, off-screen rendering):** CEF renders the page off-screen
-  (`on_paint`); CyberDesk uploads each frame into a wgpu texture and composites
-  it inside its own frame — the page sits centered (~60% × 70%) with the shell
-  visible around it. Its edges are **feathered** (a light, steep SDF-based alpha
-  soften over a narrow band — the outermost pixels only, corrected in CD-06 from
-  the wider CD-05 band that read as a vignette; toggleable back to the hard
-  rounded corner). Mouse and keyboard are forwarded into the page (a Google
-  search, clicking, and scrolling all work) and the cursor follows the page.
+* **Slot engine — fixed-width content columns (CD-09, D-0017):** the surf zone is
+  now up to **four fixed-width columns** ("slots", 1200 logical px each) side by
+  side, gutter-spaced and centered — four fit the 5120 ultrawide, one a 1920
+  panel. `Ctrl+T` adds a column (lazily: it shows a placeholder with its index
+  glyph until its first navigation, no white flash), `Ctrl+W` closes the active
+  one, `Ctrl+1..4` / `Ctrl+Tab` switch. One column is **active** at a time (a thin
+  brand accent underlines it): the keyboard and the top bar drive it; the mouse
+  drives whichever column it is over (a click makes that column active). The Pulse
+  Grid glows in the gutters and margins, dimmed under each column by the zone
+  shadow. On the ultrawide, four different sites sit pixel-aligned side by side.
+* **Surf columns (CEF, off-screen rendering):** each column's CEF browser renders
+  off-screen (`on_paint`); CyberDesk uploads each frame into that slot's wgpu
+  texture and composites it at the slot's rectangle (70 % tall, centered). Column
+  edges are **feathered** (a light, steep SDF-based alpha soften over a narrow band
+  — the outermost pixels only, corrected in CD-06 from the wider CD-05 band that
+  read as a vignette; toggleable back to the hard rounded corner). Mouse and
+  keyboard are forwarded into the column under the cursor / the active column (a
+  Google search, clicking, and scrolling all work) and the cursor follows it. At
+  4 loaded columns on the ultrawide the render loop stays well inside the 60 fps
+  budget; the accelerated zero-copy OSR path (D-0009) is recommended but not yet
+  needed (see `docs/cyberdesk-decisions.md`, D-0017).
 * **Free surfing (hover-reveal top bar + memory):** the command surface is a
-  **top bar** that slides down from the top edge (CD-08, D-0016) — move the mouse
-  into the gap above the surf zone, or press `Ctrl+L` (which focuses + selects the
-  input). It holds the address input (classified host-side as a URL or a search on
+  **top bar** that slides down above the active column (CD-08, D-0016) — move the
+  mouse into the gap above it, or press `Ctrl+L` (which focuses + selects the
+  input). It drives the active column (prefill, star and scheme hint reflect it). It holds the address input (classified host-side as a URL or a search on
   the chosen engine) with your **favorites as clickable chips** below; start
   typing and the chips give way to up to six live **suggestions** from favorites +
   history — favorites first, then history by a simple frecency. `Arrow` keys move
@@ -60,9 +73,9 @@ feathered compositing, and an isolated in-shell settings surface.
   (after a short grace period, never while you are typing), when a navigation
   commits, or on `ESC`. Back / forward / reload and the mouse's forward/back
   buttons drive the page history, an amber glyph flags a plain-`http://` page, and
-  a loading line traces the top of the zone. Popups follow a gesture-aware policy
-  (D-0011): a real click on a `target=_blank` link navigates the surf view in
-  place, script `window.open` is dropped — no second window ever opens.
+  a loading line traces the top of each column. Popups follow a gesture-aware
+  policy (D-0011): a real click on a `target=_blank` link navigates its own column
+  in place, script `window.open` is dropped — no second window ever opens.
 * **Settings:** a gear button (top-right) opens an in-shell settings card — a
   **second, web-isolated OSR view** locked to an internal `cyberdesk://` custom
   scheme (D-0010), served entirely in-process from embedded assets. It can never
@@ -156,29 +169,39 @@ cargo run --release -- --capture background.png
 ```
 
 `CYBERDESK_CAPTURE_SIZE=WxH` sizes it (e.g. `5120x1440` for the ultrawide
-judgment) and `CYBERDESK_CAPTURE_GLOW=<mult>` brightens it (e.g. to inspect the
-faint far layer).
+judgment), `CYBERDESK_CAPTURE_GLOW=<mult>` brightens it (e.g. to inspect the faint
+far layer), and `CYBERDESK_CAPTURE_SLOTS=N` renders N placeholder slot columns
+(CD-09) so the multi-column layout — columns, gutters, glowing margins, zone
+shadow, index glyphs — can be eyeballed headlessly (e.g. `=4` on the ultrawide).
 
 ---
 
 ## Controls
 
-The surf zone behaves like a stripped-down browser with no visible chrome until
-you summon it. All navigation shortcuts act on the surf view.
+The shell shows **fixed-width content columns** ("slots") — up to four side by
+side on an ultrawide, one on a 1920 panel. Each column is a stripped-down browser
+with no visible chrome until you summon it. Keyboard shortcuts act on the **active
+slot** (a thin brand accent underlines it); mouse actions act on the slot under
+the cursor.
 
 | Input | Action |
 | --- | --- |
-| Mouse to the top edge | Reveal the top bar (slides down); it retreats when the mouse leaves it, after a short grace period |
-| `Ctrl+L` | Reveal the top bar with the input focused + selected (from any state) |
+| `Ctrl+T` | Add a column to the right (up to what fits the width); it becomes active and the bar opens, empty — type an address to load it |
+| `Ctrl+W` | Close the active column (the last one can't be closed); the rest recenter and a neighbor becomes active |
+| `Ctrl+1` … `Ctrl+4` | Focus the 1st … 4th column |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle the active column forward / backward |
+| Click a column | Make it the active column |
+| Mouse to a column's top edge | Reveal the top bar above it (slides down); it retreats when the mouse leaves it, after a short grace period |
+| `Ctrl+L` | Reveal the top bar (active column) with the input focused + selected |
 | type (in the bar) | Chips give way to live suggestions from favorites + history; moving the mouse away no longer hides the bar while you type |
 | `↑` / `↓` | Move the suggestion selection |
-| click a favorite chip | Navigate to that favorite (the bar retreats) |
-| `Enter` (in the bar) | Navigate the selected suggestion, or the typed text — a scheme, a dotted host, or `localhost` loads as a URL (default `https://`); anything else searches the chosen engine |
-| `Ctrl+D` | Favorite / unfavorite the current page (star reflects it live) |
-| `Alt+←` / `Alt+→` | History back / forward |
-| Mouse button 4 / 5 | History back / forward |
-| `F5` / `Ctrl+R` | Reload |
-| `Ctrl+Shift+R` | Hard reload (ignore cache) |
+| click a favorite chip | Navigate the active column to that favorite (the bar retreats) |
+| `Enter` (in the bar) | Navigate the active column to the selected suggestion, or the typed text — a scheme, a dotted host, or `localhost` loads as a URL (default `https://`); anything else searches the chosen engine |
+| `Ctrl+D` | Favorite / unfavorite the active column's page (star reflects it live) |
+| `Alt+←` / `Alt+→` | History back / forward (active column) |
+| Mouse button 4 / 5 | History back / forward (column under the cursor) |
+| `F5` / `Ctrl+R` | Reload (active column) |
+| `Ctrl+Shift+R` | Hard reload, ignore cache (active column) |
 | `ESC` | Hide the top bar, else close the settings card, else quit |
 
 An amber glyph in the top bar marks a page served over plain `http://`
@@ -199,11 +222,12 @@ windows; always off in `--windowed` dev mode).
 cyberdesk/
 ├─ src/
 │  ├─ main.rs        # entry point, CLI, process model
-│  ├─ app.rs         # winit event loop, window, input routing, nav keys, foreground guard
-│  ├─ renderer.rs    # wgpu renderer: shell + page/panel compositing, capture
-│  ├─ browser.rs     # CEF OSR (two views), custom scheme, isolation, settings/nav/top-bar IPC
+│  ├─ app.rs         # winit event loop, window, slot layout, per-slot input routing, nav keys, foreground guard
+│  ├─ renderer.rs    # wgpu renderer: shell + per-slot page/placeholder/line compositing, capture
+│  ├─ browser.rs     # CEF OSR (N slot views + 1 internal), custom scheme, isolation, settings/nav/top-bar IPC
+│  ├─ slots.rs       # slot layout engine (max_slots, slot_rects) + order management, pure + unit-tested
 │  ├─ theme.rs       # theme tokens -> shader uniforms + settings/command CSS vars
-│  ├─ theme.toml     # the embedded "cyber" token set (single style source)
+│  ├─ theme.toml     # the embedded "cyber" token set (single style source; [slots] section)
 │  ├─ store.rs       # schema-versioned SQLite store (settings, history, favorites)
 │  ├─ settings.rs    # live settings state (search engine, glow, toggles) over the shared store
 │  ├─ memory.rs      # history + favorites domain layer (frecency suggestions) over the store
@@ -213,8 +237,9 @@ cyberdesk/
 │  ├─ ring.wgsl      # CARVILON ring — dormant since CD-06 (Season-2 motif)
 │  ├─ pulsegrid_*.wgsl  # Pulse Grid: lattice (3 depth weaves) · sprite (SDF prims/pulses) · composite
 │  ├─ deepfield.wgsl # Deep Field ("Calm" variant) background  ·  blit.wgsl (upscale)
-│  ├─ page.wgsl      # surf-zone page / settings panel compositing (feathering)
-│  ├─ loading.wgsl   # surf-zone loading line
+│  ├─ page.wgsl      # per-slot page / settings panel compositing (feathering)
+│  ├─ slot_placeholder.wgsl  # lazy-slot placeholder (fill + 7-segment index glyph)
+│  ├─ slot_lines.wgsl        # per-slot loading line (top) + active accent (bottom)
 │  └─ gear.wgsl      # settings gear button
 ├─ scripts/
 │  └─ fetch-cef.ps1  # downloads the pinned CEF version into vendor/cef/

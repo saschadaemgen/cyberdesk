@@ -51,12 +51,17 @@ with code 4. There is no passthrough channel.
 
 ## Command bar / navigation IPC (CD-04, live)
 
-The command bar view (`cyberdesk://command/`) drives the surf zone's navigation
-over the same message-router bridge as the settings view (`window.cefQuery`,
-process messages only, registered on `cyberdesk://` contexts only). Every command
-here targets the surf view (`Role::Surf`); the internal views are never navigated
-through this channel. Error codes share the single space defined above (1 =
-malformed request JSON, 2 = missing/wrong-typed field, 4 = unknown `cmd`).
+The command bar view (`cyberdesk://command/`) drives navigation over the same
+message-router bridge as the settings view (`window.cefQuery`, process messages
+only, registered on `cyberdesk://` contexts only). Since CD-09 (D-0017) every
+command here targets the **active slot** — the host reads/drives
+`browser::active_slot()` internally — rather than a single fixed surf view; the
+top bar always shows and drives the active column. This needed **no new commands
+and no field changes**: the wire format below is unchanged from CD-08, only the
+host-side target moved from `Role::Surf` to the active slot. The internal views
+are never navigated through this channel. Error codes share the single space
+defined above (1 = malformed request JSON, 2 = missing/wrong-typed field, 4 =
+unknown `cmd`).
 
 ### `get_nav_state` (view -> host)
 
@@ -82,15 +87,16 @@ malformed request JSON, 2 = missing/wrong-typed field, 4 = unknown `cmd`).
   - empty -> `about:blank`
   - otherwise -> `https://www.google.com/search?q=<urlencoded>` (or the selected
     search engine, CD-07)
-- Effect: loads the resolved URL in the surf view and slides the top bar away
-  (CD-08; a committed navigation is one of the bar's hide triggers).
+- Effect: loads the resolved URL in the active slot (spawning its browser if the
+  slot is still lazy, CD-09) and slides the top bar away (CD-08; a committed
+  navigation is one of the bar's hide triggers).
 - Success: `{"ok":true,"url":"<resolved-url>"}`
 - Failure: code 1 (malformed request), 2 (missing `input`).
 
 ### `go_back` / `go_forward` / `reload` (view -> host)
 
 - Request: `{"cmd":"go_back"}` | `{"cmd":"go_forward"}` | `{"cmd":"reload"}`
-- Effect: the surf view steps back / forward in session history, or reloads.
+- Effect: the active slot steps back / forward in session history, or reloads.
   Back/forward are no-ops when `can_back` / `can_forward` (from `get_nav_state`)
   is false.
 - Success: `{"ok":true}`
