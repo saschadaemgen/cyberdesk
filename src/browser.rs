@@ -196,10 +196,12 @@ pub fn command_rows() -> usize {
     COMMAND_ROWS.load(Ordering::Relaxed)
 }
 
-/// Pre-compute the row count for the palette's opening input (the current surf
-/// URL) so it opens at the right height instead of resizing a frame later.
+/// Pre-compute the row count for the palette's opening list so it opens at the
+/// right height instead of resizing a frame later. The palette opens on the full
+/// favorites list (empty input — the prefilled URL is shown but not filtered on,
+/// see command.js), so prime with the same empty-input query.
 pub fn prime_command_rows() {
-    let n = crate::memory::query_suggestions(&surf_url(), command_max_results()).len();
+    let n = crate::memory::query_suggestions("", command_max_results()).len();
     COMMAND_ROWS.store(n, Ordering::Relaxed);
 }
 

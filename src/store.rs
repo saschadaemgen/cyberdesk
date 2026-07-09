@@ -50,8 +50,23 @@ fn data_dir() -> PathBuf {
 
 impl Store {
     pub fn open() -> Self {
-        let path = data_dir().join("state.db");
-        let conn = Connection::open(&path).expect("failed to open state.db");
+        Self::from_connection(
+            Connection::open(data_dir().join("state.db")).expect("failed to open state.db"),
+        )
+    }
+
+    /// An isolated in-memory store for tests — a throwaway temp DB with the same
+    /// schema (migrated) and defaults (seeded) as the real `state.db`, but no
+    /// filesystem and no shared global. The regression harness drives the real
+    /// history/favorites code against one of these.
+    #[cfg(test)]
+    pub(crate) fn open_in_memory() -> Self {
+        Self::from_connection(
+            Connection::open_in_memory().expect("failed to open in-memory state.db"),
+        )
+    }
+
+    fn from_connection(conn: Connection) -> Self {
         let store = Self { conn };
         store.migrate();
         store.seed_defaults();
@@ -342,4 +357,56 @@ fn like_escape(s: &str) -> String {
         out.push(c);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two distinct pages favorited in sequence must both persist (no collapse to
+    /// one), and the empty-input palette query — the surface the reveal shows —
+    /// must return both, in their saved order. This is the storage half of the
+    /// CD-08 favorites repro (the display half is fixed in command.js).
+    #[test]
+    fn two_distinct_favorites_persist_and_list() {
+        let s = Store::open_in_memory();
+        assert!(s.toggle_favorite("https://a.example/", "Alpha"));
+        assert!(s.toggle_favorite("https://b.example/", "Beta"));
+
+        let all = s.query_suggestions("", 6);
+        assert_eq!(all.len(), 2, "both favorites must survive");
+        assert_eq!(all[0].url, "https://a.example/");
+        assert_eq!(all[1].url, "https://b.example/");
+        assert!(all.iter().all(|x| x.favorite));
+    }
+
+    /// The insert must not use REPLACE/UPSERT semantics that would overwrite an
+    /// existing favorite — re-favoriting the same URL toggles it off, and only
+    /// that one.
+    #[test]
+    fn toggle_off_removes_only_that_favorite() {
+        let s = Store::open_in_memory();
+        s.toggle_favorite("https://a.example/", "Alpha");
+        s.toggle_favorite("https://b.example/", "Beta");
+        assert!(!s.toggle_favorite("https://a.example/", "Alpha")); // now un-favorited
+
+        let all = s.query_suggestions("", 6);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].url, "https://b.example/");
+    }
+
+    /// Typing a query that matches only one favorite returns that one — this is
+    /// what the old palette did on open with the current URL prefilled, and why
+    /// only a single favorite ever showed. The empty-input list (above) is the
+    /// contrast that proves both are stored.
+    #[test]
+    fn filtered_query_narrows_to_matching_favorite() {
+        let s = Store::open_in_memory();
+        s.toggle_favorite("https://a.example/", "Alpha");
+        s.toggle_favorite("https://b.example/", "Beta");
+
+        let only_b = s.query_suggestions("b.example", 6);
+        assert_eq!(only_b.len(), 1);
+        assert_eq!(only_b[0].url, "https://b.example/");
+    }
 }

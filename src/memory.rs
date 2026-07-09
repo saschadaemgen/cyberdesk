@@ -39,11 +39,50 @@ pub fn is_favorite(url: &str) -> bool {
 /// Toggle `url`'s favorite state; returns the new state. No-op (returns false)
 /// for internal/blank URLs.
 pub fn toggle_favorite(url: &str, title: &str) -> bool {
-    is_recordable(url) && store::shared().lock().unwrap().toggle_favorite(url, title)
+    toggle_favorite_in(&store::shared().lock().unwrap(), url, title)
+}
+
+/// The guarded toggle against an explicit store — the exact logic the surf-view
+/// Ctrl+D shortcut runs (`is_recordable` filter + [`store::Store::toggle_favorite`]).
+/// Split out so the regression harness drives the shortcut's real path against a
+/// throwaway store rather than reaching into the store directly.
+fn toggle_favorite_in(store: &store::Store, url: &str, title: &str) -> bool {
+    is_recordable(url) && store.toggle_favorite(url, title)
 }
 
 /// Command-palette suggestions for `input` (favorites first, then history by
 /// frecency), capped at `limit`. Empty input returns the top favorites.
 pub fn query_suggestions(input: &str, limit: usize) -> Vec<Suggestion> {
     store::shared().lock().unwrap().query_suggestions(input, limit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::Store;
+
+    /// The CD-08 repro through the shortcut's own code path: favorite two
+    /// different pages in a row (as surf-view Ctrl+D does), then read back the
+    /// empty-input palette list (as the reveal shows). Both must be there — the
+    /// bug was that only the current page's favorite was ever visible.
+    #[test]
+    fn ctrl_d_on_two_pages_keeps_both_favorites() {
+        let s = Store::open_in_memory();
+        assert!(toggle_favorite_in(&s, "https://one.example/", "One"));
+        assert!(toggle_favorite_in(&s, "https://two.example/", "Two"));
+
+        let favs = s.query_suggestions("", 6);
+        assert_eq!(favs.len(), 2, "both favorites must survive the second Ctrl+D");
+    }
+
+    /// The guard keeps internal/blank URLs out of favorites (they are never a
+    /// real page), so a Ctrl+D on `cyberdesk://` or a blank tab is a no-op.
+    #[test]
+    fn internal_and_blank_urls_are_not_favoritable() {
+        let s = Store::open_in_memory();
+        assert!(!toggle_favorite_in(&s, "", "empty"));
+        assert!(!toggle_favorite_in(&s, "about:blank", "blank"));
+        assert!(!toggle_favorite_in(&s, "cyberdesk://settings/", "settings"));
+        assert_eq!(s.query_suggestions("", 6).len(), 0);
+    }
 }

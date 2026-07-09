@@ -32,6 +32,13 @@
   var currentUrl = "";
   var currentTitle = "";
 
+  // The URL the input is prefilled with on open. While the input still holds it
+  // untouched (or is empty), the palette shows the full favorites list rather
+  // than filtering by the current address — otherwise only the favorite matching
+  // the current page would ever show (the CD-07 "only one favorite" bug). The
+  // first keystroke replaces the selected text and switches to live filtering.
+  var pristineUrl = "";
+
   // Live suggestions and the keyboard selection (-1 = the raw input, no row).
   var suggestions = [];
   var selIndex = -1;
@@ -118,8 +125,14 @@
     }
   }
 
+  // Text to query suggestions for: empty (full favorites list) while the input
+  // still holds the untouched prefilled URL, otherwise the live typed value.
+  function suggestQueryText() {
+    return input.value === pristineUrl ? "" : input.value;
+  }
+
   function runSuggest() {
-    query({ cmd: "query_suggestions", input: input.value })
+    query({ cmd: "query_suggestions", input: suggestQueryText() })
       .then(function (r) {
         var items;
         try { items = JSON.parse(r); } catch (e) { items = []; }
@@ -154,10 +167,11 @@
   refreshState()
     .then(function (s) {
       applyNavState(s);
-      input.value = s.url || "";
+      pristineUrl = s.url || "";
+      input.value = pristineUrl;
       input.focus();
       input.select();
-      runSuggest();
+      runSuggest(); // input untouched -> shows the full favorites list
     })
     .catch(function () { input.focus(); runSuggest(); });
 
