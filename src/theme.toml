@@ -150,4 +150,5 @@ flare_glow         = 0.7    # flare brightness
 input_height = 76.0   # logical px — the input-bar area (unchanged from CD-04)
 row_height   = 46.0   # logical px per suggestion row
 list_pad     = 8.0    # logical px — padding above/below the suggestion list
-max_results  = 6      # maximum suggestions shown at once
+max_results  = 6      # maximum suggestions shown at once (also the chip cap)
+chip_row     = 54.0   # logical px — the favorites chip row (CD-08 top bar)

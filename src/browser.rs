@@ -178,11 +178,22 @@ pub fn toggle_current_favorite() -> bool {
     crate::memory::toggle_favorite(&surf_url(), &surf_title())
 }
 
-// --- Command palette sizing (CD-07) -----------------------------------------
-// The palette view is sized to `input bar + N suggestion rows`. The IPC handler
-// stores the live suggestion count here; the main thread reads it to resize the
-// internal view (see app::Shell and `command_rows`).
+// --- Command bar sizing + state (CD-07, CD-08) ------------------------------
+// The bar view is sized host-side to `input row + body`, where the body is
+// either the favorites chip row (untouched input) or `N suggestion rows`
+// (typing). The IPC handler stores the live count and whether the current query
+// is the empty/untouched one, so the main thread can compute the exact bar
+// height from the shared theme tokens (see app::Shell and `command_rows`).
 static COMMAND_ROWS: AtomicUsize = AtomicUsize::new(0);
+/// True when the bar's current body is the untouched/empty input — favorites are
+/// shown as chips (one row), not the multi-row suggestion list.
+static BAR_INPUT_EMPTY: AtomicBool = AtomicBool::new(true);
+/// Set by the host before a reveal: whether the bar page should focus + select
+/// its input on open (Ctrl+L yes; hover-to-top no). Read back in `get_nav_state`.
+static BAR_AUTOFOCUS: AtomicBool = AtomicBool::new(false);
+/// Reported by the bar page: the user is actively typing a query (focused input
+/// holding real text). While true, a mouse-out must NOT hide the bar (CD-08).
+static BAR_TYPING: AtomicBool = AtomicBool::new(false);
 
 /// Max suggestions the palette shows (theme token `command.max_results`, read
 /// once).
@@ -191,18 +202,41 @@ fn command_max_results() -> usize {
     *M.get_or_init(|| crate::theme::Theme::load().command.max_results.max(0) as usize)
 }
 
-/// Suggestion rows the palette is currently showing (0 = input bar only).
+/// Suggestion / chip count the bar's body is currently showing (0 = input row
+/// only). In the untouched-input state this is the favorite count (all rendered
+/// as one chip row); while typing it is the suggestion-row count.
 pub fn command_rows() -> usize {
     COMMAND_ROWS.load(Ordering::Relaxed)
 }
 
-/// Pre-compute the row count for the palette's opening list so it opens at the
-/// right height instead of resizing a frame later. The palette opens on the full
-/// favorites list (empty input — the prefilled URL is shown but not filtered on,
-/// see command.js), so prime with the same empty-input query.
+/// Is the bar body the untouched/empty input (favorites chips) rather than a
+/// typed suggestion list? Drives the host-side height computation.
+pub fn bar_input_empty() -> bool {
+    BAR_INPUT_EMPTY.load(Ordering::Relaxed)
+}
+
+/// Whether the bar page should focus its input on open (set before a reveal).
+pub fn set_bar_autofocus(on: bool) {
+    BAR_AUTOFOCUS.store(on, Ordering::Relaxed);
+}
+
+/// Is the user actively typing in the bar's input (reported by the page)? The
+/// hysteresis hide skips a mouse-out while this holds.
+pub fn bar_typing() -> bool {
+    BAR_TYPING.load(Ordering::Relaxed)
+}
+
+/// Pre-compute the bar's opening body so it opens at the right height instead of
+/// resizing a frame later. The bar opens on the untouched input (favorites
+/// chips), so prime with the empty-input favorite count.
 pub fn prime_command_rows() {
     let n = crate::memory::query_suggestions("", command_max_results()).len();
     COMMAND_ROWS.store(n, Ordering::Relaxed);
+    BAR_INPUT_EMPTY.store(true, Ordering::Relaxed);
+    // Clear any stale typing state from a previous open (the fresh page reports
+    // its own on focus/blur/input); otherwise a hover reveal could inherit a
+    // leftover `true` and never hide on mouse-out.
+    BAR_TYPING.store(false, Ordering::Relaxed);
 }
 
 // --- Process / lifecycle ----------------------------------------------------
@@ -588,6 +622,9 @@ fn nav_state_json() -> String {
         "loading": surf_loading(),
         "scheme": scheme,
         "favorite": crate::memory::is_favorite(&url),
+        // Whether the bar page should focus + select its input on this open
+        // (Ctrl+L reveal yes; hover-to-top reveal no — CD-08).
+        "autofocus": BAR_AUTOFOCUS.load(Ordering::Relaxed),
     })
     .to_string()
 }
@@ -659,6 +696,9 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             let input = v.get("input").and_then(|x| x.as_str()).unwrap_or("");
             let suggestions = crate::memory::query_suggestions(input, command_max_results());
             COMMAND_ROWS.store(suggestions.len(), Ordering::Relaxed);
+            // Empty input -> the bar body is the favorites chip row (one row);
+            // non-empty -> the multi-row suggestion list. Drives bar sizing.
+            BAR_INPUT_EMPTY.store(input.trim().is_empty(), Ordering::Relaxed);
             let arr: Vec<serde_json::Value> = suggestions
                 .iter()
                 .map(|s| serde_json::json!({ "url": s.url, "title": s.title, "favorite": s.favorite }))
@@ -676,6 +716,13 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             let title = v.get("title").and_then(|x| x.as_str()).unwrap_or("");
             let favorite = crate::memory::toggle_favorite(url, title);
             Ok(serde_json::json!({ "favorite": favorite }).to_string())
+        }
+        // Bar typing state (CD-08): the page reports whether the user is actively
+        // typing so the host's mouse-out hide does not interrupt them.
+        "bar_typing" => {
+            let active = v.get("active").and_then(|x| x.as_bool()).unwrap_or(false);
+            BAR_TYPING.store(active, Ordering::Relaxed);
+            Ok(serde_json::json!({ "ok": true }).to_string())
         }
         other => Err((4, format!("unknown cmd: {other}"))),
     }

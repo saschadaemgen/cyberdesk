@@ -1,5 +1,7 @@
-/* Command bar styling. Colors come entirely from the injected token custom
-   properties (see theme.toml / Theme::to_css_vars) — nothing hardcoded here. */
+/* Command bar (CD-08 hover-reveal top bar). Colors come entirely from the
+   injected token custom properties (see theme.toml / Theme::to_css_vars) —
+   nothing hardcoded here. The wgpu compositor paints the bar's slide/clip; this
+   page only lays out the content at full bar size. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -11,12 +13,20 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The whole bar: an opaque panel filling the composited rect, laid out as the
+   input row, then either the favorites chips or the live suggestion list. */
 .bar {
   width: 100%;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Input row: nav glyphs, scheme hint, address input, favorite star. */
+.row {
   height: var(--cmd-input-height);
   flex: none;
   padding: 0 14px;
-  background: var(--panel);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -80,8 +90,55 @@ html, body {
 .glyph.star.on { color: var(--brand); }
 .glyph.star.on .star-path { fill: currentColor; }
 
-/* Suggestion list — favorites + history rows below the input. The palette view
-   is sized (host-side) to exactly `input bar + N rows`, so the row and padding
+/* Favorites chip row (CD-08). A single horizontal row of pills; each navigates
+   to its page on click. Height is the shared --cmd-chip-row token so the page
+   and the host-side bar sizing agree. Hidden when there are no favorites. */
+.chips {
+  height: var(--cmd-chip-row);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;                /* the row is drag-free; keep it clean */
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--panel-border) 70%, transparent);
+}
+.chips::-webkit-scrollbar { height: 0; }
+.chips:empty { display: none; }
+
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.chip:hover {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+}
+.chip:active { background: color-mix(in srgb, var(--brand) 26%, transparent); }
+.chip-star { flex: none; width: 13px; height: 13px; color: var(--brand); }
+.chip-title {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Suggestion list — favorites + history rows below the input while typing. The
+   bar view is sized (host-side) to `input row + N rows`, so the row and padding
    dimensions come from the same shared --cmd-* tokens (no hardcoded sizes). */
 .suggestions { padding: var(--cmd-list-pad) 0; }
 .suggestions:empty { display: none; }

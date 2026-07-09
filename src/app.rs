@@ -2,7 +2,7 @@
 //! forwarding into CEF (OSR), the gear button, cursor feedback, ESC handling.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
@@ -15,6 +15,41 @@ use crate::browser::{self, Role};
 use crate::renderer::SurfaceRenderer;
 use crate::settings;
 use crate::theme::Theme;
+
+/// Per-frame ease factor for the top bar's slide (CD-08). Exponential approach,
+/// matching the gear/loading eases already in this loop; ~180 ms ease-out at the
+/// loop's ~60 fps.
+const BAR_EASE: f32 = 0.22;
+
+/// Grace period after the cursor leaves the bar's keep region before it hides
+/// (hysteresis — no flicker on grazing touches, CD-08).
+const BAR_HIDE_HYSTERESIS: Duration = Duration::from_millis(250);
+
+/// Bar content height in logical px, from the shared theme tokens (so the page
+/// and the host-side sizing agree): the input row, plus the favorites chip row
+/// (an untouched/empty input) or the suggestion list (while typing).
+fn bar_body_logical(cmd: &crate::theme::Command, rows: usize, input_empty: bool) -> f32 {
+    let body = if input_empty {
+        if rows > 0 { cmd.chip_row } else { 0.0 }
+    } else if rows > 0 {
+        rows as f32 * cmd.row_height + 2.0 * cmd.list_pad
+    } else {
+        0.0
+    };
+    cmd.input_height + body
+}
+
+/// Cursor hit-test for the bar's reveal hot zone: the free gap band above the
+/// surf zone, over the full surf-zone width.
+fn hot_zone_contains(cx: f32, cy: f32, zx: f32, zy: f32, zw: f32) -> bool {
+    cx >= zx && cx <= zx + zw && cy >= 0.0 && cy < zy
+}
+
+/// Cursor hit-test for the bar's keep-open region: the hot zone unioned with the
+/// visible bar rect, expanded by `margin`. `bottom` is the visible bar bottom.
+fn keep_region_contains(cx: f32, cy: f32, zx: f32, zw: f32, bottom: f32, margin: f32) -> bool {
+    cx >= zx - margin && cx <= zx + zw + margin && cy >= 0.0 && cy <= bottom + margin
+}
 
 /// Surf-zone rectangle in device pixels: 60% width, 70% height, centered.
 fn zone_rect(width: u32, height: u32) -> (f32, f32, f32, f32) {
@@ -46,37 +81,14 @@ fn gear_geom(width: u32, scale: f32) -> (f32, f32, f32) {
     (w - margin - r, margin + r, r)
 }
 
-/// Command-palette rectangle in device pixels: a centered strip in the upper
-/// third, sized to `input bar + N suggestion rows`. The dimensions come from the
-/// theme (D-0014), so this and the page CSS stay in lockstep as the palette
-/// grows and shrinks with the live suggestion count.
-fn command_rect(
-    width: u32,
-    height: u32,
-    scale: f32,
-    rows: usize,
-    cmd: &crate::theme::Command,
-) -> (f32, f32, f32, f32) {
-    let (w, h) = (width as f32, height as f32);
-    let pw = (w * 0.5).clamp(560.0, 960.0).min(w);
-    let input_h = cmd.input_height * scale;
-    let list_h = if rows > 0 {
-        (rows as f32 * cmd.row_height + 2.0 * cmd.list_pad) * scale
-    } else {
-        0.0
-    };
-    let ph = (input_h + list_h).min(h);
-    let px = ((w - pw) * 0.5).round();
-    let py = (h * 0.20).round();
-    (px, py, pw.round(), ph.round())
-}
-
-/// Which internal overlay (if any) is currently shown.
+/// Which internal overlay (if any) is currently shown. `Bar` is the CD-08
+/// hover-reveal top bar (the former centered command palette); `Settings` is the
+/// gear card. The two are mutually exclusive — one shared internal OSR view.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Overlay {
     Closed,
     Settings,
-    Command,
+    Bar,
 }
 
 pub fn run(windowed: bool) {
@@ -108,7 +120,11 @@ pub fn run(windowed: bool) {
         applied_title: String::new(),
         applied_topmost: false,
         isolation_tested: false,
-        applied_command_rows: 0,
+        applied_internal: (0, 0),
+        bar_progress: 0.0,
+        bar_target: 0.0,
+        bar_hide_at: None,
+        bar_engaged: false,
     };
     event_loop.run_app(&mut app).expect("event loop error");
 
@@ -136,9 +152,21 @@ struct Shell {
     applied_title: String,
     applied_topmost: bool,
     isolation_tested: bool,
-    /// Suggestion-row count the palette view is currently sized for (drives the
-    /// resize in `about_to_wait`).
-    applied_command_rows: usize,
+    /// Internal-view size (device px) currently applied, so the bar's resize in
+    /// `about_to_wait` fires only when its body (chips / suggestions) changes.
+    applied_internal: (u32, u32),
+    /// Top bar slide progress (0 = hidden above the top edge, 1 = fully down) and
+    /// its target; the composite clips the bar to `progress * height` (CD-08).
+    bar_progress: f32,
+    bar_target: f32,
+    /// Armed when the cursor leaves the bar's keep region; the bar hides when it
+    /// fires (hysteresis). Cleared if the cursor returns first.
+    bar_hide_at: Option<Instant>,
+    /// Whether the cursor has entered the bar since it was revealed. A keyboard
+    /// (Ctrl+L) reveal only becomes subject to the mouse-out hysteresis once the
+    /// user has actually moved into the bar — otherwise it hides before they can
+    /// type; a hover reveal engages on its first frame.
+    bar_engaged: bool,
 }
 
 fn window_hwnd(window: &Window) -> isize {
@@ -196,14 +224,60 @@ impl Shell {
         }
     }
 
-    /// The internal view's rectangle (device px) for the current overlay.
+    /// The internal view's rectangle (device px) for the current overlay: the
+    /// full top bar for `Bar`, the centered card for `Settings`.
     fn internal_rect(&self, w: u32, h: u32) -> (f32, f32, f32, f32) {
         match self.overlay {
-            Overlay::Command => {
-                command_rect(w, h, self.scale, browser::command_rows(), &self.theme.command)
-            }
+            Overlay::Bar => self.bar_rect(w, h),
             _ => panel_rect(w, h),
         }
+    }
+
+    /// The top bar rectangle (device px): full surf-zone width, anchored to the
+    /// top edge, its height the input row plus the current body (favorites chips
+    /// or the suggestion list). The page renders at this full size; the composite
+    /// clips it to `bar_progress` during the slide.
+    fn bar_rect(&self, w: u32, h: u32) -> (f32, f32, f32, f32) {
+        let (zx, _, zw, _) = zone_rect(w, h);
+        let bh = (self.bar_content_logical() * self.scale)
+            .round()
+            .min(h as f32);
+        (zx, 0.0, zw, bh)
+    }
+
+    /// Bar content height in logical px (see [`bar_body_logical`]).
+    fn bar_content_logical(&self) -> f32 {
+        bar_body_logical(
+            &self.theme.command,
+            browser::command_rows(),
+            browser::bar_input_empty(),
+        )
+    }
+
+    /// The reveal hot zone: the free gap band above the surf zone, over the full
+    /// surf-zone width. Entering it (from `Closed`) slides the bar down.
+    fn in_bar_hot_zone(&self) -> bool {
+        let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
+        let (zx, zy, zw, _) = zone_rect(w, h);
+        hot_zone_contains(self.cursor_phys.x as f32, self.cursor_phys.y as f32, zx, zy, zw)
+    }
+
+    /// The keep-open region: the hot zone unioned with the visible bar rect, plus
+    /// a small margin so a graze along the edge does not flicker. Leaving it (and
+    /// not typing) arms the hysteresis hide.
+    fn in_bar_keep_region(&self) -> bool {
+        let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
+        let (zx, zy, zw, _) = zone_rect(w, h);
+        let (_, _, _, bh) = self.bar_rect(w, h);
+        let bottom = (bh * self.bar_progress).max(zy);
+        keep_region_contains(
+            self.cursor_phys.x as f32,
+            self.cursor_phys.y as f32,
+            zx,
+            zw,
+            bottom,
+            6.0 * self.scale,
+        )
     }
 
     /// Top-left origin (device px) of the active view's rectangle.
@@ -215,6 +289,77 @@ impl Shell {
             self.internal_rect(w, h)
         };
         (x, y)
+    }
+
+    /// Reveal the bar (hover-to-top or Ctrl+L). `autofocus` selects the input on
+    /// open (Ctrl+L) versus leaving it unfocused (hover). A fresh reveal starts
+    /// the slide from fully hidden.
+    fn reveal_bar(&mut self, autofocus: bool) {
+        browser::set_bar_autofocus(autofocus);
+        if self.overlay != Overlay::Bar {
+            self.bar_progress = 0.0;
+        }
+        self.bar_target = 1.0;
+        self.bar_hide_at = None;
+        // The mouse-out hysteresis waits until the cursor enters the bar; a hover
+        // reveal engages on the next frame (cursor is already in the hot zone).
+        self.bar_engaged = false;
+        self.set_overlay(Overlay::Bar);
+    }
+
+    /// Start hiding the bar (slide up); it finalises to `Closed` in `update_bar`.
+    fn hide_bar(&mut self) {
+        self.bar_target = 0.0;
+        self.bar_hide_at = None;
+    }
+
+    /// Drive the bar state machine once per frame: hover reveal, hysteresis hide
+    /// (with the typing exception), the slide easing, and the hide finalisation.
+    fn update_bar(&mut self) {
+        match self.overlay {
+            Overlay::Closed => {
+                if self.in_bar_hot_zone() {
+                    self.reveal_bar(false);
+                }
+            }
+            Overlay::Bar => {
+                let in_keep = self.in_bar_keep_region();
+                if in_keep {
+                    self.bar_engaged = true;
+                }
+                // A cursor over the bar, or a focused/typing input, keeps it open;
+                // the hysteresis only applies once the cursor has engaged the bar
+                // (so a Ctrl+L reveal is not hidden before the user can type).
+                let keep = in_keep || browser::bar_typing();
+                if keep {
+                    self.bar_hide_at = None;
+                } else if self.bar_target > 0.5 && self.bar_engaged {
+                    let now = Instant::now();
+                    match self.bar_hide_at {
+                        None => self.bar_hide_at = Some(now + BAR_HIDE_HYSTERESIS),
+                        Some(deadline) if now >= deadline => {
+                            self.bar_hide_at = None;
+                            self.hide_bar();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Overlay::Settings => {}
+        }
+
+        // Ease the slide toward its target and finalise a completed hide.
+        self.bar_progress += (self.bar_target - self.bar_progress) * BAR_EASE;
+        if self.bar_target < 0.5 && self.bar_progress < 0.01 {
+            self.bar_progress = 0.0;
+            if self.overlay == Overlay::Bar {
+                self.overlay = Overlay::Closed;
+                browser::set_focus(Role::Internal, false);
+                browser::set_focus(Role::Surf, true);
+            }
+        } else if self.bar_target > 0.5 && self.bar_progress > 0.99 {
+            self.bar_progress = 1.0;
+        }
     }
 
     /// Cursor position translated into a view's coordinates (DIP).
@@ -236,10 +381,16 @@ impl Shell {
     /// Switch the overlay state machine: resize/navigate the internal view and
     /// move keyboard focus accordingly. Closed <-> Settings <-> Command.
     fn set_overlay(&mut self, next: Overlay) {
+        // Switching to Settings or Closed drops any bar slide state.
+        if next != Overlay::Bar {
+            self.bar_target = 0.0;
+            self.bar_progress = 0.0;
+            self.bar_hide_at = None;
+        }
         self.overlay = next;
-        // Pre-size the palette to its opening suggestion count so it appears at
+        // Pre-size the bar to its opening body (favorites chips) so it appears at
         // the right height instead of resizing a frame later.
-        if next == Overlay::Command {
+        if next == Overlay::Bar {
             browser::prime_command_rows();
         }
         // Match the internal OSR view's size to the new overlay before it paints.
@@ -248,15 +399,15 @@ impl Shell {
             let (_, _, iw, ih) = self.internal_rect(w, h);
             browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
             browser::notify_resized(Role::Internal);
+            self.applied_internal = (iw as u32, ih as u32);
         }
-        self.applied_command_rows = browser::command_rows();
         match next {
             Overlay::Settings => {
                 browser::show_internal_settings();
                 browser::set_focus(Role::Surf, false);
                 browser::set_focus(Role::Internal, true);
             }
-            Overlay::Command => {
+            Overlay::Bar => {
                 browser::show_internal_command();
                 browser::set_focus(Role::Surf, false);
                 browser::set_focus(Role::Internal, true);
@@ -444,12 +595,13 @@ impl ApplicationHandler for Shell {
                     PhysicalKey::Code(code) => keycode_to_vk(code),
                     _ => 0,
                 };
-                // Ctrl+L opens the command bar (from any state).
+                // Ctrl+L reveals the top bar (from any state) with the input
+                // focused + selected.
                 if event.state == ElementState::Pressed
                     && self.mods.control_key()
                     && event.physical_key == PhysicalKey::Code(KeyCode::KeyL)
                 {
-                    self.set_overlay(Overlay::Command);
+                    self.reveal_bar(true);
                     return;
                 }
                 // Ctrl+D toggles the current surf page's favorite. Handled host-
@@ -463,12 +615,13 @@ impl ApplicationHandler for Shell {
                     browser::toggle_current_favorite();
                     return;
                 }
-                // ESC chain: command bar / settings first, then quit the shell.
+                // ESC chain (CD-08): bar visible -> hide the bar; else settings
+                // open -> close settings; else quit the shell.
                 if vk == 0x1B && event.state == ElementState::Pressed {
-                    if self.overlay != Overlay::Closed {
-                        self.set_overlay(Overlay::Closed);
-                    } else {
-                        event_loop.exit();
+                    match self.overlay {
+                        Overlay::Bar => self.hide_bar(),
+                        Overlay::Settings => self.set_overlay(Overlay::Closed),
+                        Overlay::Closed => event_loop.exit(),
                     }
                     return;
                 }
@@ -520,7 +673,15 @@ impl ApplicationHandler for Shell {
             WindowEvent::RedrawRequested => {
                 let time = self.start.elapsed().as_secs_f32();
                 let (scale, hover, load) = (self.scale, self.gear_hover, self.loading_intensity);
-                let open = self.overlay != Overlay::Closed;
+                let is_bar = self.overlay == Overlay::Bar;
+                // The overlay is composited while settings is open, or while the
+                // bar has any of itself showing (during the slide up/down).
+                let open = match self.overlay {
+                    Overlay::Settings => true,
+                    Overlay::Bar => self.bar_progress > 0.001,
+                    Overlay::Closed => false,
+                };
+                let bar_progress = self.bar_progress;
                 let internal = self.renderer.as_ref().map(|r| {
                     let (w, h) = r.size();
                     self.internal_rect(w, h)
@@ -537,6 +698,8 @@ impl ApplicationHandler for Shell {
                         settings::glow_intensity(),
                         scale,
                         open,
+                        is_bar,
+                        bar_progress,
                         hover,
                         load,
                     );
@@ -560,24 +723,27 @@ impl ApplicationHandler for Shell {
             self.views_started = true;
         }
 
-        // The command bar's navigate request closes the overlay (set from the
-        // IPC thread).
+        // Drive the top bar's reveal/hide state machine and slide easing.
+        self.update_bar();
+
+        // A committed navigation from the bar slides it away.
         if browser::take_overlay_close() {
-            self.set_overlay(Overlay::Closed);
+            self.hide_bar();
         }
 
-        // Resize the palette when its live suggestion count changes: it grows
-        // and shrinks to fit `input bar + N rows` (favorites + history).
-        if self.overlay == Overlay::Command {
-            let rows = browser::command_rows();
-            if rows != self.applied_command_rows {
-                self.applied_command_rows = rows;
-                if let Some(r) = self.renderer.as_ref() {
-                    let (w, h) = r.size();
-                    let (_, _, iw, ih) = self.internal_rect(w, h);
-                    browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
-                    browser::notify_resized(Role::Internal);
-                }
+        // Resize the bar's internal view when its body (favorites chips or the
+        // suggestion list) changes height, so the composite and the page stay in
+        // lockstep as it grows and shrinks.
+        if self.overlay == Overlay::Bar
+            && let Some(r) = self.renderer.as_ref()
+        {
+            let (w, h) = r.size();
+            let (_, _, iw, ih) = self.internal_rect(w, h);
+            let want = (iw as u32, ih as u32);
+            if want != self.applied_internal {
+                self.applied_internal = want;
+                browser::set_view_geometry(Role::Internal, want.0, want.1, self.scale);
+                browser::notify_resized(Role::Internal);
             }
         }
 
@@ -637,5 +803,61 @@ impl ApplicationHandler for Shell {
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::Command;
+
+    fn cmd() -> Command {
+        // The token values the "cyber" theme ships (theme.toml [command]).
+        Command {
+            input_height: 76.0,
+            row_height: 46.0,
+            list_pad: 8.0,
+            max_results: 6,
+            chip_row: 54.0,
+        }
+    }
+
+    #[test]
+    fn bar_height_untouched_input_is_input_plus_one_chip_row() {
+        let c = cmd();
+        // Favorites present -> a single chip row regardless of how many chips.
+        assert_eq!(bar_body_logical(&c, 3, true), 76.0 + 54.0);
+        assert_eq!(bar_body_logical(&c, 1, true), 76.0 + 54.0);
+        // No favorites -> input row only, no chip band.
+        assert_eq!(bar_body_logical(&c, 0, true), 76.0);
+    }
+
+    #[test]
+    fn bar_height_typing_is_input_plus_suggestion_rows() {
+        let c = cmd();
+        // N suggestion rows plus the list's top/bottom padding.
+        assert_eq!(bar_body_logical(&c, 3, false), 76.0 + 3.0 * 46.0 + 2.0 * 8.0);
+        // Empty result set while typing -> input row only.
+        assert_eq!(bar_body_logical(&c, 0, false), 76.0);
+    }
+
+    #[test]
+    fn hot_zone_is_the_gap_over_the_surf_width() {
+        // Surf zone at a 1600x900 window: zx=320, zy=135, zw=960.
+        let (zx, zy, zw) = (320.0, 135.0, 960.0);
+        assert!(hot_zone_contains(800.0, 10.0, zx, zy, zw)); // top-centre gap
+        assert!(hot_zone_contains(zx, 0.0, zx, zy, zw)); // left edge, very top
+        assert!(!hot_zone_contains(800.0, 200.0, zx, zy, zw)); // below the gap
+        assert!(!hot_zone_contains(100.0, 10.0, zx, zy, zw)); // left of the surf width
+        assert!(!hot_zone_contains(1550.0, 10.0, zx, zy, zw)); // right of it (gear side)
+    }
+
+    #[test]
+    fn keep_region_covers_bar_plus_margin_not_below() {
+        let (zx, zw, bottom, m) = (320.0, 960.0, 260.0, 6.0);
+        assert!(keep_region_contains(800.0, 100.0, zx, zw, bottom, m)); // inside the bar
+        assert!(keep_region_contains(800.0, bottom + 5.0, zx, zw, bottom, m)); // within margin
+        assert!(!keep_region_contains(800.0, bottom + 20.0, zx, zw, bottom, m)); // well below
+        assert!(!keep_region_contains(zx - 20.0, 100.0, zx, zw, bottom, m)); // left of the bar
     }
 }

@@ -158,6 +158,8 @@ pub struct Command {
     pub row_height: f32,
     pub list_pad: f32,
     pub max_results: i32,
+    /// Favorites chip row height (CD-08 top bar). Shared with the page CSS.
+    pub chip_row: f32,
 }
 
 impl Background {
@@ -196,6 +198,7 @@ impl Theme {
              \x20 --cmd-input-height: {cmd_input}px;\n\
              \x20 --cmd-row-height: {cmd_row}px;\n\
              \x20 --cmd-list-pad: {cmd_pad}px;\n\
+             \x20 --cmd-chip-row: {cmd_chip}px;\n\
              }}\n",
             bg = self.colors.background,
             brand = self.colors.brand,
@@ -209,6 +212,7 @@ impl Theme {
             cmd_input = self.command.input_height,
             cmd_row = self.command.row_height,
             cmd_pad = self.command.list_pad,
+            cmd_chip = self.command.chip_row,
         )
     }
 }

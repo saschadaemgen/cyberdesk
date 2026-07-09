@@ -1391,10 +1391,13 @@ impl SurfaceRenderer {
         glow_intensity: f32,
         scale: f32,
         overlay_open: bool,
+        is_bar: bool,
+        bar_progress: f32,
         gear_hover: f32,
         loading_intensity: f32,
     ) {
-        let (win_w, win_h) = (self.config.width as f32, self.config.height as f32);
+        let (cfg_w, cfg_h) = (self.config.width, self.config.height);
+        let (win_w, win_h) = (cfg_w as f32, cfg_h as f32);
         let base = self.theme.colors.background_rgb();
 
         // Background selection is a template token (D-0012): Pulse Grid (Cyber
@@ -1412,7 +1415,10 @@ impl SurfaceRenderer {
         let mut zones: Vec<[f32; 4]> = Vec::with_capacity(2);
         zones.push([zone.0, zone.1, zone.2, zone.3]);
         if overlay_open {
-            zones.push([panel.0, panel.1, panel.2, panel.3]);
+            // The bar dims only its currently-visible (clipped) height as it
+            // slides; the settings card dims its full rect.
+            let ph = if is_bar { (panel.3 * bar_progress).max(1.0) } else { panel.3 };
+            zones.push([panel.0, panel.1, panel.2, ph]);
         }
 
         let pulse_bake = if do_pulse {
@@ -1467,8 +1473,10 @@ impl SurfaceRenderer {
         // crisp rounded corners, never feathered. Only written/drawn while open.
         if overlay_open {
             let (px, py, pw, ph) = panel;
-            // The overlay always uses the hard rounded edge (feather = 0), so the
-            // exponent is inert here; carry it for a complete uniform.
+            // The overlay always uses the hard edge (feather = 0). The settings
+            // card keeps rounded corners; the top bar is square (corner_radius 0)
+            // — a clean strip flush to the top edge, clipped by the scissor as it
+            // slides. The exponent is inert here; carried for a complete uniform.
             let panel_u = PageUniforms {
                 rect_ndc: [
                     to_ndc_x(px),
@@ -1477,7 +1485,7 @@ impl SurfaceRenderer {
                     to_ndc_y(py + ph),
                 ],
                 px_size: [self.panel.width.max(1) as f32, self.panel.height.max(1) as f32],
-                corner_radius,
+                corner_radius: if is_bar { 0.0 } else { corner_radius },
                 feather: 0.0,
                 feather_exp,
                 _pad: [0.0; 3],
@@ -1638,14 +1646,36 @@ impl SurfaceRenderer {
                 pass.draw(0..3, 0..1);
             }
 
-            // Internal overlay (settings card or command bar), over the page.
+            // Internal overlay (settings card or top bar), over the page. The bar
+            // slides in by scissor-clipping its rect to `bar_progress` of its
+            // height (top-anchored), so the page renders at full size and the
+            // composite reveals it from the top edge; settings draws unclipped.
             if overlay_open
                 && let Some(tex_bind_group) = self.panel.tex_bind_group.as_ref()
             {
-                pass.set_pipeline(&self.panel.pipeline);
-                pass.set_bind_group(0, &self.panel.uniform_bind_group, &[]);
-                pass.set_bind_group(1, tex_bind_group, &[]);
-                pass.draw(0..6, 0..1);
+                let draw = if is_bar {
+                    let sx = panel.0.max(0.0) as u32;
+                    let sw = (panel.2.round().max(0.0) as u32).min(cfg_w.saturating_sub(sx));
+                    let sh = ((panel.3 * bar_progress).round().max(0.0) as u32).min(cfg_h);
+                    if sw > 0 && sh > 0 {
+                        pass.set_scissor_rect(sx, 0, sw, sh);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    true
+                };
+                if draw {
+                    pass.set_pipeline(&self.panel.pipeline);
+                    pass.set_bind_group(0, &self.panel.uniform_bind_group, &[]);
+                    pass.set_bind_group(1, tex_bind_group, &[]);
+                    pass.draw(0..6, 0..1);
+                }
+                if is_bar {
+                    // Restore the full-framebuffer scissor for the gear draw.
+                    pass.set_scissor_rect(0, 0, cfg_w, cfg_h);
+                }
             }
 
             // Gear button, on top of everything.
