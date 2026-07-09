@@ -70,7 +70,11 @@ shortcuts are host-side key handling, and open-in-new-slot is a CEF
 
 CD-11 (the main frame — side zones, reflow-to-rails; D-0020) is likewise **no
 IPC**: the frame is pure host-side layout math (`slots::frame_layout`) and shell
-rendering. The wire format is unchanged.
+rendering. The wire format is unchanged. The **revised frame law (D-0022** — three
+slots, a permanent right Multifunctional zone, a flexible left Spine zone, gutter
+56) is also **no IPC**: it only changes `frame_layout`'s pure math and the shell
+glyphs. The CD-12 `cdFrame` push below carries the resulting slot rects verbatim,
+so the floating layer adapts with no wire change.
 
 CD-12 (floating command sets; D-0021) **retires the single top bar**. The command
 view becomes N floating **ensembles** (one per column) plus a shared favorites

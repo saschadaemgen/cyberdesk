@@ -51,28 +51,30 @@ feathered compositing, and an isolated in-shell settings surface.
   capacity it navigates the column under the ghost instead; `ESC` cancels). Each
   column also gets a **floating close orb** (a ring + cross) at its top-outer corner,
   revealed on hover — a click closes that column.
-* **The main frame — side zones + reflow-to-rails (CD-11, D-0020):** the slot group
-  no longer owns the full width. **Side zones flank it left and right** (placeholder
-  now — a subtle fill, a thin outline, a small diamond glyph; the Spine and the
-  status / files / music rails live here in later seasons), first-class citizens of
-  the layout. With one or two columns they show full width; when the browsers demand
-  the width (four columns on the ultrawide) the side zones **retreat, animated, into
-  thin rails** and the columns recenter — one fluid ~220 ms motion, driven by a
-  single per-frame layout that both rendering and input read (so it never desyncs or
-  jumps). The gutters widened into deliberately generous **control territory** (24 →
-  40 px) — reserved for CD-12 — with the Pulse Grid glowing in it. There are no new
-  controls; the frame is entirely automatic (`slots::frame_layout` decides). Side
-  zones eat width, so mid-size panels hold fewer columns than before (a 2560 panel
-  now shows one column flanked by side zones); the 5120 ultrawide still reaches four.
-* **Slot engine — fixed-width content columns (CD-09, D-0017):** the surf zone is
-  now up to **four fixed-width columns** ("slots", 1200 logical px each) side by
-  side, gutter-spaced and centered between the side zones. `Ctrl+T` adds a column (lazily: it shows a placeholder with its index
-  glyph until its first navigation, no white flash), `Ctrl+W` closes the active
-  one, `Ctrl+1..4` / `Ctrl+Tab` switch. One column is **active** at a time (a thin
-  brand accent underlines it): the keyboard and the top bar drive it; the mouse
-  drives whichever column it is over (a click makes that column active). The Pulse
-  Grid glows in the gutters and margins, dimmed under each column by the zone
-  shadow. On the ultrawide, four different sites sit pixel-aligned side by side.
+* **The main frame — asymmetric zones + reflow (CD-11 D-0020, revised D-0022):** the
+  slot group does not own the full width; a zone flanks it on each side. The **right**
+  is the permanent **Multifunctional (MF) zone** (status / files / FTP / music tabs
+  in later seasons) — always 320 px, at every resolution, marked now by a three-bar
+  rows glyph. The **left** (future Spine, a diamond glyph) is the flexible one: full
+  width when the slots leave room for it alongside the MF zone, else it **retreats,
+  animated, into a thin rail** — one fluid ~220 ms motion, driven by a single
+  per-frame layout that both rendering and input read (so it never desyncs or jumps).
+  The whole frame is centered as a block, so with the left railed the group shifts
+  toward it. Gutters are a generous 56 px of **control territory** (CD-12 drop zones),
+  with the Pulse Grid glowing in it; the frame is entirely automatic
+  (`slots::frame_layout` decides). The slot maximum is **three**: the floor is one
+  slot + the MF zone + a left rail at 1920, and the 5120 ultrawide shows three slots
+  with both zones full.
+* **Slot engine — fixed-width content columns (CD-09, D-0017; cap revised D-0022):**
+  the surf zone is up to **three fixed-width columns** ("slots", 1200 logical px each)
+  side by side, gutter-spaced and centered between the zones. `Ctrl+T` adds a column
+  (lazily: it shows a placeholder with its index glyph until its first navigation, no
+  white flash), `Ctrl+W` closes the active one, `Ctrl+1..3` / `Ctrl+Tab` switch. One
+  column is **active** at a time (a thin brand accent underlines it): the keyboard and
+  its floating command set drive it; the mouse drives whichever column it is over (a
+  click makes that column active). The Pulse Grid glows in the gutters and margins,
+  dimmed under each column by the zone shadow. On the ultrawide, three different sites
+  sit pixel-aligned side by side.
 * **A permanent, fluid workspace (CD-10, D-0018/D-0019):** the slot workspace
   **survives restarts** — the columns (order, widths, which was active) are saved
   to SQLite on every change (debounced) and restored on launch; the active column
@@ -92,7 +94,8 @@ feathered compositing, and an isolated in-shell settings surface.
   read as a vignette; toggleable back to the hard rounded corner). Mouse and
   keyboard are forwarded into the column under the cursor / the active column (a
   Google search, clicking, and scrolling all work) and the cursor follows it. At
-  4 loaded columns on the ultrawide the render loop stays well inside the 60 fps
+  the loaded columns the ultrawide holds (the D-0009 gate was measured at four in
+  CD-09; the cap is now three, D-0022) the render loop stays well inside the 60 fps
   budget; the accelerated zero-copy OSR path (D-0009) is recommended but not yet
   needed (see `docs/cyberdesk-decisions.md`, D-0017).
 * **Free surfing (floating command sets + memory):** the command surface is a set of
@@ -188,8 +191,9 @@ cargo run --release
 cargo run --release -- --windowed
 ```
 
-`CYBERDESK_WINDOW_SIZE=WxH` overrides the dev-window size (e.g. `2560x900` to
-exercise multi-column layouts on a non-ultrawide).
+`CYBERDESK_WINDOW_SIZE=WxH` overrides the dev-window size to exercise multi-column
+layouts on a non-ultrawide — with the D-0022 zones, a second column needs roughly
+`3000x900`, and three need the 5120 ultrawide.
 
 * Move the mouse into the gap above a column (or press **`Ctrl+L`**) to reveal that
   column's floating command set; **`ESC`** walks the chain — cancel a favorite drag,
@@ -214,7 +218,7 @@ cargo run --release -- --capture background.png
 judgment), `CYBERDESK_CAPTURE_GLOW=<mult>` brightens it (e.g. to inspect the faint
 far layer), and `CYBERDESK_CAPTURE_SLOTS=N` renders N placeholder slot columns
 (CD-09) so the multi-column layout — columns, gutters, glowing margins, zone
-shadow, index glyphs — can be eyeballed headlessly (e.g. `=4` on the ultrawide).
+shadow, index glyphs — can be eyeballed headlessly (e.g. `=3` on the ultrawide).
 `CYBERDESK_CAPTURE_UNITS=2,1,…` overrides it with an explicit per-column
 width-unit sequence (CD-10 double slots), and `CYBERDESK_CAPTURE_PENDING=N` marks
 the first N columns as restored-pending (the scheme-colored placeholder dot).
@@ -226,20 +230,21 @@ the CD-12 overlays can be eyeballed headlessly.
 
 ## Controls
 
-The shell shows **fixed-width content columns** ("slots") flanked by **side zones**
-left and right (CD-11) — up to four columns on an ultrawide (the side zones retreat
-to thin rails), fewer with the side zones at full width on smaller panels. The frame
-reflows automatically; there are no controls for it. Each column is a stripped-down
-browser with no visible chrome until you summon it. Keyboard shortcuts act on the
-**active slot** (a thin brand accent underlines it); mouse actions act on the slot
-under the cursor. Each column carries its own floating command set (CD-12).
+The shell shows **fixed-width content columns** ("slots", up to three — D-0022)
+flanked by two zones: a **permanent Multifunctional zone** on the right and a
+**flexible Spine zone** on the left that retreats to a thin rail when the slots need
+the width (CD-11, revised D-0022). The frame reflows automatically; there are no
+controls for it. Each column is a stripped-down browser with no visible chrome until
+you summon it. Keyboard shortcuts act on the **active slot** (a thin brand accent
+underlines it); mouse actions act on the slot under the cursor. Each column carries
+its own floating command set (CD-12).
 
 | Input | Action |
 | --- | --- |
 | `Ctrl+T` | Add a column to the right (up to what fits the width); it becomes active and its command set opens, empty — type an address to load it |
 | `Ctrl+W` | Close the active column (the last one can't be closed); the rest recenter and a neighbor becomes active |
 | Click a column's **close orb** (hover its top-outer corner) | Close that column (the last one can't be closed) |
-| `Ctrl+1` … `Ctrl+4` | Focus the 1st … 4th column |
+| `Ctrl+1` … `Ctrl+3` | Focus the 1st … 3rd column |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle the active column forward / backward |
 | `Ctrl+Shift+←` / `Ctrl+Shift+→` | Swap the active column with its left / right neighbor |
 | `Ctrl+Shift+D` | Toggle the active column between single and double width (no-op if a double won't fit) |
@@ -280,7 +285,7 @@ cyberdesk/
 │  ├─ app.rs         # winit event loop, window, slot layout, per-slot input routing, nav keys, foreground guard
 │  ├─ renderer.rs    # wgpu renderer: shell + per-slot page/placeholder/line compositing, capture
 │  ├─ browser.rs     # CEF OSR (N slot views + 1 internal), custom scheme, isolation, settings/nav/command-set IPC
-│  ├─ slots.rs       # slot layout engine (max_slots, slot_rects) + order management, pure + unit-tested
+│  ├─ slots.rs       # slot layout engine (frame_layout/frame_capacity, asymmetric zones) + order mgmt, pure + unit-tested
 │  ├─ theme.rs       # theme tokens -> shader uniforms + settings/command CSS vars
 │  ├─ theme.toml     # the embedded "cyber" token set (single style source; [slots] section)
 │  ├─ store.rs       # schema-versioned SQLite store (settings, history, favorites, session)

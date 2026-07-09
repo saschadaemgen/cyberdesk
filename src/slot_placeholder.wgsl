@@ -9,7 +9,7 @@
 // Instance layout (per placeholder slot):
 //   @location(0) rect  = (x, y, w, h) in device px
 //   @location(1) fill  = (r, g, b, corner_radius_px)   fill color + rounding
-//   @location(2) glyph = (r, g, b, digit)              faint glyph color + 1..4
+//   @location(2) glyph = (r, g, b, sel)  faint color + sel: -1 MF zone, 0 Spine, 1..4 digit
 //   @location(3) dot   = (r, g, b, present)            pending-URL dot (CD-10)
 
 struct Globals {
@@ -73,23 +73,38 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
     }
 
     let p = in.local;      // center origin, +y down
-    let dg = in.glyph.a;   // glyph selector: 0 = side zone, 1..4 = slot index digit
+    let dg = in.glyph.a;   // glyph selector: -1 = MF zone, 0 = left Spine zone, 1..4 = slot digit
     var col = in.fill.rgb;
 
     if (dg < 0.5) {
-        // Side zone (CD-11): a thin inset rounded-rect outline plus a small
-        // centered diamond (rotated-square outline) core glyph — the slot family,
-        // differing glyph. No text; the shell has no font.
+        // A frame zone (D-0022): a thin inset rounded-rect outline (shared) plus a
+        // core glyph — the slot family, differing glyph. The LEFT (Spine) zone
+        // shows a diamond; the RIGHT Multifunctional zone shows three stacked
+        // bars (a rows / tab-rail glyph). No text; the shell has no font.
         let m = min(in.half.x, in.half.y);
         let inset = m * 0.05;
         let ot = max(m * 0.010, 1.0);   // outline half-thickness
         let od = abs(rounded_box_sdf(p, in.half - vec2<f32>(inset), radius)) - ot;
         let ocov = 1.0 - smoothstep(-0.9, 0.9, od);
-        let ds = m * 0.13;              // diamond half-size
-        let dt = max(ds * 0.16, 1.0);   // diamond outline half-thickness
-        let dd = abs(abs(p.x) + abs(p.y) - ds) - dt;
-        let dcov = 1.0 - smoothstep(-0.9, 0.9, dd);
-        col = col + in.glyph.rgb * max(ocov, dcov);
+
+        var core_cov = 0.0;
+        if (dg < -0.5) {
+            // MF zone: three stacked horizontal rounded bars.
+            let bw = m * 0.16;              // bar half-width
+            let bh = max(m * 0.024, 1.0);   // bar half-height
+            let sp = m * 0.13;              // vertical spacing between bar centers
+            let b0 = seg_cov(p, vec2<f32>(0.0, -sp), vec2<f32>(bw, bh));
+            let b1 = seg_cov(p, vec2<f32>(0.0, 0.0), vec2<f32>(bw, bh));
+            let b2 = seg_cov(p, vec2<f32>(0.0, sp), vec2<f32>(bw, bh));
+            core_cov = max(b0, max(b1, b2));
+        } else {
+            // Left Spine zone: a diamond (rotated-square outline).
+            let ds = m * 0.13;             // diamond half-size
+            let dt = max(ds * 0.16, 1.0);  // diamond outline half-thickness
+            let dd = abs(abs(p.x) + abs(p.y) - ds) - dt;
+            core_cov = 1.0 - smoothstep(-0.9, 0.9, dd);
+        }
+        col = col + in.glyph.rgb * max(ocov, core_cov);
         return vec4<f32>(col * fillmask, fillmask);
     }
 

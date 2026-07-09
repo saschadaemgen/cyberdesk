@@ -187,10 +187,18 @@ pub struct Slots {
     pub active_line: f32,
     pub placeholder_fill: f32,
     pub placeholder_glyph: f32,
-    /// CD-11 (D-0020) side-zone widths: `side_zone_width` in the Full state,
-    /// `side_rail_width` when the slots demand the width and the sides retreat.
+    /// The product slot maximum (D-0022): the frame holds at most this many
+    /// columns at any resolution. Capacity / unit math clamps against it. Must be
+    /// `<= slots::MAX_SLOTS` (the compile-time per-view array ceiling).
+    pub slot_max: u32,
+    /// CD-11 (D-0020), revised D-0022: the widths of the **left** (Spine) zone,
+    /// the flexible one — `side_zone_width` in the Full state, `side_rail_width`
+    /// when the slots demand the width and it retreats to a rail.
     pub side_zone_width: f32,
     pub side_rail_width: f32,
+    /// The **right** Multifunctional (MF) zone width (D-0022). This zone is
+    /// permanent — it never rails and is present at every resolution.
+    pub mf_zone_width: f32,
 }
 
 impl Background {

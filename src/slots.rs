@@ -14,9 +14,12 @@
 
 use crate::theme::Slots;
 
-/// Hard cap on live slots — the four-column product vision. The per-view arrays
-/// in [`crate::browser`] are sized `MAX_SLOTS + 1` (the slots plus the one
-/// shared internal overlay view), so this is also a compile-time bound.
+/// Compile-time ceiling on live slots — the per-view arrays in [`crate::browser`]
+/// are sized `MAX_SLOTS + 1` (the slots plus the one shared internal overlay
+/// view), so this is a hard array bound. The **product** cap is the tunable
+/// `slots.slot_max` token (D-0022: three), which must stay `<= MAX_SLOTS`; the
+/// capacity / count math clamps against it, so a fourth column never opens while
+/// `slot_max = 3`. Kept at 4 so the token can be raised without resizing arrays.
 pub const MAX_SLOTS: usize = 4;
 
 /// A slot rectangle in device pixels.
@@ -48,12 +51,15 @@ fn units_fitting(budget: f32, scale: f32, t: &Slots) -> usize {
 }
 
 /// How many slots of `t.width` (+ gutter) fit in `width_px` device pixels while
-/// keeping at least `t.min_margin` on each side — clamped to `[1, MAX_SLOTS]`
-/// (and to `t.max_count`). The pre-CD-11 no-side-zones fit; the shell now caps
-/// against [`frame_capacity`] instead, but this remains as the tested building
-/// block for the group math.
+/// keeping at least `t.min_margin` on each side — clamped to `[1, slot_max]`
+/// (and to `t.max_count`, and the `MAX_SLOTS` array ceiling). The no-side-zones
+/// fit; the shell caps against [`frame_capacity`] instead (which accounts for the
+/// zones), so this is now a tested building block for the group math only.
+#[allow(dead_code)]
 pub fn max_slots(width_px: u32, scale: f32, t: &Slots) -> usize {
-    let cap = (t.max_count as usize).clamp(1, MAX_SLOTS);
+    let cap = (t.max_count as usize)
+        .min(t.slot_max as usize)
+        .clamp(1, MAX_SLOTS);
     let avail = width_px as f32 - 2.0 * t.min_margin * scale;
     units_fitting(avail, scale, t).clamp(1, cap)
 }
@@ -104,17 +110,23 @@ pub fn slot_rects_units(width: u32, height: u32, units: &[u32], scale: f32, t: &
     out
 }
 
-// --- The frame: side zones + reflow (CD-11, D-0020) --------------------------
-// The slot group no longer owns the full width: a side zone flanks it left and
-// right (placeholders now, the Spine / status-files-music rails later). When the
-// slots demand the width the side zones retreat from `side_zone_width` (Full) to
-// a thin `side_rail_width` (Rail). The whole frame — side | gutter | slots |
-// gutter | side — is centered in the window; because it is symmetric, the slot
-// group stays centered in the window (so `slot_rects_units` is reused unchanged),
-// and the side zones flank it. Pure math: one function decides the state and all
-// rects, so rendering and input read the same geometry (no incremental fudging).
+// --- The frame: asymmetric zones + reflow (CD-11 D-0020, revised D-0022) ------
+// The slot group does not own the full width: a zone flanks it on each side. The
+// REVISED law (D-0022) makes the frame ASYMMETRIC:
+//   * The RIGHT zone is the **Multifunctional (MF) zone** — PERMANENT. It is
+//     always `mf_zone_width`, at every resolution; it never rails.
+//   * The LEFT zone (future Spine) is the **flexible** one: `side_zone_width`
+//     (Full) when the slots leave room for it alongside the permanent MF zone,
+//     else it retreats to a thin `side_rail_width` (Rail). The CD-11 reflow law
+//     and its animation-safety now apply to the LEFT zone alone.
+// The whole frame — left | gutter | slots | gutter | MF — is centered in the
+// window. Because it is asymmetric, the slot group is NOT window-centered: it is
+// shifted by `(left_width - mf_width)/2` off center (toward the smaller zone), so
+// `slot_rects_units` is reused and its rects are translated. One call → all
+// rects, so rendering and input read the same geometry (desync-safe).
 
-/// Whether the side zones are shown at full width or retreated to thin rails.
+/// Whether the flexible (left / Spine) zone is shown at full width or retreated
+/// to a thin rail. The right MF zone is permanent and has no such state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SideState {
     Full,
@@ -122,33 +134,45 @@ pub enum SideState {
 }
 
 /// The full frame geometry for a given window size and slot-unit sequence. The
-/// shell drives the reflow off `side_width` + the rects; `side_state` is read by
-/// the tests and reserved for the CD-12 control surface (hence the allow).
+/// shell drives the reflow off `left_width` + the rects (the MF/right zone is a
+/// constant `mf_zone_width`); `left_state` is read by the tests and the control
+/// surface (hence the allow).
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub struct FrameLayout {
-    pub side_state: SideState,
-    pub side_width: f32,
+    /// The flexible left (Spine) zone's state.
+    pub left_state: SideState,
+    /// The flexible left (Spine) zone's width (the animated one). The MF/right
+    /// zone width is the constant `mf_zone_width` (read off `right.w`).
+    pub left_width: f32,
     pub slots: Vec<Rect>,
+    /// The left (Spine) zone rect — flexes Full ↔ Rail.
     pub left: Rect,
+    /// The right (MF) zone rect — permanent, always `mf_zone_width` wide.
     pub right: Rect,
 }
 
 /// The largest total slot-unit budget the frame can hold at `width` — measured
-/// against the **rail** center budget (the roomiest side state), so the shell
-/// caps slots against the maximum the frame will ever fit. At least 1.
+/// against the roomiest state (the LEFT zone at **rail**, the MF zone always at
+/// its permanent width), so the shell caps slots against the maximum the frame
+/// will ever fit. At least 1, capped at the `slot_max` unit ceiling.
 pub fn frame_capacity(width: u32, scale: f32, t: &Slots) -> usize {
-    let budget = width as f32 - 2.0 * t.side_rail_width * scale - 2.0 * t.gutter * scale;
-    units_fitting(budget, scale, t).clamp(1, MAX_SLOTS * 2)
+    let budget = width as f32
+        - (t.mf_zone_width + t.side_rail_width) * scale
+        - 2.0 * t.gutter * scale;
+    let unit_ceiling = (t.slot_max as usize).clamp(1, MAX_SLOTS) * 2;
+    units_fitting(budget, scale, t).clamp(1, unit_ceiling)
 }
 
-/// Decide the side state and lay out the whole frame for `slot_units`:
-/// **Full** if the slot group plus full side zones (and their flanking gutters)
-/// fits the window, else **Rail**. The slot rects are `slot_rects_units` (the
-/// group is centered in the window either way); the side zones flank the group,
-/// one gutter away, at the slot height. One call → all rects, so the animated
-/// reflow (Stage B) drives a single interpolated `side_width` and both rendering
-/// and input read the same per-frame geometry (desync-safe by construction).
+/// Decide the left-zone state and lay out the whole (asymmetric) frame for
+/// `slot_units`: the LEFT zone is **Full** if the slot group plus the full left
+/// zone, the permanent MF zone, and their flanking gutters fit the window, else
+/// **Rail**. The MF (right) zone is always `mf_zone_width`. The slot rects are
+/// `slot_rects_units` translated by `(left_width - mf_width)/2` (the frame block
+/// is centered, so the group shifts toward the smaller zone); each zone flanks
+/// the group one gutter away, at the slot height. One call → all rects, so the
+/// animated reflow drives the interpolated `left_width` and both rendering and
+/// input read the same per-frame geometry (desync-safe by construction).
 pub fn frame_layout(
     width: u32,
     height: u32,
@@ -159,28 +183,33 @@ pub fn frame_layout(
     let u_total: u32 = slot_units.iter().map(|&u| u.max(1)).sum::<u32>().max(1);
     let unit = t.width * scale;
     let g = t.gutter * scale;
+    let mf_width = (t.mf_zone_width * scale).round();
     // Group extent by the U-unit invariant (CD-10): a U-unit group spans as much
     // as U single columns.
     let group_w = u_total as f32 * unit + (u_total as f32 - 1.0) * g;
-    let full_content = 2.0 * t.side_zone_width * scale + 2.0 * g + group_w;
-    let (side_state, side_width) = if full_content <= width as f32 {
+    // The left (Spine) zone goes full only if the whole frame (full left + MF +
+    // group + both gutters) fits; the MF zone is permanent either way.
+    let full_content = t.side_zone_width * scale + mf_width + 2.0 * g + group_w;
+    let (left_state, left_width) = if full_content <= width as f32 {
         (SideState::Full, (t.side_zone_width * scale).round())
     } else {
         (SideState::Rail, (t.side_rail_width * scale).round())
     };
 
-    let slots = slot_rects_units(width, height, slot_units, scale, t);
+    // Center the frame block: the group is offset from window-center by half the
+    // zone-width difference (toward the smaller zone).
+    let centered = slot_rects_units(width, height, slot_units, scale, t);
+    let dx = ((left_width - mf_width) * 0.5).round();
+    let slots: Vec<Rect> = centered.into_iter().map(|r| Rect { x: r.x + dx, ..r }).collect();
+
     let (sy, sh) = slots.first().map(|r| (r.y, r.h)).unwrap_or((0.0, 0.0));
     let group_left = slots.first().map(|r| r.x).unwrap_or(width as f32 * 0.5);
-    let group_right = slots
-        .last()
-        .map(|r| r.x + r.w)
-        .unwrap_or(width as f32 * 0.5);
+    let group_right = slots.last().map(|r| r.x + r.w).unwrap_or(width as f32 * 0.5);
     let gutter = g.round();
-    let left = Rect { x: group_left - gutter - side_width, y: sy, w: side_width, h: sh };
-    let right = Rect { x: group_right + gutter, y: sy, w: side_width, h: sh };
+    let left = Rect { x: group_left - gutter - left_width, y: sy, w: left_width, h: sh };
+    let right = Rect { x: group_right + gutter, y: sy, w: mf_width, h: sh };
 
-    FrameLayout { side_state, side_width, slots, left, right }
+    FrameLayout { left_state, left_width, slots, left, right }
 }
 
 // --- Slot-order management (CD-09 Stage B) ----------------------------------
@@ -234,36 +263,38 @@ mod tests {
     fn slots() -> Slots {
         Slots {
             width: 1200.0,
-            gutter: 40.0,
+            gutter: 56.0,
             min_margin: 48.0,
             height_frac: 0.70,
             max_count: 4,
+            slot_max: 3,
             active_line: 2.0,
             placeholder_fill: 0.05,
             placeholder_glyph: 0.18,
             side_zone_width: 320.0,
             side_rail_width: 48.0,
+            mf_zone_width: 320.0,
         }
     }
 
     #[test]
-    fn max_slots_matches_the_briefing_widths() {
+    fn max_slots_matches_the_revised_widths() {
         let t = slots();
-        // "4 on 5120, 1 on 1920" — plus the intermediate ultrawide steps.
+        // The bare group fit (no zones), gutter 56, capped at slot_max = 3.
         assert_eq!(max_slots(1920, 1.0, &t), 1);
         assert_eq!(max_slots(2560, 1.0, &t), 2);
         assert_eq!(max_slots(3840, 1.0, &t), 3);
-        assert_eq!(max_slots(5120, 1.0, &t), 4);
+        assert_eq!(max_slots(5120, 1.0, &t), 3); // slot_max caps what would be 4
     }
 
     #[test]
-    fn max_slots_never_below_one_and_capped_at_four() {
+    fn max_slots_never_below_one_and_capped_at_slot_max() {
         let t = slots();
         // Narrower than a single slot -> still one column (never zero).
         assert_eq!(max_slots(800, 1.0, &t), 1);
         assert_eq!(max_slots(1, 1.0, &t), 1);
-        // Absurdly wide -> capped at the four-column vision.
-        assert_eq!(max_slots(20000, 1.0, &t), 4);
+        // Absurdly wide -> capped at the three-column product maximum.
+        assert_eq!(max_slots(20000, 1.0, &t), 3);
     }
 
     #[test]
@@ -296,24 +327,23 @@ mod tests {
     }
 
     #[test]
-    fn four_slots_are_gutter_spaced_and_group_centered() {
+    fn three_slots_are_gutter_spaced_and_group_centered() {
         let t = slots();
-        let r = slot_rects(5120, 1440, 4, 1.0, &t);
-        assert_eq!(r.len(), 4);
-        // Group width 4·1200 + 3·40 = 4920; x0 = (5120-4920)/2 = 100.
-        assert_eq!(r[0].x, 100.0);
-        // Each next slot is one unit + gutter (1240) to the right.
-        assert_eq!(r[1].x, 100.0 + 1240.0);
-        assert_eq!(r[2].x, 100.0 + 2.0 * 1240.0);
-        assert_eq!(r[3].x, 100.0 + 3.0 * 1240.0);
+        let r = slot_rects(5120, 1440, 3, 1.0, &t);
+        assert_eq!(r.len(), 3);
+        // Group width 3·1200 + 2·56 = 3712; x0 = (5120-3712)/2 = 704.
+        assert_eq!(r[0].x, 704.0);
+        // Each next slot is one unit + gutter (1256) to the right.
+        assert_eq!(r[1].x, 704.0 + 1256.0);
+        assert_eq!(r[2].x, 704.0 + 2.0 * 1256.0);
         // All the same width, height and top.
         for slot in &r {
             assert_eq!(slot.w, 1200.0);
             assert_eq!(slot.h, (1440.0f32 * 0.70).round());
             assert_eq!(slot.y, r[0].y);
         }
-        // Symmetric margins: left margin == right margin.
-        let right_edge = r[3].x + r[3].w;
+        // Symmetric margins: left margin == right margin (the bare group, no zones).
+        let right_edge = r[2].x + r[2].w;
         assert_eq!(r[0].x, 5120.0 - right_edge);
     }
 
@@ -322,13 +352,13 @@ mod tests {
         let t = slots();
         let r = slot_rects(5120, 1440, 3, 1.0, &t);
         let gap = r[1].x - (r[0].x + r[0].w);
-        assert_eq!(gap, 40.0);
+        assert_eq!(gap, 56.0);
     }
 
     #[test]
     fn slot_rects_units_all_single_matches_slot_rects() {
         let t = slots();
-        for n in 1..=4 {
+        for n in 1..=3 {
             let units = vec![1u32; n];
             assert_eq!(
                 slot_rects_units(5120, 1440, &units, 1.0, &t),
@@ -341,13 +371,13 @@ mod tests {
     #[test]
     fn double_slot_spans_two_columns_plus_gutter() {
         let t = slots();
-        // A double slot absorbs the internal gutter: 2·1200 + 40 = 2440.
+        // A double slot absorbs the internal gutter: 2·1200 + 56 = 2456.
         let r = slot_rects_units(5120, 1440, &[2, 1], 1.0, &t);
         assert_eq!(r.len(), 2);
-        assert_eq!(r[0].w, 2440.0);
+        assert_eq!(r[0].w, 2456.0);
         assert_eq!(r[1].w, 1200.0);
         // Gutter between the double and the single is the normal token gutter.
-        assert_eq!(r[1].x - (r[0].x + r[0].w), 40.0);
+        assert_eq!(r[1].x - (r[0].x + r[0].w), 56.0);
     }
 
     #[test]
@@ -362,13 +392,14 @@ mod tests {
             three[2].x + three[2].w,
             "group right edge aligns"
         );
-        // Two doubles (4 units) span exactly like four columns.
+        // Two doubles (4 units) span exactly like four columns (pure U-invariant
+        // math; four singles exceed the live slot_max but the extent still holds).
         let doubles = slot_rects_units(5120, 1440, &[2, 2], 1.0, &t);
         let four = slot_rects(5120, 1440, 4, 1.0, &t);
         assert_eq!(doubles[0].x, four[0].x);
         assert_eq!(doubles[1].x + doubles[1].w, four[3].x + four[3].w);
-        assert_eq!(doubles[0].w, 2440.0);
-        assert_eq!(doubles[1].w, 2440.0);
+        assert_eq!(doubles[0].w, 2456.0);
+        assert_eq!(doubles[1].w, 2456.0);
     }
 
     #[test]
@@ -383,7 +414,7 @@ mod tests {
     #[test]
     fn slot_rects_containment_maps_a_cursor_to_its_column() {
         let t = slots();
-        let r = slot_rects(5120, 1440, 4, 1.0, &t);
+        let r = slot_rects(5120, 1440, 3, 1.0, &t);
         // Dead-centre of each slot is contained by exactly that slot.
         for (i, slot) in r.iter().enumerate() {
             let (cx, cy) = (slot.x + slot.w * 0.5, slot.y + slot.h * 0.5);
@@ -474,102 +505,155 @@ mod tests {
         assert_eq!(cycle_position(0, 1, true), 0);
     }
 
-    // --- Frame math (CD-11) -------------------------------------------------
+    // --- Frame math (CD-11, revised D-0022) ---------------------------------
 
     fn units(n: usize) -> Vec<u32> {
         vec![1u32; n]
     }
 
     #[test]
-    fn frame_state_full_until_the_slots_demand_the_width() {
+    fn left_zone_full_when_it_fits_alongside_the_slots_else_rails() {
         let t = slots();
-        // 5120: 1..3 single slots fit with full side zones; the 4th forces rails.
-        assert_eq!(frame_layout(5120, 1440, &units(1), 1.0, &t).side_state, SideState::Full);
-        assert_eq!(frame_layout(5120, 1440, &units(2), 1.0, &t).side_state, SideState::Full);
-        assert_eq!(frame_layout(5120, 1440, &units(3), 1.0, &t).side_state, SideState::Full);
-        assert_eq!(frame_layout(5120, 1440, &units(4), 1.0, &t).side_state, SideState::Rail);
+        // One slot: the full left zone + permanent MF doesn't fit at 1920 (Rail),
+        // but does at 2560 (Full).
+        assert_eq!(frame_layout(1920, 1440, &units(1), 1.0, &t).left_state, SideState::Rail);
+        assert_eq!(frame_layout(2560, 1440, &units(1), 1.0, &t).left_state, SideState::Full);
+        // On the ultrawide all three slots leave room for the full left zone.
+        assert_eq!(frame_layout(5120, 1440, &units(1), 1.0, &t).left_state, SideState::Full);
+        assert_eq!(frame_layout(5120, 1440, &units(2), 1.0, &t).left_state, SideState::Full);
+        assert_eq!(frame_layout(5120, 1440, &units(3), 1.0, &t).left_state, SideState::Full);
     }
 
     #[test]
-    fn frame_state_depends_on_total_units_not_slot_count() {
+    fn mf_zone_is_permanent_at_every_resolution() {
         let t = slots();
-        // Two double slots = 4 units — same as four singles → Rail on 5120.
-        assert_eq!(frame_layout(5120, 1440, &[2, 2], 1.0, &t).side_state, SideState::Rail);
-        // One double + one single = 3 units → still Full.
-        assert_eq!(frame_layout(5120, 1440, &[2, 1], 1.0, &t).side_state, SideState::Full);
+        // The right MF zone is always mf_zone_width, whatever the left zone does.
+        for w in [1920u32, 2560, 3440, 5120] {
+            let f = frame_layout(w, 1440, &units(1), 1.0, &t);
+            assert_eq!(f.right.w, 320.0, "MF permanent at {w}");
+            assert!(f.right.x + f.right.w <= w as f32, "MF on-screen at {w}");
+        }
     }
 
     #[test]
-    fn frame_capacity_matches_the_side_zone_budgets() {
+    fn frame_reflow_depends_on_total_units_not_slot_count() {
         let t = slots();
-        // Side zones eat the width, so mid-size panels hold fewer slots than the
-        // pre-CD-11 max_slots; the 5120 ultrawide still reaches four.
+        // At 3000 a single slot's full left zone fits, but a double's (2 units)
+        // does not — so it depends on the unit total, not the column count.
+        assert_eq!(frame_layout(3000, 1440, &units(1), 1.0, &t).left_state, SideState::Full);
+        assert_eq!(frame_layout(3000, 1440, &[2], 1.0, &t).left_state, SideState::Rail);
+    }
+
+    #[test]
+    fn frame_capacity_matches_the_revised_budgets() {
+        let t = slots();
+        // The permanent MF zone + a left rail + wider gutters eat the width, so
+        // mid-size panels hold fewer slots; two slots now need ~3000, three the
+        // ultrawide. Capped at slot_max (three).
         assert_eq!(frame_capacity(1920, 1.0, &t), 1);
         assert_eq!(frame_capacity(2560, 1.0, &t), 1);
-        assert_eq!(frame_capacity(3840, 1.0, &t), 2);
-        assert_eq!(frame_capacity(5120, 1.0, &t), 4);
+        assert_eq!(frame_capacity(3000, 1.0, &t), 2); // the ~3000 two-slot threshold
+        assert_eq!(frame_capacity(3440, 1.0, &t), 2);
+        assert_eq!(frame_capacity(5120, 1.0, &t), 3);
     }
 
     #[test]
-    fn four_slots_fit_at_rail_on_the_ultrawide_with_margin() {
+    fn frame_capacity_never_exceeds_the_slot_max_unit_ceiling() {
         let t = slots();
-        let f = frame_layout(5120, 1440, &units(4), 1.0, &t);
-        assert_eq!(f.side_state, SideState::Rail);
-        // The whole frame (left rail | gutter | slots | gutter | right rail) stays
-        // on-screen with a non-negative edge margin.
-        assert!(f.left.x >= 0.0, "left rail on-screen: x={}", f.left.x);
-        assert!(f.right.x + f.right.w <= 5120.0, "right rail on-screen");
-        assert_eq!(f.left.w, 48.0);
-        assert_eq!(f.right.w, 48.0);
+        // Absurdly wide: capped at slot_max·2 units (three double-width columns).
+        assert_eq!(frame_capacity(40000, 1.0, &t), (t.slot_max as usize) * 2);
     }
 
     #[test]
-    fn side_zones_flank_the_group_symmetrically_at_the_slot_height() {
+    fn three_slots_and_both_full_zones_fit_the_ultrawide() {
         let t = slots();
-        let f = frame_layout(5120, 1440, &units(2), 1.0, &t);
-        assert_eq!(f.side_state, SideState::Full);
+        let f = frame_layout(5120, 1440, &units(3), 1.0, &t);
+        assert_eq!(f.left_state, SideState::Full);
         assert_eq!(f.left.w, 320.0);
         assert_eq!(f.right.w, 320.0);
-        // One gutter between each side zone and the slot group.
+        // The whole frame (left | gutter | 3 slots | gutter | MF) is on-screen.
+        assert!(f.left.x >= 0.0, "left zone on-screen: x={}", f.left.x);
+        assert!(f.right.x + f.right.w <= 5120.0, "MF on-screen");
+        // Prove the token budget the briefing asked for: 320 + 56 + 3712 + 56 +
+        // 320 = 4464 ≤ 5120.
+        let group = 3.0 * t.width + 2.0 * t.gutter;
+        assert_eq!(t.side_zone_width + t.gutter + group + t.gutter + t.mf_zone_width, 4464.0);
+        assert!(4464.0 <= 5120.0);
+    }
+
+    #[test]
+    fn floor_law_one_slot_mf_and_left_rail_at_1920() {
+        let t = slots();
+        // The minimum working set (D-0022): exactly one slot + the MF zone + the
+        // left rail, all on-screen at 1920 with balanced margins.
+        assert_eq!(frame_capacity(1920, 1.0, &t), 1);
+        let f = frame_layout(1920, 1440, &units(1), 1.0, &t);
+        assert_eq!(f.left_state, SideState::Rail);
+        assert_eq!(f.left.w, 48.0);
+        assert_eq!(f.right.w, 320.0);
+        assert!(f.left.x >= 0.0, "left rail on-screen: x={}", f.left.x);
+        assert!(f.right.x + f.right.w <= 1920.0, "MF on-screen");
+        // The frame block is centered, so the outer margins balance.
+        let left_margin = f.left.x;
+        let right_margin = 1920.0 - (f.right.x + f.right.w);
+        assert_eq!(left_margin, right_margin);
+    }
+
+    #[test]
+    fn zones_flank_the_group_one_gutter_away_at_the_slot_height() {
+        let t = slots();
+        let f = frame_layout(5120, 1440, &units(2), 1.0, &t);
         let group_left = f.slots.first().unwrap().x;
         let group_right = f.slots.last().map(|r| r.x + r.w).unwrap();
-        assert_eq!(group_left - (f.left.x + f.left.w), 40.0);
-        assert_eq!(f.right.x - group_right, 40.0);
-        // Side zones share the slot height/top; the frame is symmetric.
+        // One gutter between each zone and the slot group.
+        assert_eq!(group_left - (f.left.x + f.left.w), 56.0);
+        assert_eq!(f.right.x - group_right, 56.0);
+        // Both zones share the slot height and top.
         assert_eq!(f.left.y, f.slots[0].y);
         assert_eq!(f.left.h, f.slots[0].h);
-        assert_eq!(f.left.x, 5120.0 - (f.right.x + f.right.w));
+        assert_eq!(f.right.y, f.slots[0].y);
+        assert_eq!(f.right.h, f.slots[0].h);
     }
 
     #[test]
-    fn full_to_rail_boundary_is_the_first_count_that_overflows_full() {
+    fn asymmetric_frame_shifts_the_group_toward_the_smaller_zone() {
         let t = slots();
-        // Construct the boundary directly from the tokens rather than hardcoding:
-        // the largest U whose group + full sides fits is Full; U+1 is Rail.
-        let g = t.gutter;
-        let full_fits = |u: u32| {
-            let group = u as f32 * t.width + (u as f32 - 1.0) * g;
-            2.0 * t.side_zone_width + 2.0 * g + group <= 5120.0
-        };
-        // Find the boundary U where Full stops fitting.
-        let mut boundary = 1u32;
-        while full_fits(boundary + 1) {
-            boundary += 1;
-        }
-        assert_eq!(frame_layout(5120, 1440, &units(boundary as usize), 1.0, &t).side_state, SideState::Full);
-        // One more unit tips into Rail (and it is within rail capacity here).
-        assert!((boundary as usize + 1) <= frame_capacity(5120, 1.0, &t));
-        assert_eq!(frame_layout(5120, 1440, &units(boundary as usize + 1), 1.0, &t).side_state, SideState::Rail);
+        // With the left at rail (48) and the MF permanent (320), the group shifts
+        // LEFT of window-center by (left_width - mf_width)/2 = -136.
+        let f = frame_layout(1920, 1440, &units(1), 1.0, &t);
+        let centered = slot_rects_units(1920, 1440, &units(1), 1.0, &t);
+        let dx = (f.left_width - f.right.w) * 0.5; // (48 - 320)/2 = -136
+        assert_eq!(dx, -136.0);
+        assert_eq!(f.slots[0].x, centered[0].x + dx);
+        // With both zones full (5120, 3 slots) the difference is zero → centered.
+        let ff = frame_layout(5120, 1440, &units(3), 1.0, &t);
+        let cc = slot_rects_units(5120, 1440, &units(3), 1.0, &t);
+        assert_eq!(ff.slots, cc);
     }
 
     #[test]
-    fn frame_slot_rects_match_the_bare_group_layout() {
-        // The frame reuses slot_rects_units unchanged (group centered in the
-        // window); the side zones are additive, they do not move the slots.
+    fn full_to_rail_boundary_within_capacity() {
         let t = slots();
-        for n in 1..=4 {
+        // At 3000 the boundary is reachable within capacity (2 units): a single
+        // slot is Full, a two-unit group is Rail.
+        assert!(frame_capacity(3000, 1.0, &t) >= 2);
+        assert_eq!(frame_layout(3000, 1440, &units(1), 1.0, &t).left_state, SideState::Full);
+        assert_eq!(frame_layout(3000, 1440, &[2], 1.0, &t).left_state, SideState::Rail);
+    }
+
+    #[test]
+    fn frame_slots_are_the_centered_group_translated_by_the_zone_difference() {
+        let t = slots();
+        for n in 1..=3 {
             let f = frame_layout(5120, 1440, &units(n), 1.0, &t);
-            assert_eq!(f.slots, slot_rects_units(5120, 1440, &units(n), 1.0, &t));
+            let centered = slot_rects_units(5120, 1440, &units(n), 1.0, &t);
+            let dx = ((f.left_width - f.right.w) * 0.5).round();
+            for (a, b) in f.slots.iter().zip(centered.iter()) {
+                assert_eq!(a.x, b.x + dx);
+                assert_eq!(a.w, b.w);
+                assert_eq!(a.y, b.y);
+                assert_eq!(a.h, b.h);
+            }
         }
     }
 }

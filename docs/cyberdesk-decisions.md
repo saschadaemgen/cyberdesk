@@ -2,6 +2,70 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0022 - 2026-07-09 - Revised frame law: three slots, permanent Multifunctional zone
+
+Sascha's ruling after living with the CD-11 frame (D-0020): **four columns are too
+many, and the zones matter more than a fourth browser.** This revises D-0020's
+symmetric-zones + four-slot parts (D-0021's floating layer is untouched — it reads
+the frame rects generically and adapts automatically: ensembles, drop zones, close
+orbs all follow the new geometry).
+
+**1 — Slot maximum is THREE.** A new `slots.slot_max` token (= 3) caps the frame
+everywhere: `frame_capacity` (its unit ceiling becomes `slot_max·2`), `max_slots`,
+Ctrl+T, drag-into-gutter targets, and restore plans all clamp against it. The
+compile-time `MAX_SLOTS` array ceiling stays **4** (the per-view arrays / id space),
+so `slot_max` is a tunable product policy `≤ MAX_SLOTS` — raise the token, no array
+resize. A fourth column simply never opens while `slot_max = 3`.
+
+**2 — The RIGHT zone is the Multifunctional (MF) zone, and it is PERMANENT.** It is
+always `mf_zone_width` (= 320) at every resolution; it never rails, never
+disappears. It is the future tab area (status, files, FTP, music — later seasons),
+a placeholder now in the slot-placeholder family with a **distinct core glyph**: a
+three-bar **rows / tab-rail** glyph (the left zone keeps the diamond), so the two
+zones read apart with no font (the shell has none).
+
+**3 — The LEFT zone (future Spine) is the flexible one.** The CD-11 reflow law and
+its animation-safety construction now apply to the LEFT zone alone: **Full**
+(`side_zone_width` = 320) when the slots leave room for it alongside the permanent
+MF zone, else it retreats to a thin **Rail** (`side_rail_width` = 48).
+
+**4 — Wider gutters.** The `gutter` token rose **40 → 56** ("more space between the
+screens"), applied between slots AND between the group and each zone. The budget
+holds — three 1200 slots + both zones full + all four gutters at 5120: `320 + 56 +
+(3·1200 + 2·56) + 56 + 320 = 4464 ≤ 5120` (656 px margin, proven in a test). No
+other margin token needed a nudge.
+
+**5 — The floor law.** At 1920 the minimum working set is exactly **one slot + the
+MF zone + the left rail** (the full left zone doesn't fit: `320 + 56 + 1200 + 56 +
+320 = 1952 > 1920`, so it rails; `48 + 56 + 1200 + 56 + 320 = 1680 ≤ 1920` fits,
+balanced 120 px margins). Scaling: more width adds slots up to three, and the left
+zone goes Full as soon as it fits alongside them.
+
+**Geometry — the asymmetric shift.** The frame `left | gutter | slots | gutter | MF`
+is centered in the window as a block. Because it is now asymmetric, the slot group
+is **no longer window-centered**: it is offset by `(left_width − mf_width)/2` toward
+the smaller zone (0 when the left is Full, so both zones = 320 → centered; −136 at
+1920 with the left railed). Implementation reuses `slot_rects_units` (window-
+centered) and **translates** the rects by that `dx` — one function still decides
+state + all rects, so the reflow animation stays desync-safe by construction: the
+shell eases the LEFT width (`disp_left_width`) and the group's `dx` glides with it,
+while the MF zone width is constant and only follows the group's right edge. Both
+rendering and input read the same per-frame geometry.
+
+**Revised capacities** (unit budget = `width − mf_zone_width − side_rail_width −
+2·gutter`, gutter 56): **1920 → 1, 2560 → 1, ~3000 → 2, 3440 → 2, 5120 → 3** (was
+1/1/2/4 at CD-11). Two slots now need roughly a **3000**-wide window; three need
+the ultrawide. Sessions / width-units logic is **unchanged in structure** — only
+the capacity value shrinks; restore now fits against `frame_capacity` (the same
+budget the live shell caps against) instead of the zone-blind `max_slots`, so a
+restored workspace never momentarily over-fills the frame (`max_slots` becomes a
+tested building block only).
+
+Verified: 42 unit tests (revised capacities, floor law, asymmetric shift, MF
+permanence, boundary cases), `--capture` at 1920 (rail + slot + MF rows glyph) and
+5120 (full Spine diamond + 3 slots + full MF rows glyph), a 3000×900 boot. See
+D-0020 (the symmetric frame this revises) and D-0021 (the floating layer it feeds).
+
 ## D-0021 - 2026-07-09 - CD-12: floating command elements — the bar dies, per-window command sets
 
 Sascha's ruling: **the bar dies, and nothing global replaces it.** A single top

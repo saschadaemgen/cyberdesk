@@ -167,20 +167,24 @@ close_size    = 26.0   # shell-drawn per-slot close orb diameter (host-only)
 # Slot engine (CD-09, D-0017) — fixed-width content columns instead of a single
 # proportional surf zone. A slot is `width` logical px wide, as tall as the surf
 # zone (`height_frac` of the window, vertically centered), with `gutter` between
-# slots. CD-11 (D-0020) frames the slot group with side zones and widens the
-# gutter into control territory; the whole frame (side zones + gutters + slot
-# group) is centered in the window. `gutter` was widened 24 → 40 (the ~48 target,
-# calibrated down so four 1200px slots still fit the 5120 ultrawide at rail
-# state: 2·48 + 2·40 + 4·1200 + 3·40 = 5096 ≤ 5120). All sizes are logical px
-# (scaled by DPI).
+# slots. CD-11 (D-0020) framed the group with side zones; the REVISED law (D-0022)
+# makes the frame ASYMMETRIC — the RIGHT is the permanent Multifunctional (MF)
+# zone (never rails), the LEFT (future Spine) is the flexible one (full ↔ rail per
+# the CD-11 reflow), and the slot maximum drops to THREE. The whole frame (left
+# zone + gutters + slot group + right MF zone) is centered in the window. `gutter`
+# rose 40 → 56 ("more space between the screens"); the budget holds — three 1200px
+# slots + both zones full + all four gutters at 5120: 320 + 56 + (3·1200 + 2·56) +
+# 56 + 320 = 4464 ≤ 5120 (656 px margin). All sizes are logical px (scaled by DPI).
 [slots]
-width            = 1200.0  # fixed content-column width (four fit on 5120)
-gutter           = 40.0    # gap between slots AND between the group and side zones (CD-11)
-min_margin       = 48.0    # legacy edge margin (still used by max_slots; the CD-11 frame centers in the window)
-height_frac      = 0.70    # slot / side-zone height as a fraction of window height (centered)
-max_count        = 4       # hard cap: the four-column product vision
+width            = 1200.0  # fixed content-column width
+gutter           = 56.0    # gap between slots AND between the group and each zone (D-0022: 40 → 56)
+min_margin       = 48.0    # legacy edge margin (still used by max_slots; the frame centers in the window)
+height_frac      = 0.70    # slot / zone height as a fraction of window height (centered)
+max_count        = 4       # legacy max_slots cap (the product cap is slot_max below)
+slot_max         = 3       # D-0022: product slot maximum (must be <= slots::MAX_SLOTS)
 active_line      = 2.0     # active-slot bottom accent line thickness
 placeholder_fill = 0.05    # placeholder fill lift above the base color (additive)
-placeholder_glyph = 0.18   # placeholder index-glyph brightness (0..1 of brand)
-side_zone_width  = 320.0   # CD-11 side zone width (Full state) — Spine / rails live here later
-side_rail_width  = 48.0    # CD-11 side rail width (Rail state) — the retreated thin strip
+placeholder_glyph = 0.18   # placeholder core-glyph brightness (0..1 of brand)
+side_zone_width  = 320.0   # LEFT (Spine) zone width, Full state (D-0022) — flexes to the rail below
+side_rail_width  = 48.0    # LEFT (Spine) zone width, Rail state — the retreated thin strip
+mf_zone_width    = 320.0   # RIGHT Multifunctional zone width (D-0022) — PERMANENT, never rails

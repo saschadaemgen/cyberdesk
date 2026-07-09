@@ -1772,14 +1772,16 @@ impl SurfaceRenderer {
         let loading_th = (2.5 * scale).max(1.0);
         let mut placeholders: Vec<PlaceholderInstance> = Vec::with_capacity(slots.len() + sides.len());
         let mut lines: Vec<SlotLineInstance> = Vec::with_capacity(slots.len());
-        // Side zones (CD-11): the placeholder family with the diamond glyph
-        // (digit 0) — subtle fill, thin outline, a small centered core glyph. No
-        // page, no loading/active lines; content arrives in later seasons.
-        for s in sides {
+        // The two zones (D-0022): the placeholder family, subtle fill + thin
+        // outline + a core glyph. `sides` is [left Spine, right MF]; the left gets
+        // the diamond (glyph 0), the right MF gets a distinct rows glyph (glyph
+        // -1) so the permanent zone reads apart. No page / loading / active lines.
+        for (i, s) in sides.iter().enumerate() {
+            let core = if i == 1 { -1.0 } else { 0.0 };
             placeholders.push(PlaceholderInstance {
                 rect: [s.0, s.1, s.2, s.3],
                 fill: [fill_rgb[0], fill_rgb[1], fill_rgb[2], corner_radius],
-                glyph: [glyph_rgb[0], glyph_rgb[1], glyph_rgb[2], 0.0],
+                glyph: [glyph_rgb[0], glyph_rgb[1], glyph_rgb[2], core],
                 dot: [0.0, 0.0, 0.0, 0.0],
             });
         }
@@ -2176,13 +2178,14 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
         .and_then(|v| v.trim().parse::<usize>().ok())
         .unwrap_or(0);
     let accent = crate::theme::hex3(&theme.colors.accent);
-    // The two side zones (diamond glyph, digit 0) then the slot columns.
-    let mut ph_insts: Vec<PlaceholderInstance> = [frame.left, frame.right]
+    // The left (Spine) zone (diamond glyph 0) and the right MF zone (rows glyph
+    // -1, D-0022), then the slot columns.
+    let mut ph_insts: Vec<PlaceholderInstance> = [(frame.left, 0.0f32), (frame.right, -1.0f32)]
         .iter()
-        .map(|r| PlaceholderInstance {
+        .map(|&(r, core)| PlaceholderInstance {
             rect: [r.x, r.y, r.w, r.h],
             fill: [fill_rgb[0], fill_rgb[1], fill_rgb[2], corner],
-            glyph: [glyph_rgb[0], glyph_rgb[1], glyph_rgb[2], 0.0],
+            glyph: [glyph_rgb[0], glyph_rgb[1], glyph_rgb[2], core],
             dot: [0.0, 0.0, 0.0, 0.0],
         })
         .collect();

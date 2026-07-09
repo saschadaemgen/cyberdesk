@@ -112,7 +112,7 @@ pub fn run(windowed: bool) {
         disp_rects: [None; MAX_SLOTS],
         disp_left: slots::Rect::default(),
         disp_right: slots::Rect::default(),
-        disp_side_width: 0.0,
+        disp_left_width: 0.0,
         frame_inited: false,
         applied_title: String::new(),
         applied_topmost: false,
@@ -183,7 +183,9 @@ struct Shell {
     disp_rects: [Option<slots::Rect>; MAX_SLOTS],
     disp_left: slots::Rect,
     disp_right: slots::Rect,
-    disp_side_width: f32,
+    /// The eased width of the flexible LEFT (Spine) zone (D-0022). The right MF
+    /// zone is permanent (constant `mf_zone_width`), so only the left animates.
+    disp_left_width: f32,
     /// False until the first frame snaps the animated frame to the target (so the
     /// startup layout does not animate in from zero).
     frame_inited: bool,
@@ -350,7 +352,7 @@ impl Shell {
             }
             self.disp_left = target.left;
             self.disp_right = target.right;
-            self.disp_side_width = target.side_width;
+            self.disp_left_width = target.left_width;
             self.frame_inited = true;
             return;
         }
@@ -368,9 +370,12 @@ impl Shell {
             self.disp_rects[id] = Some(ease_rect(cur, tr, FRAME_EASE));
         }
 
-        // Ease the side width; derive the side rects from it and the animated
-        // group bounds so the zones glide with the columns.
-        self.disp_side_width += (target.side_width - self.disp_side_width) * FRAME_EASE;
+        // Ease the flexible LEFT (Spine) zone width; derive both zone rects from
+        // the animated group bounds so they glide with the columns. The RIGHT MF
+        // zone is permanent — its width is the constant target (no easing), it
+        // only follows the group's right edge (D-0022).
+        self.disp_left_width += (target.left_width - self.disp_left_width) * FRAME_EASE;
+        let mf_width = target.right.w;
         let first = self.order[0];
         let last = *self.order.last().expect("order is non-empty");
         let gl = self.disp_rects[first].map(|r| r.x).unwrap_or(target.left.x);
@@ -378,15 +383,15 @@ impl Shell {
             .map(|r| r.x + r.w)
             .unwrap_or(target.right.x);
         self.disp_left = slots::Rect {
-            x: gl - g - self.disp_side_width,
+            x: gl - g - self.disp_left_width,
             y: target.left.y,
-            w: self.disp_side_width,
+            w: self.disp_left_width,
             h: target.left.h,
         };
         self.disp_right = slots::Rect {
             x: gr + g,
             y: target.right.y,
-            w: self.disp_side_width,
+            w: mf_width,
             h: target.right.h,
         };
     }
@@ -428,6 +433,13 @@ impl Shell {
     fn capacity(&self) -> usize {
         let (w, _) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
         slots::frame_capacity(w, self.scale, &self.theme.slots)
+    }
+
+    /// The product slot-count maximum (D-0022): the `slots.slot_max` token,
+    /// clamped to the `MAX_SLOTS` array ceiling. Caps `order.len()` (Ctrl+T,
+    /// open-in-new-slot, drag-into-gutter, restore).
+    fn slot_max(&self) -> usize {
+        (self.theme.slots.slot_max as usize).clamp(1, MAX_SLOTS)
     }
 
     /// Make slot id `id` the active slot: move CEF keyboard focus (only while no
@@ -474,7 +486,7 @@ impl Shell {
     /// top bar reveals focused + empty so the user can type its first address.
     fn add_slot(&mut self) {
         // A new slot is one unit; it must fit both the count and the unit budget.
-        if self.order.len() >= MAX_SLOTS || self.total_units() + 1 > self.capacity() as u32 {
+        if self.order.len() >= self.slot_max() || self.total_units() + 1 > self.capacity() as u32 {
             return;
         }
         let Some(free) = slots::free_id(&self.order) else {
@@ -505,7 +517,7 @@ impl Shell {
     /// immediately with the URL, and becomes active. If the grid has no room, fall
     /// back to the CD-04 behavior: navigate the source slot in place.
     fn open_in_new_slot(&mut self, source_id: usize, url: String) {
-        let has_room = self.order.len() < MAX_SLOTS && self.total_units() < self.capacity() as u32;
+        let has_room = self.order.len() < self.slot_max() && self.total_units() < self.capacity() as u32;
         let Some(free) = slots::free_id(&self.order).filter(|_| has_room) else {
             browser::load_url(Role::Slot(source_id), &url);
             return;
@@ -598,7 +610,7 @@ impl Shell {
 
     /// Whether the frame has room for one more column (drop-into-gutter allowed).
     fn drag_has_room(&self) -> bool {
-        self.order.len() < MAX_SLOTS && self.total_units() < self.capacity() as u32
+        self.order.len() < self.slot_max() && self.total_units() < self.capacity() as u32
     }
 
     /// The drag overlay quads for the current drag (CD-12): the drop-zone gutter
@@ -1273,9 +1285,12 @@ impl Shell {
     /// to the CD-09 default: one slot on the home page.
     fn restore_session(&mut self, window: &Window) {
         let hwnd = window_hwnd(window);
-        let (w, _) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
-        let cap = slots::max_slots(w, self.scale, &self.theme.slots) as u32;
         let saved = session::load();
+        // Fit the saved workspace against the SAME frame budget the live shell
+        // caps against (D-0022): the unit budget from `frame_capacity` (which
+        // accounts for the permanent MF zone and the left rail) and the `slot_max`
+        // count — so a restore never momentarily over-fills the frame.
+        let cap = self.capacity() as u32;
 
         if saved.is_empty() {
             // Fresh install / no session: the CD-09 default — one home-page slot.
@@ -1290,7 +1305,7 @@ impl Shell {
 
         // Fit saved slots from the left by width units (pure, unit-tested); the
         // shell assigns fresh contiguous ids (id = display index at startup).
-        let plan = session::plan_restore(&saved, cap, MAX_SLOTS);
+        let plan = session::plan_restore(&saved, cap, self.slot_max());
         self.order = (0..plan.slots.len()).collect();
         for (id, ps) in plan.slots.iter().enumerate() {
             self.width_units[id] = ps.width_units;
