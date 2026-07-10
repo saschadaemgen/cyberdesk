@@ -267,18 +267,38 @@ hit-tested host-side, like the gear button.
   the engine master switch (`tor_enabled`) is off and the target is turning Tor ON.
 - Success: `{"ok":true}`. Failure: code 1 (malformed request JSON).
 
+### `close_slot` (view -> host, CD-18)
+
+- Request: `{"cmd":"close_slot"[,"slot":<int>]}` — the ensemble's close icon. `slot`
+  is the column id; omitted → the active slot.
+- Effect: queues a per-window close for the main thread, which enforces
+  last-slot-refuses + neighbor promotion (`close_slot_at`, the single choke point
+  shared with `Ctrl+W`). Replaces the retired CD-12 shell-drawn corner close orb.
+- Success: `{"ok":true}`. Failure: code 1 (malformed request JSON).
+
 The **frame-state push** (`cdFrame`, CD-12) gained a per-slot `"tor":<bool>` field
 and a top-level `"tor_status":<int>` (0 off / 1 connecting / 2 ready / 3 failed), so
-the shield glyph lights when the column is on Tor and pulses while the engine
-bootstraps.
+the per-window Tor icon lights when the column is on Tor, pulses while the engine
+bootstraps (1), reads a distinct **ready** state (2), and warns on **failed** (3).
 
 ## Per-window Tor + settings IPC (CD-15, live)
 
 ### `tor_status` (view -> host)
 
-- Request: `{"cmd":"tor_status"}` (the settings page polls it).
-- Success: `{"status":<int>}` — 0 off (not started), 1 bootstrapping, 2 ready,
-  3 failed. Failure: code 1 (malformed request JSON).
+- Request: `{"cmd":"tor_status"}` (the settings page + the MF-zone Tor tab poll it).
+- Success: `{"status":<int>,"reason":<str>,"version":<str>}` — `status` 0 off (not
+  started) / 1 bootstrapping / 2 ready / 3 failed; `reason` the failure reason
+  (empty unless failed, CD-15 HOTFIX); `version` the embedded arti-client version
+  (CD-18). Failure: code 1 (malformed request JSON).
+
+### `tor_new_circuit` (view -> host, CD-18)
+
+- Request: `{"cmd":"tor_new_circuit"}` (the settings "New circuit" button).
+- Effect: bumps a "new identity" epoch so each per-slot SOCKS relay rebuilds its
+  isolated Tor client on its next connection — subsequent streams ride fresh
+  circuits under a fresh isolation group (reload a page to use its new circuit). A
+  lock-free atomic bump; never touches the proxy or the fail-closed guarantee.
+- Success: `{"ok":true}`. Failure: code 1 (malformed request JSON).
 
 ### Tor settings (via the existing `get_settings` / `set_setting`)
 
@@ -286,6 +306,25 @@ Two boolean settings join the `get_settings` reply and are writable via
 `set_setting` (the generic boolean path, D-0014): `tor_enabled` (engine master
 switch, default `true`) and `tor_default` (open new windows on Tor, default
 `false`). No new command — the wire shape is the CD-03 settings channel.
+
+## MF-zone viewer IPC (CD-18, live)
+
+The MF-zone viewer (`cyberdesk://mfzone/`) uses the same message-router bridge as
+settings/info. Its Tor tab reuses `tor_status`; its Tor + Log tabs stream the log
+ring buffer via one command.
+
+### `get_log_lines` (view -> host)
+
+- Request: `{"cmd":"get_log_lines"[,"since_seq":<int>][,"filter":{"target_prefix":<str>,"level_min":<str>}]}`.
+  `since_seq` returns only records with a higher sequence (incremental polling — the
+  page sends back the highest seq it has seen; omit / `0` for the whole buffer).
+  `filter.target_prefix` keeps records whose `tracing` target starts with the prefix
+  (e.g. `tor_`, `cyberdesk::tor`); `filter.level_min` is a min severity word
+  (`trace`/`debug`/`info`/`warn`/`error`).
+- Success: a JSON array `[{"seq":<int>,"ts":<int ms>,"level":<str>,"target":<str>,"msg":<str>}, ...]`
+  oldest→newest, from the in-memory ring buffer (last ~2000 records; the file log is
+  separate). The ring copies only the message field — never other structured fields,
+  so no secrets leak into the viewer. Failure: code 1 (malformed request JSON).
 
 ## Update-awareness IPC (CD-13, live)
 

@@ -2,6 +2,82 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0030 - 2026-07-10 - CD-18: MF-zone tabbed viewer (first real content), log ring buffer, per-window Tor+close icons, complete Tor settings
+
+"Make Tor fully visible and controllable." Five parts, all in the token design,
+mouse-first, floating-consistent. Independent of the CD-15 leak acceptance — it only
+needs the CD-15-HOTFIX logging and the CD-11 MF zone, and it actively HELPS CD-15
+(the Tor tab makes bootstrap status visible live instead of hunting date-suffixed
+log files).
+
+**1 — In-memory log ring buffer (the viewer's data source, not file tailing).** A
+bounded `tracing` Layer (`RingLayer`) keeps the last ~2000 records
+{seq, ts_ms, level, sev, target, msg} in one `VecDeque` under a Mutex; `logging::
+init()` moved from the `fmt()` facade to `registry().with(filter).with(fmt).with
+(ring)` so the ring and the rolling file share ONE `EnvFilter` — the ring captures
+exactly what the file does. Records store a severity RANK (0=TRACE..4=ERROR) so
+`level_min` is a plain `sev >= min`, dodging tracing's INVERTED `Level: Ord`. The
+visitor copies ONLY the `message` field (never other structured key/values), so the
+no-secrets rule holds doubly now that a UI surfaces the log. IPC `get_log_lines
+{filter?, since_seq?}` reads the ring in-process — no date-suffix race. (Do NOT tail
+the file from the UI.)
+
+**2 — The MF zone's first real content: a tabbed live viewer.** A new opaque OSR
+view `Role::MfZone` (a third view kind; the per-view array grew to `MAX_SLOTS+2`) is
+composited into the permanent right MF rect, reusing the slot page pipeline (its own
+`PageTarget`, an unconditional page-uniform write from `sides[1]`), and replaces the
+rows-glyph placeholder once it has a texture. It is `cyberdesk://mfzone/` — the same
+scheme lock + web isolation + message-router IPC as settings/info/start (the CD-14
+broadened `cefQuery` forwarding covers it for free). It is created eagerly like the
+Internal view but NOT focused (`on_after_created` guard) so it never steals Slot(0)'s
+keyboard focus; it is mouse-driven, routed via `disp_right.contains` in `mouse_target`,
+and because slot-activation is gated to `Role::Slot` an MF click never changes the
+active slot. Geometry is set on resize only (constant texture; the X animates via the
+render NDC rect, like slots). **Tabs:** Tor (default) — a Connecting/Ready/Failed+reason
+status header over the streaming tor/arti log (the CD-15 diagnostic surface); Log — a
+live tail of the full log with an info/debug filter, Copy, and auto-scroll that pauses
+on scroll-up; Terminal — a **reserved** placeholder (a real PTY terminal is a Season-8
+tools item; the tab exists so the switching UX is complete).
+
+**3 — Per-window icons consolidating scattered controls.** Two always-present icons
+sit to the right of each ensemble's address capsule: the **anonymity/Tor icon** (the
+CD-15 shield, relocated here, gaining a distinct "ready" state; toggles Tor for that
+window) and a new **close icon** (a `close_slot` IPC → main-thread `close_slot_at`,
+which enforces last-slot-refuses — the single choke point shared with Ctrl+W). The
+CD-12 shell-drawn corner-hover close orb is RETIRED (its helpers, the `close_hover`
+field, the overlay-pass close branch, the `CYBERDESK_CAPTURE_CLOSE` knob, and the
+`close_size` token all removed; the now-producerless `drag.wgsl kind:1` ring+cross
+branch is left in place, harmless). No duplicate controls; ESC chain + Ctrl+W intact.
+
+**4 — Complete Tor settings + information.** The section now carries every option as
+a clean control plus all info: the engine master switch and "Tor for new windows"
+(CD-15), the live status incl. the Failed reason (hotfix), the embedded engine
+version ("arti <ver>", honestly the arti-client crate, not the Tor CLI), a
+circuit-isolation note, a working **New circuit / new identity** button, and a
+reserved **Bridges — coming** entry (the real fix for a Tor-blocking network is a
+separate follow-up ticket; only the place is held). "New identity": arti-client 0.44
+exposes no single global new-identity call, so `tor_new_circuit` bumps a
+`NEW_IDENTITY_EPOCH` that makes each per-slot SOCKS relay rebuild its isolated client
+on its next connection — fresh circuits under a fresh isolation group, reload to
+apply. A lock-free bump that never touches the proxy or fail-closed.
+
+**5 — Log-path nicety.** The rolling appender writes `cyberdesk.log.<date>`, so the
+bare `cyberdesk.log` never exists — the "file not found" confusion from Sascha's
+test. `logging::log_location()` now resolves the NEWEST `cyberdesk.log*` (or reports
+the dated pattern), and README states the pattern. The MF viewer makes the file
+largely unnecessary anyway.
+
+**Honest scope + verification.** Tor and Log tabs are fully functional (real ring
+data); Terminal and Bridges are visible placeholders. Verified without desktop
+scraping: unit tests for the ring (capacity/eviction/filter/since_seq/severity-rank);
+the real page JS against DOM shims (MF tabs + tor filter + level filter; settings
+version + new-circuit button; command DOM order); and the LIVE app — the MF page
+polled `get_log_lines` 8× in 8 s (proving the new view loads, its JS runs, and the
+IPC round-trips), a runtime close test (add→2, close→1, last-slot refused), and clean
+boots throughout. NOTE: `docs/cyberdesk-vision-law.md` is referenced by the ticket
+but does not yet exist in the repo — the ticket's vision-law checks were applied from
+its inline principles (token design, mouse-first, per-window autonomy, honesty).
+
 ## D-0029 - 2026-07-10 - CD-15-HOTFIX addendum: track the embedded Tor (arti) engine as an update component; derive its version from Cargo.lock
 
 Sascha's call-out: the CD-13 update info area tracked CyberDesk and the CEF core but

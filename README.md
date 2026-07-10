@@ -175,10 +175,26 @@ feathered compositing, and an isolated in-shell settings surface.
   settings, local history and favorites (D-0014); open websites are **not** saved
   (CD-14, D-0025). All local, no sync.
 * **Diagnostics log:** a windowed release build has no console, so a rolling-daily
-  log is written to `%LOCALAPPDATA%\CyberDesk\logs\cyberdesk.log` (dated suffix). It
-  captures the app lifecycle and the full Tor bootstrap (including arti's internal
-  progress) — the place to look if Tor won't connect. Set `RUST_LOG` for more
-  detail. Never contains secrets.
+  log is written to `%LOCALAPPDATA%\CyberDesk\logs\` as **`cyberdesk.log.<date>`**
+  (e.g. `cyberdesk.log.2026-07-10` — the bare `cyberdesk.log` never exists on disk;
+  the app resolves and reports the newest dated file). It captures the app lifecycle
+  and the full Tor bootstrap (including arti's internal progress). Set `RUST_LOG` for
+  more detail. Never contains secrets. **You rarely need the file:** the MF-zone
+  viewer's **Tor** and **Log** tabs (below) stream the same records live in the UI.
+* **The Multifunctional (MF) zone viewer (CD-18):** the permanent right zone holds a
+  tabbed live viewer — **Tor** (a Connecting/Ready/Failed+reason status header over
+  the streaming Tor/arti log, so bootstrap progress is visible live and a blocked
+  network shows *Failed with a reason*, no file hunting), **Log** (a live tail of the
+  full app log with an info/debug filter, a Copy button, and auto-scroll that pauses
+  when you scroll up), and **Terminal** (reserved — a real terminal is a later
+  release). Tabs switch on click. It is an internal `cyberdesk://mfzone/` page, the
+  same scheme-locked, isolated, no-network surface as settings/info/start.
+* **Per-window icons (CD-18):** each window's floating command set carries two
+  explicit, always-present icons beside its address bar — an **anonymity/Tor icon**
+  that shows the window's status (clearnet / connecting / ready / failed) and toggles
+  Tor for that window, and a **close icon** that closes that window (the last window
+  refuses). These consolidate the scattered CD-15 Tor glyph and the CD-12
+  corner-hover close into two clear controls.
 
 The accelerated (zero-copy GPU) OSR path was researched; CyberDesk stays on the
 CPU path for now — see `docs/cyberdesk-decisions.md` (D-0009).
