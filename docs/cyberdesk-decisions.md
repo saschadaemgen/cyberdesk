@@ -2,6 +2,63 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0031 - 2026-07-10 - CD-15-HOTFIX-2: deep arti bootstrap instrumentation; runtime/TLS proven correct, stall narrowed to the consensus fetch; runtime hard-pinned to rustls
+
+Tor never reached Ready on Sascha's machine, yet official Tor Browser connects and
+clearnet browsing works there — so the network is fine and this is our arti
+integration. The old log (arti at info only) showed one line — "Looking for a
+consensus" — then 90 s of silence and a timeout that wrongly blamed the network.
+
+**Crate-source-first audit refuted the obvious suspects.** A workflow read
+tor-rtcompat 0.44 + rustls 0.23.41: the rustls CryptoProvider is NOT missing — the
+single unified rustls is compiled with exactly one provider (`ring`, forced on by
+ureq; `aws-lc-rs` absent from the lock), so `ClientConfig::builder()` auto-installs
+it and never panics; and if it couldn't, it would panic BEFORE "looking for a
+consensus", which we do reach. TLS is not the cause.
+
+**Deep instrumentation (Stage A) — now the diagnostic is conclusive.** (1) A
+`CYBERDESK_TOR_TRACE=1` env toggle raises the arti/tor crates (`arti_client`,
+`tor_dirmgr`, `tor_chanmgr`, `tor_proto`, `tor_circmgr`, `tor_guardmgr`,
+`tor_netdir`, `tor_netdoc`) from info to debug/trace — the steps after "looking for
+a consensus" (channel connect, guard pick, TLS handshake, circuit build) live below
+info, which is why the old log looked like "one attempt then silence". (2) Subscribe
+to arti's `bootstrap_events()` stream (`create_bootstrapped` split into
+`create_unbootstrapped_async()` + `bootstrap()`, behaviour-preserving) and log every
+phase (`<pct>%: <conn>; <dir>`) + any `Blockage` (Offline/Filtering/ClockSkewed/
+CantReachTor) verbatim. (3) A panic hook routes swallowed spawn-panics to the log.
+(4) The timeout now reports arti's real last status — the false "network blocking
+Tor?" is gone.
+
+**What the instrumentation revealed (reproduced locally).** arti progresses
+`0% → 8% handshaking with Tor relays → 15% connecting successfully; directory is
+fetching a consensus`, then the DIR phase never advances; debug shows completed
+`tor_proto::channel::handshake`, `tor_circmgr::build: Spawning reactor`, then
+repeated `tor_proto: Received DESTROY cell. Reason: Circuit expired for being too
+dirty or old`. So: the runtime DRIVES arti correctly (progress observed), the TLS
+handshake WORKS (reaches 15%), circuits build — and the stall is specifically the
+**consensus/directory fetch** completing, after which circuits age out and churn.
+This refutes ALL of the briefing's suspects (runtime handle, enable_all, TLS, lazy
+client) by direct evidence. Sascha's `CYBERDESK_TOR_TRACE=1` 90 s log will name his
+exact cause (his clock is fine since Tor Browser works, so likely the consensus
+download stalling — the local repro is confounded by the sandbox environment).
+
+**Runtime/TLS hardening (Stage B) — the one actionable fix + a regression guard.**
+`type Client` and the client are now built on an EXPLICIT
+`tor_rtcompat::tokio::TokioRustlsRuntime` (via `current()` from the same block_on
+runtime, then `TorClient::with_runtime(rt)`), not the opaque `PreferredRuntime`.
+Reason: **`PreferredRuntime` silently prefers native-tls if any crate in the tree
+enables tor-rtcompat's `native-tls` feature** (Cargo global feature unification) —
+a real latent risk that would swap our TLS backend with no compile error. Naming
+the runtime removes that risk AND makes it `Debug`-loggable (the log now prints
+`runtime=TokioRustlsRuntime { .. }`). ARTI RUNTIME/TLS REQUIREMENTS (do not regress
+on a bump): keep `arti-client`/`tor-rtcompat` at `default-features=false, features=
+["tokio","rustls"]`; keep `type Client = TorClient<TokioRustlsRuntime>`; keep the
+runtime `new_multi_thread().enable_all()` (io+time) — arti needs both drivers;
+never let `native-tls` into the tree without re-pinning.
+
+Fail-closed intact throughout (no direct fallback). This precedes CD-15 leak
+acceptance: after Sascha's confirming run reaches Ready, the leak checklist runs.
+
 ## D-0030 - 2026-07-10 - CD-18: MF-zone tabbed viewer (first real content), log ring buffer, per-window Tor+close icons, complete Tor settings
 
 "Make Tor fully visible and controllable." Five parts, all in the token design,
