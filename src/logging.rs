@@ -263,24 +263,32 @@ pub fn log_snapshot_json(v: &serde_json::Value) -> String {
 /// The default env-filter (used when `RUST_LOG` is unset). Our lifecycle at debug;
 /// arti's crates normally at info (bootstrap milestones + errors). `CYBERDESK_TOR_TRACE`
 /// raises the arti/tor crates to **debug** (or **trace** if it is `trace`/`2`) so a
-/// stalled bootstrap shows the exact hang point — the channel connect, the guard
-/// pick, the TLS handshake — which live below info (CD-15 HOTFIX 2).
+/// stalled bootstrap shows the exact hang point — including the **directory-fetch
+/// layer** (`tor_dirclient`), which issues the HTTP-over-Tor consensus request over a
+/// built circuit and is the previously-silent step where bootstrap stalls at 15%
+/// (CD-15 HOTFIX 2 / HOTFIX 3).
 fn default_filter() -> String {
     let arti = match std::env::var("CYBERDESK_TOR_TRACE").ok().as_deref() {
         None | Some("") | Some("0") => "info",
         Some("trace") | Some("2") => "trace",
         _ => "debug", // any other truthy value → debug
     };
-    // The arti/tor crate targets that carry the bootstrap detail.
+    // The arti/tor crate targets that carry the bootstrap detail. `tor_dirmgr` covers
+    // its `::state` / `::bootstrap` submodules by prefix. `tor_dirclient` is the
+    // directory CLIENT that sends the consensus request over the circuit and reads the
+    // response — the silent step in the 15% stall (HOTFIX 3). `tor_memquota` catches a
+    // memory-quota reservation that could gate the fetch.
     let tor_targets = [
         "arti_client",
         "tor_dirmgr",
+        "tor_dirclient",
         "tor_guardmgr",
         "tor_chanmgr",
         "tor_proto",
         "tor_circmgr",
         "tor_netdir",
         "tor_netdoc",
+        "tor_memquota",
     ];
     let mut f = String::from("info,cyberdesk=debug");
     for t in tor_targets {
