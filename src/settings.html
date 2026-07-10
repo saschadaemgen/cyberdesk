@@ -111,6 +111,27 @@
         </div>
       </div>
 
+      <div class="row">
+        <div class="label">
+          <span class="name">New circuit / new identity</span>
+          <span class="hint">Rotate to fresh Tor circuits for new requests — reload a page to use its new circuit</span>
+        </div>
+        <button class="btn" id="tor-new-circuit" type="button">New circuit</button>
+      </div>
+
+      <div class="row muted">
+        <div class="label">
+          <span class="name">Bridges &amp; pluggable transports</span>
+          <span class="hint">For networks that block Tor directly. Not yet available.</span>
+        </div>
+        <span class="soon">Coming</span>
+      </div>
+
+      <dl class="tor-info">
+        <div><dt>Tor engine</dt><dd id="tor-version">arti —</dd></div>
+        <div><dt>Circuit isolation</dt><dd>Each window uses its own Tor circuit, so two Tor windows can't be linked to each other.</dd></div>
+      </dl>
+
       <p class="honesty">Tor mode routes that window through the Tor network and hides
       your IP address. It does <strong>not</strong> provide Tor Browser's
       anti-fingerprinting, and it cannot change the network-layer (TLS) fingerprint —

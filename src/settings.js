@@ -147,11 +147,12 @@
   // shown so "failed" is never a dead end (CD-15 HOTFIX Stage C).
   var torStatusEl = document.getElementById("tor-status");
   var torReasonEl = document.getElementById("tor-reason");
+  var torVersionEl = document.getElementById("tor-version");
   var TOR_LABELS = ["off", "connecting…", "ready", "failed"];
   function pollTorStatus() {
     query({ cmd: "tor_status" }).then(function (r) {
-      var st = 0, reason = "";
-      try { var j = JSON.parse(r); st = j.status | 0; reason = j.reason || ""; } catch (x) {}
+      var st = 0, reason = "", version = "";
+      try { var j = JSON.parse(r); st = j.status | 0; reason = j.reason || ""; version = j.version || ""; } catch (x) {}
       if (torStatusEl) {
         torStatusEl.textContent = TOR_LABELS[st] || "off";
         torStatusEl.className = "tor-status s" + st;
@@ -165,8 +166,23 @@
           torReasonEl.hidden = true;
         }
       }
+      // The embedded arti (Tor engine) version — honest: this is the arti-client
+      // crate we link, not the standalone Tor CLI (CD-18).
+      if (torVersionEl && version) torVersionEl.textContent = "arti " + version;
     }).catch(function () {});
   }
   pollTorStatus();
   setInterval(pollTorStatus, 2000);
+
+  // "New circuit / new identity" (CD-18): fresh Tor circuits for new requests.
+  var newCircuitBtn = document.getElementById("tor-new-circuit");
+  if (newCircuitBtn) {
+    newCircuitBtn.addEventListener("click", function () {
+      query({ cmd: "tor_new_circuit" }).then(function () {
+        var was = newCircuitBtn.textContent;
+        newCircuitBtn.textContent = "New circuit ✓";
+        setTimeout(function () { newCircuitBtn.textContent = was; }, 1400);
+      }).catch(function () {});
+    });
+  }
 })();

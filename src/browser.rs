@@ -1162,8 +1162,16 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         "tor_status" => Ok(serde_json::json!({
             "status": crate::tor::status(),
             "reason": crate::tor::fail_reason(),
+            // The embedded arti (Tor engine) version, for the settings info (CD-18).
+            "version": crate::updates::current_tor_version(),
         })
         .to_string()),
+        // "New circuit / new identity" (CD-18): rotate the per-slot isolated clients
+        // so new streams ride fresh circuits. A lock-free epoch bump — safe here.
+        "tor_new_circuit" => {
+            crate::tor::new_identity();
+            Ok(serde_json::json!({ "ok": true }).to_string())
+        }
         // The MF-zone viewer's log stream (CD-18): the last ring-buffer lines matching
         // an optional {filter:{target_prefix,level_min}, since_seq}. Pull-based +
         // incremental — the page sends back the highest seq it has seen.

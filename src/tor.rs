@@ -22,7 +22,7 @@
 #![allow(dead_code)]
 
 use std::net::{IpAddr, Ipv4Addr};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use arti_client::config::CfgPath;
@@ -43,6 +43,23 @@ pub const STATUS_READY: u8 = 2;
 pub const STATUS_FAILED: u8 = 3;
 
 static STATUS: AtomicU8 = AtomicU8::new(STATUS_IDLE);
+
+/// "New identity" epoch (CD-18). arti-client 0.44 exposes no single global
+/// new-identity call, but our per-slot SOCKS relays each hold an *isolated* client;
+/// bumping this epoch makes every listener drop and re-create its isolated client on
+/// its next connection, so subsequent streams ride FRESH circuits under a fresh
+/// isolation group (the user reloads a page to use its new circuit). Cheap + safe:
+/// it only changes when a new isolated client is built — never the proxy or the
+/// fail-closed guarantee.
+static NEW_IDENTITY_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// Request fresh Tor circuits / identity for subsequent connections (CD-18). Just a
+/// lock-free epoch bump, so it is safe to call from any thread (e.g. the CEF UI
+/// thread handling the settings button).
+pub fn new_identity() {
+    let epoch = NEW_IDENTITY_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
+    tracing::info!(epoch, "tor: new identity requested (fresh circuits for new streams)");
+}
 
 /// Hard cap on the first bootstrap (CD-15 HOTFIX): a Tor-blocking network or a bad
 /// cache dir surfaces as `Failed` instead of infinite "connecting". Overridable via
@@ -213,16 +230,21 @@ async fn socks_listener(port: u16) {
         }
     };
     // The isolated client for THIS slot, created once the base client is ready and
-    // reused for every connection (stable per-slot circuit isolation).
+    // reused for every connection (stable per-slot circuit isolation). It is
+    // re-created when the "new identity" epoch advances (CD-18) so new streams ride
+    // fresh circuits under a fresh isolation group.
     let mut client: Option<Arc<Client>> = None;
+    let mut client_epoch = NEW_IDENTITY_EPOCH.load(Ordering::SeqCst);
 
     loop {
         let (sock, _) = match listener.accept().await {
             Ok(pair) => pair,
             Err(_) => continue,
         };
-        if client.is_none() {
+        let epoch = NEW_IDENTITY_EPOCH.load(Ordering::SeqCst);
+        if client.is_none() || epoch != client_epoch {
             client = base_client().lock().unwrap().as_ref().map(|c| c.isolated_client());
+            client_epoch = epoch;
         }
         let Some(c) = client.clone() else {
             // Not bootstrapped yet (or failed): drop the connection; the browser
