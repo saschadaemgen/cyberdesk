@@ -2,6 +2,39 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0033 - 2026-07-10 - CD-15 Tor fix: the arti `compression` feature is REQUIRED for bootstrap (confirmed root cause of the consensus-fetch stall)
+
+The confirmed root cause of the Tor bootstrap stall that HOTFIX 2/3 chased —
+cross-checked against the working SimpleGoX arti integration (which bootstraps cold
+in ~30 s with `compression` present).
+
+**Root cause.** We built `arti-client` with `default-features = false, features =
+["tokio","rustls"]`, which DROPPED `compression` — a DEFAULT arti-client feature.
+Verified crate-source-first (arti-client 0.44.0 `Cargo.toml`): `compression =
+["tor-dirmgr/compression"]` and `default = ["compression", …]`. Tor directory caches
+serve the **consensus compressed** (zstd / lzma / zlib); arti advertises it accepts
+those encodings, the cache replies compressed, and without `compression` compiled in
+arti has **no code path to inflate the body**. This is exactly the traced signature
+(D-0032): channels open, handshakes complete, dir circuits build → 15%, the request
+goes out, the compressed response can't be consumed, the fetch never completes, and
+the idle circuits expire unused at ~60 s — with no error line, because the capability
+simply isn't there. It is why official Tor Browser connects on the same machine and
+ours did not: a feature-gate difference, nothing else. (The HOTFIX 3
+`first_hop_clock_skew` H2 was a local-sandbox red herring, correctly flagged as
+confounded — the sandbox has no reachable Tor network.)
+
+**Fix + REQUIREMENT (do not regress).** Add `compression` to the arti-client
+features. It is **required for Tor bootstrap** — dropping it silently re-introduces
+this exact 15% stall. This joins the D-0031 arti requirements: keep `arti-client` /
+`tor-rtcompat` at `default-features = false, features = ["tokio","rustls",
+"compression"]`; keep `type Client = TorClient<TokioRustlsRuntime>`; keep the runtime
+`new_multi_thread().enable_all()`. **Build note:** `compression` pulls in the zstd/xz
+codecs (`zstd-sys` is C-backed), so the build needs a **C toolchain (MSVC)** — already
+present because CEF requires it; if a build ever errors on the codecs, that C
+toolchain is the cause (do NOT work around it by dropping `compression`). Fail-closed
+unchanged. HOTFIX 3's dir-fetch tracing stays (harmless, useful). This unblocks the
+real CD-15 acceptance: Sascha's networked run reaching Ready + the leak checklist.
+
 ## D-0032 - 2026-07-10 - CD-15-HOTFIX-3: trace the directory-fetch layer; stall pinned to the "circuit built → consensus request" handoff (never issued); no arti bump possible
 
 HOTFIX 2 narrowed the Tor stall to the consensus fetch (arti reaches "15%:
