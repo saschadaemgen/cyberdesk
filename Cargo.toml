@@ -38,7 +38,7 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 # arti cannot inflate the response — the fetch silently stalls at 15% (D-0033). Do
 # NOT drop it. (Needs a C toolchain for the zstd/xz codecs — MSVC, already present
 # for CEF.)
-arti-client = { version = "0.44", default-features = false, features = ["tokio", "rustls", "compression"] }
+arti-client = { version = "0.43", default-features = false, features = ["tokio", "rustls", "compression"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
 # File logging (CD-15 HOTFIX): a windowed app has no visible stderr. `tracing` is
 # chosen over `log`+fern because arti/tokio already emit `tracing` events, so one
@@ -50,7 +50,7 @@ tracing-appender = "0.2"
 # Bridges arti's futures-based DataStream to tokio's AsyncRead/Write for the SOCKS relay.
 tokio-util = { version = "0.7", default-features = false, features = ["compat"] }
 # Names arti's PreferredRuntime (already in the tree via arti-client) for the client type.
-tor-rtcompat = { version = "0.44", default-features = false, features = ["tokio", "rustls"] }
+tor-rtcompat = { version = "0.43", default-features = false, features = ["tokio", "rustls"] }
 # `StreamExt` to consume arti's bootstrap-status Stream (deep bootstrap instrumentation,
 # CD-15 HOTFIX 2). Already in the tree transitively via arti.
 futures = { version = "0.3", default-features = false, features = ["std"] }

@@ -2,6 +2,70 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0034 - 2026-07-11 - arti pinned to 0.43.x; arti 0.44 has a bootstrap regression; arti/`tor-*` crates must be versioned in lockstep (supersedes the D-0033 "compression fixed it" conclusion)
+
+**Decision.** Pin all arti and `tor-*` crates to `0.43.x`. Do not move to `0.44.x`
+until a later arti release is verified to bootstrap on Windows. `arti-client` and
+`tor-rtcompat` are BOTH direct dependencies and must always carry the same version —
+never mix arti versions in the graph. The working `Cargo.toml` lines:
+`arti-client = { version = "0.43", default-features = false, features = ["tokio", "rustls", "compression"] }`
+with `tor-rtcompat = "0.43"` (and any other `tor-*` direct deps on 0.43). Verify a
+single version with `cargo tree -i tor-rtcompat` before building.
+
+*The bug (observed on Sascha's Windows machine, arti 0.44.0).* Tor bootstrap reaches
+15% ("connecting successfully; directory is fetching a consensus") and never advances.
+Everything up to that point is healthy: channels build (TLS handshake completes,
+VERSIONS / CERTS / AUTH_CHALLENGE / NETINFO exchanged), the one-hop directory circuit
+builds (CREATE_FAST → CREATED_FAST). The consensus IS downloaded — ~1576 inbound RELAY
+data cells (~785 KB, consensus-sized) arrive, with Sendme flow-control cells sent to
+keep the stream window open — and `tor-dirmgr` logs `received 1 useful responses from
+our requests`, so the document is received and parsed. But the consensus is then
+**never accepted**: dirmgr stays in "Looking for a consensus", status stays at 15%, the
+idle circuits are reaped ("Circuit expired for being too dirty or old"), arti issues a
+`FirstHopClockSkew` query, and after 90 s the bootstrap times out with no error path
+(because this is not an error path — it is a silent non-acceptance).
+
+*Causes ruled OUT, each tested, not assumed.*
+- Network blocking — the official Tor Browser bootstraps fine on the same machine.
+- Missing `rustls` CryptoProvider — refuted crate-source-first (ring is the single
+  provider, auto-installed; it would panic earlier).
+- Missing `compression` feature — added and confirmed present in the resolved graph via
+  `cargo tree`; behaviour was byte-for-byte identical afterwards, so `compression` was a
+  real missing default but **NOT** this cause. **This supersedes the D-0033 conclusion**
+  that `compression` fixed the stall: D-0033 still stands in that `compression` is
+  REQUIRED (keep it), it just was not what unblocked bootstrap — the arti version was.
+- Clock skew — measured `+13 s` via `w32tm /stripchart` on the real machine, far inside
+  arti's tolerance. The `FirstHopClockSkew` line is a routine query, not proof of skew.
+
+*How the root cause was isolated — bisection against the SimpleGoX reference.* SimpleGoX
+(also Rust + arti, run on the same machine, using `native-tls` + `PreferredRuntime`) was
+version-bisected: it bootstraps cleanly on arti `0.41` and `0.43`, and reproduces the
+identical 15% stall on `0.44`. Because SimpleGoX uses `native-tls` and `PreferredRuntime`,
+the TLS backend and the runtime are both ruled out — the ONLY variable that flips
+working/broken is the arti version. Conclusion: arti 0.44 has a bootstrap regression in
+which the consensus is fetched but never accepted. CyberDesk on 0.43 bootstraps to Ready
+and passes the full leak checklist (Tor exit IP confirmed, no WebRTC IP leak, per-window
+clearnet isolation confirmed).
+
+*Mechanical lesson (cost 178 compile errors once).* Pinning only `arti-client` to 0.43
+while `tor-rtcompat` stayed at 0.44 put two `tor_rtcompat` versions in the graph,
+producing a trait-bound mismatch (`Runtime` / `UdpProvider` not satisfied for
+`TokioRustlsRuntime`, "multiple different versions of crate tor_rtcompat"). Pin
+`tor-rtcompat` to 0.43 as well and verify a single version with `cargo tree -i
+tor-rtcompat` before building.
+
+*Info-area consequence (CD-20).* Because 0.44 exists upstream but is deliberately not
+installed, the update area must NOT (a) call 0.43 "current" (a newer version exists) nor
+(b) push the user toward the broken 0.44. CD-20 adds a distinct **`held_back`** version
+state driven by a client-side known-issues table (`updates::KNOWN_ISSUES`) seeded with
+exactly this arti 0.44.0 entry. The pin is a build-time decision (`Cargo.toml`), so the
+annotation's source of truth is the client table, not the live manifest.
+
+*Revisit trigger.* When arti `0.45` (or later) ships, test bootstrap-to-Ready on Windows
+before bumping; if it works, bump all arti/`tor-*` in lockstep and **remove the arti
+entry from the CD-20 known-issues table (`updates::KNOWN_ISSUES`) in the same commit** so
+the info area returns arti to a normal state automatically.
+
 ## D-0033 - 2026-07-10 - CD-15 Tor fix: the arti `compression` feature is REQUIRED for bootstrap (confirmed root cause of the consensus-fetch stall)
 
 The confirmed root cause of the Tor bootstrap stall that HOTFIX 2/3 chased —
