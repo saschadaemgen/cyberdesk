@@ -65,6 +65,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # `StreamExt` to consume arti's bootstrap-status Stream (deep bootstrap instrumentation,
 # CD-15 HOTFIX 2). Already in the tree transitively via arti.
 futures = { version = "0.3", default-features = false, features = ["std"] }
+# OS CSPRNG for the per-session fingerprinting-hardening seed (CD-16, D-0039). A fresh
+# 16-byte random seed per browser launch keys the coherent readback farbling, so two
+# sessions are unlinkable and the seed is unguessable. Purpose-built minimal crate,
+# already in the tree via rand/arti; NOT an HTTP client — NetGuard (D-0004) unaffected.
+getrandom = "0.3"
 
 [profile.release]
 opt-level = 3

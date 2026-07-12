@@ -135,8 +135,40 @@
       <p class="honesty">Tor mode routes that window through the Tor network and hides
       your IP address. It does <strong>not</strong> provide Tor Browser's
       anti-fingerprinting, and it cannot change the network-layer (TLS) fingerprint —
-      so it is <strong>not equivalent to Tor Browser</strong> for anonymity. Stronger
-      browser hardening is a separate, upcoming feature.</p>
+      so it is <strong>not equivalent to Tor Browser</strong> for anonymity.
+      Fingerprinting hardening (tracking-resistance) is applied in every window — see
+      below.</p>
+    </section>
+
+    <!-- Fingerprinting hardening (CD-16, D-0039). Always on, every window. The
+         honesty label is mandatory (Vision Law): tracking-resistance, NOT anonymity. -->
+    <section class="rows tor-section" aria-label="Tracking resistance">
+      <h2 class="section-head">Tracking resistance</h2>
+
+      <div class="row muted">
+        <div class="label">
+          <span class="name">Fingerprinting hardening</span>
+          <span class="hint">Always on, in every window — clearnet and Tor alike</span>
+        </div>
+        <span class="on-badge">On</span>
+      </div>
+
+      <dl class="tor-info">
+        <div><dt>What it does</dt><dd>Adds tiny, invisible per-session noise to the
+        readback surfaces sites use to fingerprint you (canvas, WebGL, audio, text
+        metrics), and reduces a few high-entropy values (CPU cores, memory, fonts,
+        timezone). The noise is stable within a session but changes on the next
+        launch, so a site cannot link one session to the next.</dd></div>
+        <div><dt>What stays real</dt><dd>Your operating system, browser identity
+        (User-Agent), and language are left untouched and mutually consistent — no
+        half-spoofing that would make you <em>more</em> identifiable.</dd></div>
+      </dl>
+
+      <p class="honesty">This is <strong>tracking-resistance</strong>, not anonymity.
+      It makes you harder to <strong>link</strong> across sites and sessions, but a
+      low-population browser cannot hide in a crowd the way Tor Browser can with
+      millions of identical users. For serious anti-fingerprinting anonymity, use
+      <strong>Tor Browser</strong>.</p>
     </section>
 
     <p class="status" id="status"></p>

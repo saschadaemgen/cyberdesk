@@ -58,10 +58,25 @@ feathered compositing, and an isolated in-shell settings surface.
   three real leaks). Settings expose the engine switch, a "route new windows through
   Tor by default" toggle, and a live status readout (with the failure reason).
   **Honest scope:** Tor mode hides your IP but is **not** Tor-Browser-grade —
-  it does not provide anti-fingerprinting or change the TLS-layer fingerprint (browser
-  hardening is a separate upcoming feature). *This is the host's second sanctioned
-  outbound path (D-0004 → D-0027); the live routing/leak checks run on the maintainer's
-  networked machine.*
+  it does not provide anti-fingerprinting or change the TLS-layer fingerprint
+  (fingerprinting hardening is a separate, always-on feature — see below). *This is the
+  host's second sanctioned outbound path (D-0004 → D-0027); the live routing/leak checks
+  run on the maintainer's networked machine.*
+* **Fingerprinting hardening — coherent tracking-resistance (CD-16, D-0039):**
+  always on, in **every** window (clearnet and Tor alike). A fresh random seed per
+  launch keys **deterministic per-session farbling** of the readback surfaces sites
+  fingerprint — canvas, WebGL readback, audio, client rects, text metrics — injected at
+  document-start so it runs before any page script. The noise is invisible and **stable
+  within a session** (nothing breaks or flickers) but **changes on the next launch**, so
+  a site cannot **link** one session to the next. High-entropy stable attributes are
+  bucketed (CPU cores, device memory), the local-font enumeration API is neutralized,
+  the WebGL vendor/renderer strings are standardized to a common Windows-coherent GPU,
+  and the timezone is normalized to UTC. Crucially it does **no OS/UA/platform
+  spoofing** — those stay real and mutually consistent, so nothing contradicts itself
+  (the mismatch trap that makes half-spoofed browsers *more* unique). **Honest scope:**
+  this is **tracking-resistance, not anonymity** — it breaks cross-site/cross-session
+  linkability, but a low-population browser cannot provide a crowd to hide in; for
+  serious anti-fingerprinting anonymity, use **Tor Browser**.
 * **Own start page, no Google, no saved websites (CD-14, D-0025):** every empty/new
   slot opens to an **own start page** served from the binary at `cyberdesk://start/`
   (same isolation as settings, **zero network**) — Google is gone. It is a black

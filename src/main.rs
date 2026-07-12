@@ -42,6 +42,21 @@ Press ESC to quit.
 ";
 
 fn main() -> ExitCode {
+    // Timezone normalization (CD-16, D-0039): force the whole process tree to UTC
+    // BEFORE anything (Chromium/ICU, logging, threads) initialises. This is the
+    // COHERENT way to hide the local timezone — Chromium's `Date` and `Intl` both
+    // read the timezone from ICU, which honors the `TZ` env var on every platform
+    // (Windows included), so every timezone-derived value agrees (no JS patching, no
+    // contradiction). Set here so the browser process detects UTC (its TimeZoneMonitor
+    // then propagates UTC to every renderer) and every child inherits it. The rolling
+    // log is already UTC (tracing's `SystemTime` timer), so this does not change it.
+    //
+    // SAFETY: first statement in `main`, single-threaded — no other thread can be
+    // reading the environment concurrently (the edition-2024 `set_var` hazard).
+    unsafe {
+        std::env::set_var("TZ", "UTC");
+    }
+
     // MUST run first: handle CEF sub-processes (renderer/GPU/utility). For a
     // sub-process this never returns; for the browser process it returns here.
     browser::run_subprocess_if_needed();

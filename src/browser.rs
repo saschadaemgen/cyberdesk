@@ -755,6 +755,101 @@ pub fn load_url(role: Role, url: &str) {
     }
 }
 
+// --- Fingerprinting hardening (CD-16, D-0039) -------------------------------
+// Coherent, per-session TRACKING-RESISTANCE (not anonymity, no OS/UA spoofing —
+// EC-01). A fresh random seed per browser LAUNCH keys deterministic readback
+// farbling (canvas/WebGL/audio/rects) injected at document-start into every WEB
+// frame, so a site cannot link one session to the next while everything stays
+// stable within a session. The seed is generated once in the browser process and
+// handed to every child process via a command-line switch, so all render
+// processes derive identical per-origin noise. The injected script (hardening.js)
+// is the sole mechanism: Chromium exposes no stable pref for these vectors, so —
+// like Brave, which patches Blink/C++ — we patch the JS surface an embedder owns.
+
+/// Command-line switch carrying the per-session hardening seed to child processes.
+const FP_SEED_SWITCH: &str = "cyberdesk-fp-seed";
+
+/// Lowercase-hex of `buf` (no `hex` crate; runs once per process).
+fn hex_of(buf: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(buf.len() * 2);
+    for b in buf {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
+
+/// The per-session hardening seed (BROWSER process): 16 random bytes, hex-encoded,
+/// generated exactly once. Passed to every child in `on_before_child_process_launch`
+/// so the whole session shares one seed → within-session stability, cross-session
+/// unlinkability (a fresh launch ⇒ a fresh seed ⇒ a different fingerprint).
+fn session_seed() -> &'static str {
+    static SEED: OnceLock<String> = OnceLock::new();
+    SEED.get_or_init(|| {
+        let mut buf = [0u8; 16];
+        if getrandom::fill(&mut buf).is_err() {
+            // Practically unreachable on Windows; a non-zero fallback keeps the
+            // farbling from silently collapsing to a fixed all-zero seed.
+            let pid = std::process::id().to_le_bytes();
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = pid[i % 4] ^ (i as u8).wrapping_mul(31).wrapping_add(0x9e);
+            }
+        }
+        hex_of(&buf)
+    })
+}
+
+/// The hardening seed as seen by a RENDER process: read from the command-line
+/// switch the browser appended (parsed from argv directly, so it does not depend
+/// on any CEF callback ordering). Falls back to a fresh per-process random seed if
+/// the switch is somehow absent — still cross-session-different, only losing
+/// cross-render-process consistency.
+fn render_seed() -> &'static str {
+    static SEED: OnceLock<String> = OnceLock::new();
+    SEED.get_or_init(|| {
+        let prefix = format!("--{FP_SEED_SWITCH}=");
+        if let Some(v) = std::env::args().find_map(|a| a.strip_prefix(&prefix).map(str::to_string))
+            && !v.is_empty()
+        {
+            return v;
+        }
+        let mut buf = [0u8; 16];
+        let _ = getrandom::fill(&mut buf);
+        hex_of(&buf)
+    })
+}
+
+/// The full document-start injection payload for THIS render process: the embedded
+/// hardening script with the session-seed placeholder substituted, built once.
+fn hardening_payload() -> &'static str {
+    static P: OnceLock<String> = OnceLock::new();
+    P.get_or_init(|| include_str!("hardening.js").replace("__CYBERDESK_FP_SEED__", render_seed()))
+}
+
+/// Whether a frame with this URL is a WEB frame that must be hardened. Our own
+/// `cyberdesk://` UI and the browser-internal schemes are left untouched (farbling
+/// them is pointless and could break the internal views).
+fn should_harden(url: &str) -> bool {
+    if url.is_empty() {
+        return false;
+    }
+    const SKIP: [&str; 5] = [
+        "cyberdesk://",
+        "devtools://",
+        "chrome://",
+        "chrome-devtools://",
+        "chrome-extension://",
+    ];
+    !SKIP.iter().any(|p| url.starts_with(p))
+}
+
+/// Run the hardening script in `frame`'s freshly-created V8 context. Called from
+/// the render-side `on_context_created`, which fires before any page script, so our
+/// patches are in place first.
+fn inject_hardening(frame: &mut Frame) {
+    frame.execute_java_script(Some(&CefString::from(hardening_payload())), None, 0);
+}
+
 // --- Handoffs to the main thread --------------------------------------------
 
 /// If a fresh CEF frame has arrived for `role`, hand its BGRA bytes to `f`.
@@ -1331,6 +1426,19 @@ wrap_browser_process_handler! {
 
             CONTEXT_READY.store(true, Ordering::Relaxed);
         }
+
+        /// Hand the per-session fingerprinting-hardening seed (CD-16, D-0039) to
+        /// every child process. Appending it here (browser process, per child
+        /// launch) makes it a real argv entry every render process reads back, so
+        /// all renderers share ONE seed and derive identical per-origin farbling.
+        fn on_before_child_process_launch(&self, command_line: Option<&mut CommandLine>) {
+            if let Some(cmd) = command_line {
+                cmd.append_switch_with_value(
+                    Some(&CefString::from(FP_SEED_SWITCH)),
+                    Some(&CefString::from(session_seed())),
+                );
+            }
+        }
     }
 }
 
@@ -1796,18 +1904,26 @@ wrap_render_process_handler! {
             frame: Option<&mut Frame>,
             context: Option<&mut V8Context>,
         ) {
-            // Expose window.cefQuery ONLY on cyberdesk:// contexts, so the IPC
-            // bridge exists solely on the internal settings view.
-            let is_internal = match &frame {
-                Some(f) => CefString::from(&f.url()).to_string().starts_with("cyberdesk://"),
-                None => false,
-            };
-            if is_internal {
+            // Two mutually-exclusive jobs, by frame scheme:
+            //  * cyberdesk:// (our internal UI) — expose window.cefQuery so the IPC
+            //    bridge exists SOLELY on the internal views, never on the web.
+            //  * a web frame — inject the CD-16 fingerprinting hardening at
+            //    document-start (before any page script). Never both: our own UI is
+            //    trusted and must not be farbled; web frames get no IPC bridge.
+            let url = frame
+                .as_ref()
+                .map(|f| CefString::from(&f.url()).to_string())
+                .unwrap_or_default();
+            if url.starts_with("cyberdesk://") {
                 render_router().on_context_created(
                     browser.map(|b| b.clone()),
                     frame.map(|f| f.clone()),
                     context.map(|c| c.clone()),
                 );
+            } else if should_harden(&url)
+                && let Some(f) = frame
+            {
+                inject_hardening(f);
             }
         }
 

@@ -2,6 +2,92 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0039 - 2026-07-12 - Fingerprinting hardening is coherent tracking-resistance, not anonymity; no OS/UA/platform spoofing (CD-16)
+
+*Decision.* CyberDesk's fingerprinting hardening (CD-16) is scoped as
+**tracking-resistance**: coherent **per-session farbling** of readback vectors
+(canvas 2D, WebGL readback, audio, client rects, text metrics) so a site cannot link
+one session to the next, plus **entropy reduction** on stable attributes
+(`hardwareConcurrency`, `deviceMemory`, fonts) and **timezone normalization** to UTC.
+The OS, User-Agent, `navigator.platform`, `oscpu`, CPU/OS strings, and language are
+left **real and mutually consistent** — no spoofing. It is labelled honestly as
+tracking-resistance (settings "Tracking resistance" section + README), never as
+Tor-Browser-grade anti-fingerprinting anonymity. It is **always on** and applies
+**identically to clearnet and Tor slots** — no toggle, no tier (this supersedes the
+older "strong tier auto-engages in Tor windows" phrasing of D-0027).
+
+*Why.* Per EC-01 and the anonymity-set reality: a low-population browser cannot provide
+fingerprinting anonymity, and half-done spoofing (Brave's UA/platform mismatch) makes
+users *more* unique. The honest, achievable win is breaking cross-session/cross-site
+**linkability** with **zero cross-surface contradictions**.
+
+*Mechanism (crate/source-first).* No stable Chromium **pref** covers canvas/WebGL/audio/
+rect farbling — Brave patches Blink/C++; a CEF embedder patches the JS surface it owns.
+So the sole mechanism is a document-start injection (`src/hardening.js`, embedded via
+`include_str!`) executed in the render-side `on_context_created` **before any page
+script**, for **web frames only** (`should_harden`: everything except `cyberdesk://`,
+`devtools://`, `chrome*://`). Our own `cyberdesk://` UI is never farbled and keeps its
+`window.cefQuery` bridge; web frames get the hardening and no bridge. `getParameter`
+standardizes only the two `UNMASKED_*_WEBGL` strings to a common **Windows-coherent**
+ANGLE/D3D11 Intel GPU (agrees with the untouched Windows UA/platform); every other enum
+and all real capabilities pass through.
+
+*Seed channel + determinism.* A single 16-byte OS-random seed (`getrandom`) is generated
+once in the **browser** process and appended to **every** child command line as
+`--cyberdesk-fp-seed` (`on_before_child_process_launch`); each render process reads it
+back from argv (`render_seed`, with a random fallback), so all renderers share one seed.
+A fresh launch ⇒ a fresh seed ⇒ a different fingerprint (**cross-session unlinkable**);
+within a launch the seed is fixed. The JS derives a per-**first-party-origin** key from
+the seed (`location.ancestorOrigins` recovers the top origin even for cross-origin
+iframes), so a tracker embedded on two different first parties reads different noise.
+Every farble is a **pure function of (origin key, input)**, re-seeded per call and walked
+in a fixed order → repeated reads are byte-identical (stable, no flicker, undetectable by
+double-read); live audio buffers are farbled once via a `WeakSet`; scalar jitter is keyed
+on the value so a single-rect element's `getBoundingClientRect` and `getClientRects()[0]`
+stay mutually consistent.
+
+*Timezone via `TZ=UTC` (not JS).* `main` sets `TZ=UTC` as its first statement, before
+Chromium/ICU/threads init. This is the **coherent** lever: Chromium's `Date` **and**
+`Intl` both read the timezone from ICU, which honors `TZ` on every platform (Windows
+included), so every timezone-derived value agrees with **no JS patching and no possible
+contradiction**; the browser process detects UTC and its TimeZoneMonitor propagates UTC
+to renderers. The rolling log is already UTC (tracing's `SystemTime`), so it is
+unaffected. UTC timezone with a real (non-UTC-region) language is **not** a contradiction
+— Tor Browser reports UTC for everyone regardless of locale.
+
+*Reasoned deviations (recorded).*
+1. **Font enumeration is only partially hardened.** The explicit Local Font Access API
+   (`queryLocalFonts`) is neutralized (returns empty), and the metric farbling breaks the
+   cross-session **linkability** of width-probe fingerprints — but sub-pixel noise cannot
+   hide *which* fonts exist (font presence is a whole-pixel width delta). Full font-set
+   standardization needs the Chromium **font backend** (unreachable from document-start
+   JS) and is **deferred**, like screen letterboxing.
+2. **Worker-context fingerprinting is not covered.** Document-start injection reaches the
+   document realm, not Web Worker globals (OffscreenCanvas/analyser inside a worker); a
+   C++ patch would be required. The dominant, document-context case is covered.
+3. **Screen/window letterboxing deferred** (ticket §4 default — higher breakage).
+4. **No anti-detection `toString` masking** of the patched functions: "canvas is patched"
+   is a binary signal identical for every CyberDesk user every session, so it does not aid
+   cross-session **linking**; leaving it unmasked is simpler, robust, honest, and leaks no
+   seed (the seed/keys live only in closure variables, never in any function's source).
+
+*Coherence + no regression.* UA/platform/oscpu/language untouched; WebGL strings and
+timezone agree with the real Windows OS; no Brave-style mismatch. WebRTC (CD-15) is **not**
+re-implemented and **not** regressed (`disable-quic` + per-context `ip_handling_policy`
+stand; the injection touches no WebRTC surface).
+
+*Verification.* A headless Node `vm` harness runs the **actual** `hardening.js` against a
+DOM mock and proves: determinism (repeated reads byte-identical; reproducible across runs
+at a fixed seed), **cross-session unlinkability** (different seed ⇒ different canvas /
+WebGL / audio / rect / text signatures), entropy reduction (cores 12→8, memory→8, empty
+`queryLocalFonts`, standardized WebGL strings), coherence (`bcr == getClientRects()[0]`,
+sub-visual jitter, inaudible audio delta), and no-throw on missing globals. The live
+fingerprint-test runs (coveryourtracks / browserleaks, two-session compare, Tor slots ==
+clearnet slots, WebRTC still no-leak) are the maintainer's, per the ticket.
+
+*Dependency.* `getrandom` (OS CSPRNG, minimal, already in the tree via `rand`/arti) — a
+randomness library, **not** an HTTP client, so NetGuard (D-0004) is unaffected.
+
 ## D-0038 - 2026-07-12 - rustls CryptoProvider must be an explicit `ring` dependency, installed at startup — never left transitive (CD-24; amends D-0036)
 
 *Decision.* The rustls `CryptoProvider` for arti's TLS runtime is an EXPLICIT direct
