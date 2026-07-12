@@ -11,6 +11,7 @@
 
 mod app;
 mod browser;
+mod degoogle;
 mod harden;
 mod logging;
 mod memory;

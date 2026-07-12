@@ -2,6 +2,76 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0041 - 2026-07-12 - De-Googled is enforced (switches + prefs) and proven by net-log audit; bounded claim (CD-17)
+
+*Decision.* Chromium's phone-home vectors are disabled via **verified** CEF
+command-line switches + preferences, applied to clearnet and Tor slots alike.
+Two enforcement layers, one auditable table (`src/degoogle.rs`):
+
+- **Process-global switches** (`App::on_before_command_line_processing`, every
+  process): `disable-background-networking` (the umbrella - in Chromium 149 it
+  gates the component-updater fetch, the variations/Finch seed fetch, GCM/push,
+  and the Safe Browsing update fetch), plus explicit belt-and-suspenders
+  `disable-component-update`, `disable-domain-reliability` (NEL beacons),
+  `disable-sync`, and `--disable-features=OptimizationHints`. `disable-quic`
+  (CD-15) stays. The umbrella does NOT cover the per-navigation levers, which are
+  closed by preference.
+- **Profile preferences** (on the global/clearnet request context in
+  `on_context_initialized` AND every per-slot Tor context in
+  `TorContextHandler::on_request_context_initialized`, so both are de-Googled
+  identically): `safebrowsing.enabled=false` (+ `scout_reporting_enabled=false`),
+  `search.suggest_enabled=false`, `alternate_error_pages.enabled=false`,
+  `net.network_prediction_options=2` (NEVER), `spellcheck.use_spelling_service=
+  false`, `translate.enabled=false`, `profile.password_manager_leak_detection=
+  false`, `autofill.profile_enabled=false`, `autofill.credit_card_enabled=false`.
+- **Global (local-state) preference** via the global `CefPreferenceManager`,
+  guarded by `CanSetPreference`: `dns_over_https.mode="off"` - clearnet uses the
+  OS resolver deterministically instead of Chromium's default `automatic`
+  auto-upgrade; Tor slots resolve DNS remotely through the tunnel (CD-15) so DoH
+  is moot there.
+
+Every switch/preference NAME is verified **Chromium-source-first** against the
+pinned `149.0.7827.201` (CEF `149.0.6`) - not guessed. `src/degoogle.rs` carries
+each name with its defining-file citation and the traffic it closes, plus a unit
+test (name table well-formed + the idempotent `--disable-features` merge). A
+startup manifest is logged for the audit trail. Metrics (UMA)/crash upload are
+off by default (no `crash_reporter.cfg` ships -> no `ServerURL`, no upload); no
+extensions and an own start page (not an NTP) mean the extension-update and
+Google-favicon services are inert. `--disable-client-side-phishing-detection` was
+**dropped** - it was removed from Chromium years ago; `safebrowsing.enabled=false`
+covers client-side phishing.
+
+Compliance is **proven by measurement**, not assumed: an opt-in net-log capture
+(env `CYBERDESK_AUDIT_NETLOG=<path>` -> `--log-net-log=<path>`, browser process
+only, OFF by default so nothing lands on disk in normal runs) lets the maintainer
+confirm **zero** unsolicited Google/telemetry connections on idle, and only
+visited-site traffic (+ necessary TLS infra) while browsing. The recipe is
+`docs/cyberdesk-degoogle-audit.md`.
+
+*Bounded claim (honest-claims rule).* "De-Googled by measurement" = the engine
+makes no unsolicited Google/telemetry connection (measured + enforced). It does
+NOT claim the user's navigation is hidden, nor that zero bytes ever leave.
+Necessary TLS security is NOT disabled: certificate verification stays on;
+OCSP/CRL to a **visited site's own CA** is necessary infrastructure, not
+phone-home, and is documented as such so the audit can distinguish it.
+Complements D-0036 (host opens no HTTP client): host silent + engine silenced +
+proven. Precursor to the NetGuard analyzer epic.
+
+*Reasoned deviations (recorded).* (1) Secure DNS is set via the global
+`CefPreferenceManager` (local state), guarded by `CanSetPreference`, because
+`dns_over_https.mode` is a local-state pref that per-context `SetPreference`
+cannot reach; if the build reports it non-settable the set is a logged, documented
+no-op and clearnet falls back to Chromium's `automatic` mode, which still never
+sends DNS to Google. (2) Autofill's Google server communication is neutralized by
+disabling autofill via prefs (profile + credit-card) rather than a `--disable-
+features` flag whose name was not stable at 149. (3) `--no-pings` and other
+navigation-triggered levers are out of scope - CD-17 targets **unsolicited**
+Google/telemetry phone-home, not user-navigation beacons.
+
+*Why.* Season-1 rule: de-Googled = measured + enforced, not assumed. A privacy
+browser that silently lets Chromium phone Google home fails its own premise; the
+value is in closing it and being able to prove it.
+
 ## D-0040 - 2026-07-12 - Hardening controls: global + per-window preset, preset-first, de-hardening is info-gated with two confirmations (CD-25)
 
 *Decision.* The fingerprinting-hardening controls over CD-16 (D-0039) are two-level:

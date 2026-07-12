@@ -592,6 +592,9 @@ wrap_request_context_handler! {
             // (The legacy `webrtc.multiple_routes_enabled` / `nonproxied_udp_enabled`
             // prefs are unregistered in CEF 149 — this single policy supersedes them.)
             let webrtc_ok = set_pref_string(ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
+            // CD-17 (D-0041): the same phone-home preference silencing as the global
+            // context, so a Tor slot is de-Googled exactly like clearnet.
+            apply_degoogle_context_prefs(ctx);
             tracing::info!(
                 slot = self.slot,
                 port = self.port,
@@ -701,6 +704,89 @@ fn set_pref_string(ctx: &RequestContext, key: &str, value: &str) -> bool {
     };
     val.set_string(Some(&CefString::from(value)));
     apply_pref(ctx, key, &mut val)
+}
+
+// --- CD-17 (D-0041): de-Google preference application -----------------------
+// The verified NAME/VALUE table lives in `crate::degoogle`; the CEF calls live
+// here, reusing the proven `apply_pref` error-pointer idiom (the CD-15-HOTFIX
+// root cause was a null error out-param that made every set silently fail).
+
+/// Build a `CefValue` for a [`degoogle::PrefValue`].
+fn degoogle_value(v: crate::degoogle::PrefValue) -> Option<Value> {
+    use crate::degoogle::PrefValue;
+    let val = value_create()?;
+    match v {
+        PrefValue::Bool(b) => val.set_bool(c_int::from(b)),
+        PrefValue::Int(n) => val.set_int(n as c_int),
+        PrefValue::Str(s) => val.set_string(Some(&CefString::from(s))),
+    };
+    Some(val)
+}
+
+/// Log the de-Google enforcement manifest once (CD-17 audit aid): the switches
+/// and, per preference, its Chromium source and the phone-home traffic it closes.
+/// Lands in the rolling log Sascha reviews alongside the net-log, so the enforced
+/// set is self-documenting at debug level (no spam at info).
+fn log_degoogle_manifest() {
+    tracing::info!(
+        switches = ?crate::degoogle::SWITCHES,
+        disable_features = ?crate::degoogle::DISABLE_FEATURES,
+        "de-Google: process-global kill switches"
+    );
+    for p in crate::degoogle::CONTEXT_PREFS
+        .iter()
+        .chain(crate::degoogle::GLOBAL_PREFS)
+    {
+        tracing::debug!(pref = p.name, source = p.source, closes = p.closes, "de-Google vector");
+    }
+}
+
+/// Apply every PROFILE de-Google preference to a request context — the global
+/// (clearnet) context and each per-slot Tor context alike. Each set is logged;
+/// a name that fails to apply is an error line, never a silent no-op.
+fn apply_degoogle_context_prefs(ctx: &RequestContext) {
+    let prefs = crate::degoogle::CONTEXT_PREFS;
+    let mut applied = 0usize;
+    for p in prefs {
+        if let Some(mut val) = degoogle_value(p.value)
+            && apply_pref(ctx, p.name, &mut val)
+        {
+            applied += 1;
+        }
+    }
+    tracing::info!(
+        applied,
+        total = prefs.len(),
+        "de-Google context prefs applied"
+    );
+}
+
+/// Apply the GLOBAL (local-state) de-Google preferences (e.g. secure-DNS mode)
+/// through the global preference manager, guarded by `CanSetPreference` — these
+/// live in local state, out of reach of per-context `SetPreference`. UI thread.
+fn apply_degoogle_global_prefs() {
+    let Some(pm) = preference_manager_get_global() else {
+        tracing::warn!("global preference manager unavailable; local-state de-Google prefs skipped");
+        return;
+    };
+    for p in crate::degoogle::GLOBAL_PREFS {
+        let name = CefString::from(p.name);
+        if pm.can_set_preference(Some(&name)) != 1 {
+            // Command-line/policy-controlled, or unregistered in this build.
+            tracing::warn!(pref = p.name, "global pref not settable here — skipped (documented)");
+            continue;
+        }
+        let Some(mut val) = degoogle_value(p.value) else {
+            continue;
+        };
+        let mut raw: sys::_cef_string_utf16_t = unsafe { std::mem::zeroed() };
+        let mut err = CefString::from(&mut raw as *mut sys::_cef_string_utf16_t);
+        if pm.set_preference(Some(&name), Some(&mut val), Some(&mut err)) == 1 {
+            tracing::info!(pref = p.name, "global de-Google pref applied");
+        } else {
+            tracing::error!(pref = p.name, error = %err.to_string(), "global de-Google pref set failed");
+        }
+    }
 }
 
 /// Close slot `i`'s browser cleanly (Ctrl+W, or a resize that drops columns).
@@ -1608,15 +1694,66 @@ wrap_app! {
 
         fn on_before_command_line_processing(
             &self,
-            _process_type: Option<&CefString>,
+            process_type: Option<&CefString>,
             command_line: Option<&mut CommandLine>,
         ) {
+            let Some(cmd) = command_line else { return };
+
             // Disable QUIC globally (CD-15, D-0027): QUIC rides UDP and can bypass a
             // SOCKS proxy, leaking a Tor window's real IP. There is no per-context
             // QUIC pref, so it is off everywhere — clearnet still works over TCP
             // (QUIC is only a transport optimization; no site breaks).
-            if let Some(cmd) = command_line {
-                cmd.append_switch(Some(&CefString::from("disable-quic")));
+            cmd.append_switch(Some(&CefString::from("disable-quic")));
+
+            // CD-17 (D-0041): silence Chromium's phone-home vectors. Boolean,
+            // process-global switches — names verified against Chromium
+            // 149.0.7827.201 (see src/degoogle.rs). Applied for every process so a
+            // feature/behaviour toggle agrees browser<->renderer.
+            for sw in crate::degoogle::SWITCHES {
+                cmd.append_switch(Some(&CefString::from(*sw)));
+            }
+            // Merge our disabled features into any existing --disable-features:
+            // base::CommandLine keeps switches in a map, so a bare second
+            // --disable-features would CLOBBER whatever CEF already set. Read →
+            // merge (idempotent, dedups) → re-set.
+            let features_key = CefString::from("disable-features");
+            let existing = if cmd.has_switch(Some(&features_key)) == 1 {
+                CefString::from(&cmd.switch_value(Some(&features_key))).to_string()
+            } else {
+                String::new()
+            };
+            let merged = crate::degoogle::merge_disable_features(&existing);
+            if !merged.is_empty() {
+                if cmd.has_switch(Some(&features_key)) == 1 {
+                    cmd.remove_switch(Some(&features_key));
+                }
+                cmd.append_switch_with_value(
+                    Some(&features_key),
+                    Some(&CefString::from(merged.as_str())),
+                );
+            }
+
+            // Opt-in net-log capture for the de-Google audit (CD-17 §2). Browser
+            // process only — the network service writes ONE file. OFF unless the
+            // env var names a path, so nothing lands on disk in a normal run
+            // (anti-forensic tenet). CEF/Chromium's network service reads
+            // --log-net-log=<path> and records every outbound connection.
+            let is_browser_process = process_type
+                .map(|p| p.to_string())
+                .unwrap_or_default()
+                .is_empty();
+            if is_browser_process
+                && let Ok(path) = std::env::var(crate::degoogle::AUDIT_NETLOG_ENV)
+                && !path.trim().is_empty()
+            {
+                cmd.append_switch_with_value(
+                    Some(&CefString::from("log-net-log")),
+                    Some(&CefString::from(path.as_str())),
+                );
+                tracing::warn!(
+                    %path,
+                    "net-log capture ENABLED (audit mode) — outbound connections are being logged to disk"
+                );
             }
         }
 
@@ -1649,6 +1786,21 @@ wrap_browser_process_handler! {
                 <BrowserSideRouter as MessageRouterBrowserSide>::new(MessageRouterConfig::default());
             router.add_handler(Arc::new(SettingsQueryHandler) as Arc<dyn BrowserSideHandler>, false);
             let _ = BROWSER_ROUTER.set(router);
+
+            // CD-17 (D-0041): silence Chromium's phone-home PREFERENCES on the
+            // GLOBAL (clearnet) request context. Per-slot Tor contexts get the same
+            // set in TorContextHandler::on_request_context_initialized, so clearnet
+            // and Tor are de-Googled alike. This callback is on the browser-process
+            // UI thread — required for SetPreference.
+            log_degoogle_manifest();
+            if let Some(ctx) = request_context_get_global_context() {
+                apply_degoogle_context_prefs(&ctx);
+            } else {
+                tracing::error!("global request context unavailable; clearnet de-Google prefs NOT applied");
+            }
+            // Local-state prefs (secure-DNS mode) live in global preferences, not
+            // the profile — set them through the global preference manager.
+            apply_degoogle_global_prefs();
 
             CONTEXT_READY.store(true, Ordering::Relaxed);
         }
