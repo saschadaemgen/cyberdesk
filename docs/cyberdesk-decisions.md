@@ -2,6 +2,50 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0036 - 2026-07-12 - External-component update status is client-side; app self-update deferred to demo data (CD-22)
+
+*Decision.* The info area shows a REAL up-to-date status for every external dependency
+(CEF, arti) by comparing the installed version against a **client-side, build-time-
+declared latest-known version** per component (`updates::COMPONENTS`), yielding `up to
+date` / `update available` / `held back`. This generalises the CD-20 known-issues table:
+the arti held-back entry becomes the special case — `latest_known` (0.44) newer than
+installed (0.43) AND carrying a held-back overlay `{reason, note}` (D-0034). A bare
+"INSTALLED" with no comparison is not acceptable for any component with a declarable
+latest-known version. Latest-known values are updated whenever a dependency is bumped
+(the same maintenance contract as the known-issues table), which keeps the honesty rule
+satisfied without a live server. Installed versions keep their single existing sources
+(arti from `Cargo.lock` via `build.rs` D-0029; CEF from the crate's compile-time
+constants; CyberDesk from `CARGO_PKG_VERSION`) — no second source of truth is added.
+
+*Concretely.* CEF declares `latest_known = "149.0.6"` (= the pinned/installed crate
+version, verified crate-source-first) → **up to date**. arti declares `latest_known =
+"0.44.0"` + a held-back overlay → **held back** (unchanged behaviour, now via the
+unified model). CyberDesk declares a clearly-marked **demo** `latest_known = "0.1.0"`
+(= the shipped version) → **up to date**, an honest placeholder that does not fabricate
+a phantom update. The glyph counts only genuine (non-held-back) `update available`
+components; the shipped table has none, so the glyph is idle.
+
+*App self-update deferred.* The CyberDesk app's own self-update (a live manifest feed at
+`carvilon.com/updates/...` + hosting) is **deferred** to a dedicated later ticket. Until
+it is built, the app shows the demo data above so it renders a concrete status rather
+than a bare "INSTALLED". The failing live manifest fetch and the "Last check failed"
+footer are **retired**: the background fetch worker, the `Manifest` structs, the
+`dismiss_item` / `check_updates` IPC commands, AND the `ureq` runtime HTTP client
+(D-0023's reasoned lean-dependency exception) are removed; the panel is driven entirely
+from the client-side table and is read-only (one command, `get_info_items`). The shipped
+binary now opens **no HTTP client of its own** — NetGuard (D-0004) holds without
+exception until the self-update feed returns (the transitive `ureq` left in `Cargo.lock`
+is a build-time-only CEF-download tool, never linked into the running shell). The
+manifest JSON format is kept in the wire-format doc as the reference for the future
+feed. When it returns, the client table stays the source of truth for held-back
+versions (the pin is a build-time decision, D-0034).
+
+*Why.* For an update area, a bare "INSTALLED" says nothing about whether the version is
+current, old, or superseded — useless. Deriving the status from a client-declared
+latest-known version answers "am I on the current version?" per component, honestly and
+without a live server, and cleanly retires a fetch that can only fail until the feed
+exists.
+
 ## D-0035 - 2026-07-11 - Shell session lifecycle: default two-slot startup, two quit modes, session captures per-slot mode (CD-21)
 
 *Decision.* CyberDesk's session lifecycle is now defined end to end.

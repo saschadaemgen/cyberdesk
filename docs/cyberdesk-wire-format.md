@@ -343,76 +343,52 @@ ring buffer via one command.
   separate). The ring copies only the message field — never other structured fields,
   so no secrets leak into the viewer. Failure: code 1 (malformed request JSON).
 
-## Update-awareness IPC (CD-13, live)
+## Update-awareness IPC (CD-13 → CD-22, live)
 
 The info panel (`cyberdesk://info/`) uses the same message-router bridge
 (`window.cefQuery`, process messages, internal view only) as settings / command.
-Three allowlisted commands; notes links reuse `navigate` (which loads the active
-slot and closes the panel). Same error-code space (1 malformed, 2 missing/typed,
-4 unknown `cmd`). The info glyph itself is **no IPC** (shell-drawn, hit-tested
-host-side like the gear). All data comes from the one pinned manifest (D-0023);
-this channel opens no network of its own.
+**Read-only now:** every component status is derived CLIENT-SIDE (installed version
+vs a build-declared latest-known version), so the panel has ONE command,
+`get_info_items`, and opens no network of its own. The CD-13 `dismiss_item` /
+`check_updates` commands and the live manifest fetch were **retired in CD-22**
+(D-0036) — the app self-update feed returns in its own later ticket. The info glyph
+itself is **no IPC** (shell-drawn, hit-tested host-side like the gear).
 
 ### `get_info_items` (view -> host)
 
 - Request: `{"cmd":"get_info_items"}`
-- Success: the info snapshot —
-  `{"have_feed":<bool>,"feed_ok":<bool|null>,"checked_ago":<str|null>,"items":[…],"components":[…]}`
-  - `items` — the NEW (non-dismissed) update items, each
-    `{"id":<str>,"severity":"info"|"recommended"|"security","title":<str>,"body":<str>,"action":{"label":<str>,"url":<str>}|null}`.
-    Empty when up to date, all dismissed, or there is no feed data. An item is
-    **never** emitted toward a held-back version (CD-20) — the host would not push
-    the user onto a known-bad release.
-  - `feed_ok` (CD-20) — whether the **last live fetch this run** succeeded
-    (`true`/`false`), or `null` if no live fetch has run yet (startup / cache-only).
-    The panel says "Last check failed · showing last known data" on `false` rather
-    than dressing up stale cache as a clean check.
-  - `checked_ago` — an honest relative "3 minutes"/"1 hour"/… of the last check
-    attempt (success or failure), or `null` if never checked.
-  - `components` (CD-20) — the detailed component list, one object per tracked
-    component (`cyberdesk`, `cef`, `tor`), each
+- Success: the info snapshot — `{"components":[…]}`.
+  - `components` (CD-22) — the component list, one object per tracked component
+    (`cyberdesk`, `cef`, `tor`), each
     `{"id":<str>,"name":<str>,"version":<str>,"latest":<str|null>,"status":<str>,"detail":<str|null>,"reason":<str?>,"note":<str?>}`:
-    - `version` — the installed/running version (CyberDesk: `CARGO_PKG_VERSION`;
-      CEF: the pinned crate's compile-time constants; Tor: the arti-client version
-      injected from `Cargo.lock` by `build.rs`, D-0029).
-    - `status` — one of **`current`** (feed present, installed ≥ recommended),
-      **`update`** (feed recommends a newer version; `latest` is it),
-      **`held_back`** (a newer version exists upstream but is deliberately NOT
-      installed — a client-side `KNOWN_ISSUES` match; `latest` is the held-back
-      upstream version, plus `reason` and `note`), or **`informational`** (no
-      upstream feed for the component and nothing held back — the version is shown
-      with **no** up-to-date claim we cannot substantiate, e.g. CEF here).
-    - `detail` — an optional secondary line (e.g. `"Chromium 149.0.7301.0"` for CEF),
-      or `null`.
-    - `reason` / `note` — present only on `held_back`: why it is held back, and what
-      unpins it. The held-back annotation's source of truth is the client table, not
-      the manifest (the pin is a build-time `Cargo.toml` decision, D-0034).
+    - `version` — the installed/running version, from its single existing source
+      (CyberDesk: `CARGO_PKG_VERSION`; CEF: the pinned crate's compile-time constants;
+      Tor: the arti-client version injected from `Cargo.lock` by `build.rs`, D-0029).
+    - `latest` — the client-declared **latest-known** version for this component
+      (`updates::COMPONENTS`), bumped whenever the dependency is. `null` only for an
+      undeclared component.
+    - `status` — the comparison of installed vs `latest`, one of **`current`**
+      (installed ≥ latest-known → up to date), **`update`** (a newer, non-held-back
+      version is known), **`held_back`** (a newer version is known but deliberately
+      NOT installed, with `reason` + `note` — the arti 0.44 case, D-0034), or
+      **`informational`** (defensive fallback for an *undeclared* component only:
+      bare version, no claim). Every tracked component reports a real status — never
+      a bare "INSTALLED".
+    - `detail` — an optional secondary line (e.g. `"Chromium 149.0.7827.201"` for
+      CEF), or `null`.
+    - `reason` / `note` — present only on `held_back`. The latest-known and held-back
+      values are client-side (build-time), not from a live server.
 - Failure: code 1 (malformed request JSON).
 
-### `dismiss_item` (view -> host)
+## Update manifest schema — DEFERRED (CD-13/D-0023, retired in CD-22/D-0036)
 
-- Request: `{"cmd":"dismiss_item","id":"<str>"}`
-- Effect: records the item's current target version as dismissed (persisted). The
-  glyph calms; the item stays hidden until the manifest advances past that version
-  (D-0023). No-op for an unknown / absent item.
-- Success: `{"ok":true}`
-- Failure: code 1 (malformed request), 2 (missing `id`).
-
-### `check_updates` (view -> host)
-
-- Request: `{"cmd":"check_updates"}`
-- Effect: nudges the background worker to fetch the pinned manifest **now** (the
-  "Check now" button). Returns immediately; the fetch is async on the worker
-  thread (the page re-reads `get_info_items` shortly after to show the result).
-- Success: `{"ok":true}`
-- Failure: code 1 (malformed request JSON).
-
-## Update manifest schema (CD-13, D-0023)
-
-A small static JSON published by Sascha at the `updates.feed_url` token (default
-`https://carvilon.com/updates/cyberdesk.json`). The host fetches exactly this one
-URL over HTTPS (`CYBERDESK_UPDATE_FEED` overrides it for testing). Sample:
-`docs/updates/cyberdesk.sample.json`; publishing steps: `docs/updates/README.md`.
+The live manifest feed (`carvilon.com/updates/...` + hosting) and the app's own
+self-update are **deferred to a dedicated later ticket** and are NOT fetched today
+(CD-22). Until then the panel is driven entirely client-side (see `get_info_items`
+above), CyberDesk shows clearly-marked demo data (`updates::COMPONENTS`), and there
+is no "Last check failed" footer. The manifest JSON format below is retained as the
+reference for that future ticket (sample `docs/updates/cyberdesk.sample.json`); it is
+not consumed by the current build.
 
 ```json
 {
@@ -425,20 +401,13 @@ URL over HTTPS (`CYBERDESK_UPDATE_FEED` overrides it for testing). Sample:
 }
 ```
 
-- `schema` (int) — the manifest schema version (**1**). A higher number is read
-  best-effort: unknown fields are ignored, so adding fields is backward-compatible.
-- `cyberdesk.latest` (str) — the newest published CyberDesk version (semver).
-  `cyberdesk.notes_url` (str, optional) — release notes URL.
-- `components` (map, optional) — keyed by component id. Reads **`cef`** (the CEF
-  core, `recommended` in CEF `major.minor.patch+chromium-…` form) and **`tor`** (the
-  embedded arti / Tor engine, `recommended` in plain semver). Each has `recommended`
-  (str), `reason` (str, optional — `security` maps to the security severity), and
-  `notes_url` (str, optional). Unknown component ids are ignored; an absent id is
-  simply not tracked (no item, no error).
-- Version comparison is tolerant of both semver and the CEF `+chromium-…` form
-  (only the head before `+` matters). A 404 / unreachable / malformed feed is
-  silent — the last-known cached manifest is kept, the glyph stays quiet, startup
-  is never blocked.
+- `schema` (int) — the manifest schema version. `cyberdesk.latest` (str) — the newest
+  published CyberDesk version; `cyberdesk.notes_url` (str, optional) — release notes.
+- `components` (map, optional) — keyed by component id (`cef`, `tor`), each with
+  `recommended` (str), `reason` (str, optional), `notes_url` (str, optional).
+- When the feed returns, the app self-update ticket will reconcile it with the
+  client-side latest-known table (the client table stays the source of truth for
+  held-back versions; the pin is a build-time decision, D-0034).
 
 ## NetGuard policy (sketch)
 
