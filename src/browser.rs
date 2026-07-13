@@ -1378,10 +1378,16 @@ fn urlencode(s: &str) -> String {
     out
 }
 
-/// Build a search URL for `query` using the selected search engine (CD-07).
-fn search_url(query: &str) -> String {
+/// The query→search-URL mapping for one engine (CD-07; the engine allowlist
+/// lives in settings.rs). CyberDesk OWNS this routing: both address bars (the
+/// command band and the start page) send `navigate` over the message router and
+/// the host builds the search URL here — Chromium's omnibox default-search-engine
+/// (TemplateURLService) is never consulted, so the selector is authoritative by
+/// construction (CD-27, D-0043). Pure and engine-parameterized so the unit tests
+/// can pin every engine without touching the live setting.
+fn search_url_for(engine: &str, query: &str) -> String {
     let q = urlencode(query);
-    match crate::settings::search_engine() {
+    match engine {
         "duckduckgo" => format!("https://duckduckgo.com/?q={q}"),
         "bing" => format!("https://www.bing.com/search?q={q}"),
         "startpage" => format!("https://www.startpage.com/sp/search?query={q}"),
@@ -1389,10 +1395,10 @@ fn search_url(query: &str) -> String {
     }
 }
 
-/// Host-side URL-vs-search decision. A scheme, or a dot without spaces, or
-/// localhost is treated as a URL (defaulting to https://); everything else
-/// becomes a search on the selected engine (`search_engine` setting).
-fn classify_input(input: &str) -> String {
+/// Host-side URL-vs-search decision for `engine`. A scheme, or a dot without
+/// spaces, or localhost is treated as a URL (defaulting to https://); everything
+/// else becomes a search on that engine.
+fn classify_input_for(engine: &str, input: &str) -> String {
     let t = input.trim();
     if t.is_empty() {
         return "about:blank".to_string();
@@ -1406,8 +1412,14 @@ fn classify_input(input: &str) -> String {
     if looks_url {
         format!("https://{t}")
     } else {
-        search_url(t)
+        search_url_for(engine, t)
     }
+}
+
+/// [`classify_input_for`] on the LIVE `search_engine` setting — the `navigate`
+/// IPC path shared by the command band and the start page.
+fn classify_input(input: &str) -> String {
+    classify_input_for(crate::settings::search_engine(), input)
 }
 
 /// Slot `i`'s navigation state as JSON, for the `get_nav_state` IPC reply. Since
@@ -2409,7 +2421,89 @@ wrap_render_process_handler! {
 
 #[cfg(test)]
 mod tests {
-    use super::restamp_tor_status;
+    use super::{classify_input_for, restamp_tor_status, search_url_for};
+
+    // --- Search routing (CD-27, D-0043): the selector is authoritative --------
+
+    /// Every allowlisted engine routes a query to ITS OWN host — the engine
+    /// shown is the engine used (CD-27 acceptance 3-5, headless half).
+    #[test]
+    fn each_engine_routes_to_its_own_host() {
+        let cases = [
+            ("duckduckgo", "https://duckduckgo.com/?q="),
+            ("bing", "https://www.bing.com/search?q="),
+            ("startpage", "https://www.startpage.com/sp/search?query="),
+            ("google", "https://www.google.com/search?q="),
+        ];
+        for (engine, prefix) in cases {
+            let url = search_url_for(engine, "rust borrow checker");
+            assert!(
+                url.starts_with(prefix),
+                "{engine} must search on its own host, got {url}"
+            );
+        }
+    }
+
+    /// A non-Google engine must never leak the query anywhere near Google —
+    /// the de-Google guarantee for the chosen-search path (CD-27 acceptance 1).
+    #[test]
+    fn non_google_engines_never_touch_google() {
+        for engine in ["duckduckgo", "bing", "startpage"] {
+            let url = search_url_for(engine, "how to test a search engine");
+            assert!(
+                !url.contains("google"),
+                "{engine} search leaked toward google: {url}"
+            );
+        }
+    }
+
+    /// The URL-vs-search decision: bare domains, schemes, and localhost forms
+    /// navigate; free text (even with dots among spaces) searches; empty input
+    /// is inert. Same rules for every engine — only the search host differs.
+    #[test]
+    fn query_vs_url_classification() {
+        // Free text searches on the given engine.
+        assert!(
+            classify_input_for("duckduckgo", "rust borrow checker")
+                .starts_with("https://duckduckgo.com/?q=")
+        );
+        // A bare domain navigates (https default), it does not search.
+        assert_eq!(
+            classify_input_for("duckduckgo", "example.com"),
+            "https://example.com"
+        );
+        // An explicit scheme passes through untouched.
+        assert_eq!(
+            classify_input_for("duckduckgo", "http://example.com/a"),
+            "http://example.com/a"
+        );
+        assert_eq!(
+            classify_input_for("duckduckgo", "cyberdesk://start/"),
+            "cyberdesk://start/"
+        );
+        // localhost forms navigate.
+        assert_eq!(
+            classify_input_for("duckduckgo", "localhost:8080"),
+            "https://localhost:8080"
+        );
+        // A dot inside spaced text is still a search, not a URL.
+        assert!(
+            classify_input_for("duckduckgo", "what is web 2.0")
+                .starts_with("https://duckduckgo.com/?q=")
+        );
+        // Empty / whitespace input is inert.
+        assert_eq!(classify_input_for("duckduckgo", "  "), "about:blank");
+    }
+
+    /// Queries are form-urlencoded: spaces become `+`, reserved bytes are
+    /// percent-escaped — no raw query text ever lands in the URL.
+    #[test]
+    fn queries_are_urlencoded() {
+        assert_eq!(
+            search_url_for("duckduckgo", "a b&c=d?"),
+            "https://duckduckgo.com/?q=a+b%26c%3Dd%3F"
+        );
+    }
 
     /// The get_frame pull re-stamps the LIVE Tor status into the cached frame payload,
     /// so a (re)created command-band consumer never reads a latched "connecting" (CD-23).
