@@ -728,8 +728,13 @@ fn degoogle_value(v: crate::degoogle::PrefValue) -> Option<Value> {
 /// Lands in the rolling log Sascha reviews alongside the net-log, so the enforced
 /// set is self-documenting at debug level (no spam at info).
 fn log_degoogle_manifest() {
+    let valued: Vec<String> = crate::degoogle::VALUED_SWITCHES
+        .iter()
+        .map(|s| format!("{}={}", s.name, s.value))
+        .collect();
     tracing::info!(
         switches = ?crate::degoogle::SWITCHES,
+        valued_switches = ?valued,
         disable_features = ?crate::degoogle::DISABLE_FEATURES,
         "de-Google: process-global kill switches"
     );
@@ -738,6 +743,9 @@ fn log_degoogle_manifest() {
         .chain(crate::degoogle::GLOBAL_PREFS)
     {
         tracing::debug!(pref = p.name, source = p.source, closes = p.closes, "de-Google vector");
+    }
+    for s in crate::degoogle::VALUED_SWITCHES {
+        tracing::debug!(switch = s.name, value = s.value, source = s.source, closes = s.closes, "de-Google vector");
     }
 }
 
@@ -1711,6 +1719,15 @@ wrap_app! {
             // feature/behaviour toggle agrees browser<->renderer.
             for sw in crate::degoogle::SWITCHES {
                 cmd.append_switch(Some(&CefString::from(*sw)));
+            }
+            // CD-26 (D-0042): valued switches — signin off + the GAIA origin
+            // redirected to a dead loopback, closing the eager ListAccounts
+            // vector that no pref/policy/feature gates (see src/degoogle.rs).
+            for sw in crate::degoogle::VALUED_SWITCHES {
+                cmd.append_switch_with_value(
+                    Some(&CefString::from(sw.name)),
+                    Some(&CefString::from(sw.value)),
+                );
             }
             // Merge our disabled features into any existing --disable-features:
             // base::CommandLine keeps switches in a map, so a bare second

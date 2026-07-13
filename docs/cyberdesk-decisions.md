@@ -2,6 +2,83 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0042 - 2026-07-13 - Residual idle google.com traffic closed: eager signin ListAccounts + AI-Mode eligibility fetch + generic Reporting API/NEL (CD-26)
+
+*Finding.* The CD-17 idle net-log still contained 11 google.com URLs. Structural
+analysis of the captures (events vs. `polledData`, seven captures, byte-identical)
+split them cleanly:
+
+- **2 LIVE requests**, fired by the BROWSER PROCESS ~90 ms after startup
+  (initiator "not an origin", `sec-fetch-site: none`, full DNS/TLS/HTTP2) - not
+  the start page, not session restore, not any loaded page:
+  1. `POST accounts.google.com/ListAccounts` - net-log traffic annotation
+     `gaia_auth_list_accounts` -> `AccountInvestigator`, a KeyedService created
+     EAGERLY with every profile
+     (`AccountInvestigatorFactory::ServiceIsCreatedWithBrowserContext() == true`)
+     whose `PersistentRepeatingTimer` (pref `gaia_cookie.periodic_report_time_2`,
+     interval 1 day) fires IMMEDIATELY on a fresh or stale profile. The path
+     checks **no pref, no policy, no feature** (`signin.allowed` only gates the
+     reconcilor, which is not even instantiated at idle).
+  2. `GET www.google.com/async/folae?...udm=50...` - annotation
+     `aim_eligibility_fetch` -> `AimEligibilityService` ("Chrome AI Mode
+     Eligibility Service", FOLAE endpoint, `udm=50` = Google AI Mode), also
+     created eagerly per profile, startup fetch gated only by default-enabled
+     features. It sent persisted google cookies AND the `x-client-data`
+     variations header.
+- **9 ARTIFACT entries**: every `csp.withgoogle.com/csp/report-to/*` URL exists
+  only in the net-log's `polledData[].reportingInfo.clients` - the Reporting API
+  **endpoint cache** persisted in the profile from a past google.com visit and
+  dumped into the log at capture stop. Zero queued reports, zero deliveries, no
+  socket, no DNS - **not phone-home**. But `reportingEnabled=true` in every
+  network context: the delivery machinery was armed, a genuine CD-17 gap
+  (`disable-domain-reliability` covers Domain Reliability, NOT the generic
+  Reporting API / NEL).
+
+*Decision (enforcement, all names verified against Chromium `149.0.7827.201`
+source and adversarially re-verified per lever).*
+
+- `--disable-features` grows by five (degoogle.rs `DISABLE_FEATURES`):
+  `AimEnabled` (umbrella kill switch - the service constructor returns before
+  registering any observer or request; components/omnibox/browser/
+  aim_eligibility_service_features.cc), `AimServerRequestOnStartupEnabled` +
+  `AimServerRequestOnIdentityChangeEnabled` (belt-and-suspenders under it),
+  `Reporting` + `NetworkErrorLogging` (services/network/public/cpp/features.cc;
+  gated per network context in `NetworkContext::MakeURLRequestContext`, so
+  disabling stops background report delivery AND stops the persisted
+  "`<profile>/Network/Reporting and NEL`" store from being loaded).
+- New `VALUED_SWITCHES` table (name=value switches, same citation discipline):
+  `--allow-browser-signin=false` (chrome/browser/signin/
+  account_consistency_mode_manager.cc - pins `signin.allowed=false` at profile
+  init, DICE `kDisabled`, reconcilor never lists accounts) and
+  `--gaia-url=http://127.0.0.1:9/` (google_apis/gaia/gaia_switches.cc - every
+  GAIA endpoint URL derives from this one origin).
+
+*Reasoned deviation: redirect, not disable, for GAIA.* `AccountInvestigator`
+cannot be disabled - no feature, no policy, and its timer fires before any
+runtime `SetPreference` could land (so a pref-based fix would still leak one
+POST on a FRESH profile, failing the clean-session acceptance). Redirecting the
+GAIA origin to a dead loopback (`127.0.0.1:9`, discard port, connection refused
+locally) closes the vector for every trigger, present and future, at process
+level. Trade-off: the audit may show a few refused loopback connection attempts
+(bounded GaiaCookieManagerService backoff) - documented in the audit recipe as
+the neutered stack; zero bytes leave the machine. A unit test pins the value to
+loopback forever.
+
+*Documented, not fixed here (scope).* (1) `x-client-data` was sent on the folae
+request - moot once no unsolicited google-bound request exists; noted for the
+future request-filter work. (2) The in-app search-engine setting does not reach
+Chromium's `TemplateURLService` (folae's own DSE gate proves it: it fired with
+DuckDuckGo selected in CyberDesk's settings) - relevant to the separate
+default-search product decision, no engine behavior depends on it today beyond
+vectors closed above. (3) The profile still holds google.com cookies, the
+"Reporting and NEL" store, and one google.com history row from an earlier
+visit - now inert (nothing reads the store, nothing unsolicited sends the
+cookies); their elimination is the anti-forensic in-memory-profile tenet
+(deferred epic, the root enabler of this whole finding). (4) Start page and
+session restore were positively cleared: the "G" tile is a text glyph from
+local SQLite, zero remote fetch at render; default startup loads only
+`cyberdesk://start/`.
+
 ## D-0041 - 2026-07-12 - De-Googled is enforced (switches + prefs) and proven by net-log audit; bounded claim (CD-17)
 
 *Decision.* Chromium's phone-home vectors are disabled via **verified** CEF

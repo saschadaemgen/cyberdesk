@@ -1,6 +1,6 @@
-# CyberDesk - De-Google net-log audit (CD-17, D-0041)
+# CyberDesk - De-Google net-log audit (CD-17, D-0041; CD-26, D-0042)
 
-Project CARVILON CyberDesk - living document - Status: 2026-07-12
+Project CARVILON CyberDesk - living document - Status: 2026-07-13
 
 This is the **measurement half** of CD-17. The enforcement (switches + prefs) is
 in `src/degoogle.rs` and is applied automatically. This recipe proves it: capture
@@ -126,3 +126,36 @@ Google's.
 If idle shows a Google host, capture which one and cross-reference the startup
 manifest + the `src/degoogle.rs` table - the vector's switch/pref either failed to
 apply (look for an error line in the rolling log) or a new vector needs adding.
+
+---
+
+## 6. Reading the net-log correctly (CD-26 lessons)
+
+The CD-26 investigation (D-0042) established two structural facts about
+Chromium net-logs that matter when grading a capture:
+
+1. **`events` vs `polledData`.** Only the `events` array records live traffic
+   (a real request = a `URL_REQUEST` source with `REQUEST_ALIVE` /
+   `URL_REQUEST_START_JOB` events, plus DNS/SSL/HTTP2 sources). The
+   `polledData` section at the end is a **state dump** taken when capture
+   stops - host-resolver cache, open HTTP2 sessions, and the Reporting API
+   endpoint cache (`reportingInfo.clients`). A URL that appears ONLY in
+   `polledData` was **not contacted** during the capture; it is persisted
+   profile state (the `csp.withgoogle.com/csp/report-to/*` set was exactly
+   this). Grade buckets on `events`; use `polledData` to judge what the
+   profile still carries.
+2. **The traffic annotation names the code path.** Each `REQUEST_ALIVE` event
+   carries a `traffic_annotation` hash; `tools/traffic_annotation/summary/`
+   `annotations.xml` in the Chromium tree maps it to the owning component
+   (CD-26: `35565745` = `gaia_auth_list_accounts`, `109231476` =
+   `aim_eligibility_fetch`). Resolve the hash BEFORE hypothesizing about
+   sources - it turns "some google.com request" into a file and a service.
+
+**Expected idle result after D-0042 (fresh or old profile):** zero
+Google/telemetry hosts in `events`. `polledData[].reportingInfo` shows the
+Reporting API disabled (no `clients` loaded - the persisted "Reporting and
+NEL" store is no longer read). What MAY legitimately appear instead: a few
+**refused connection attempts to `127.0.0.1:9`** - that is the GAIA stack
+(`AccountInvestigator`'s ListAccounts) hitting the dead loopback origin the
+`--gaia-url` switch pins (D-0042). Connection refused locally, zero bytes
+leave the machine; it is the proof the redirect works, not a finding.

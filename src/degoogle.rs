@@ -1,14 +1,16 @@
-//! De-Google enforcement table (CD-17, D-0041).
+//! De-Google enforcement table (CD-17, D-0041; extended CD-26, D-0042).
 //!
 //! CyberDesk runs a full Chromium (via CEF 149). After CD-24/D-0036 the HOST
 //! opens no HTTP client of its own, but the Chromium engine underneath still
 //! phones Google home by default at many points (Safe Browsing, the component
 //! updater, variations/Finch, connectivity probes, network prediction, search
 //! suggest, domain reliability/NEL, translate, spell check, autofill, the
-//! password leak-check, secure-DNS auto-upgrade, optimization hints, GCM). This
-//! module is the single, auditable TABLE of every vector we close and HOW —
-//! command-line switches for the process-global levers, preferences for the
-//! per-profile ones, one global (local-state) preference for secure DNS.
+//! password leak-check, secure-DNS auto-upgrade, optimization hints, GCM,
+//! and — found by the CD-26 idle re-audit — the eager signin ListAccounts
+//! poll and the AI-Mode eligibility fetch). This module is the single,
+//! auditable TABLE of every vector we close and HOW — command-line switches
+//! for the process-global levers, preferences for the per-profile ones, one
+//! global (local-state) preference for secure DNS.
 //!
 //! **Every switch and preference NAME here was verified against the pinned
 //! Chromium `149.0.7827.201` source (CEF `149.0.6`), not guessed** — the
@@ -162,6 +164,69 @@ pub const SWITCHES: &[&str] = &[
     "disable-sync",
 ];
 
+/// A process-global command-line switch that carries a VALUE (`--name=value`),
+/// with the same citation discipline as [`Pref`]: the Chromium file defining
+/// the switch and the concrete traffic the setting closes.
+#[derive(Clone, Copy, Debug)]
+pub struct ValuedSwitch {
+    /// Bare switch name (no leading dashes).
+    pub name: &'static str,
+    /// The value we pin.
+    pub value: &'static str,
+    /// Chromium 149.0.7827.201 file defining/consuming the switch.
+    pub source: &'static str,
+    /// The Google/telemetry connection this closes.
+    pub closes: &'static str,
+}
+
+/// Valued switches, appended in `App::on_before_command_line_processing`
+/// alongside [`SWITCHES`] (CD-26, D-0042).
+///
+/// Background (CD-26): the idle net-log still showed one deterministic
+/// `POST accounts.google.com/ListAccounts` ~90 ms after startup. Its net-log
+/// traffic annotation (`gaia_auth_list_accounts`) traces to `AccountInvestigator`
+/// — a per-profile KeyedService that Chromium creates EAGERLY
+/// (`AccountInvestigatorFactory::ServiceIsCreatedWithBrowserContext() == true`,
+/// chrome/browser/signin/account_investigator_factory.cc) and whose persistent
+/// daily timer fires IMMEDIATELY on a fresh or stale profile
+/// (components/signin/public/base/persistent_repeating_timer.cc:
+/// `if (desired_run_time <= clock_->Now()) { OnTimerFired(); }`). That path
+/// checks NO preference, NO policy and NO feature — it cannot be disabled,
+/// only redirected. Hence `gaia-url`: every GAIA endpoint URL is derived from
+/// one origin that this switch overrides, so the whole signin endpoint set
+/// (ListAccounts/Logout/multilogin) resolves to a dead loopback origin.
+/// TCP RST on 127.0.0.1:9 (discard port, nothing listens); zero bytes leave
+/// the machine. The audit may see a few refused loopback attempts (bounded
+/// GaiaCookieManagerService backoff) — that is the neutered stack, documented
+/// in docs/cyberdesk-degoogle-audit.md.
+pub const VALUED_SWITCHES: &[ValuedSwitch] = &[
+    ValuedSwitch {
+        // kAllowBrowserSigninArgument = "allow-browser-signin"; parsed by
+        // IsBrowserSigninAllowedByCommandLine — only the literal "true"
+        // enables, so "=false" pins signin.allowed=false at every profile
+        // init → AccountConsistencyModeManager returns kDisabled → the
+        // AccountReconcilor gets the base delegate whose IsReconcileEnabled()
+        // is false and never lists accounts.
+        name: "allow-browser-signin",
+        value: "false",
+        source: "chrome/browser/signin/account_consistency_mode_manager.cc",
+        closes: "browser signin / DICE account consistency — every reconcilor-driven \
+                 accounts.google.com ListAccounts (token/cookie-change triggered)",
+    },
+    ValuedSwitch {
+        // kGaiaUrl = "gaia-url" — google_apis/gaia/gaia_switches.cc; consumed
+        // once in GaiaUrls::InitializeDefault (google_apis/gaia/gaia_urls.cc):
+        // SetDefaultOriginIfOpaqueOrInvalidScheme(&gaia_origin_, kGaiaUrl, …)
+        // then list_accounts_url_ etc. are all resolved against that origin.
+        // Loopback discard port: connection refused locally, never routed.
+        name: "gaia-url",
+        value: "http://127.0.0.1:9/",
+        source: "google_apis/gaia/gaia_switches.cc",
+        closes: "the ENTIRE GAIA endpoint set — above all AccountInvestigator's eager \
+                 startup/daily ListAccounts POST, which no pref/policy/feature gates",
+    },
+];
+
 /// Feature names merged into `--disable-features`. `OptimizationHints`
 /// (`kOptimizationHints` = "OptimizationHints",
 /// components/optimization_guide/core/optimization_guide_features.cc) fetches
@@ -170,7 +235,39 @@ pub const SWITCHES: &[&str] = &[
 /// NOTE: the field-trial TESTING config is already disabled in official CEF
 /// builds (`disable_fieldtrial_testing_config=true`, per cef_preference.h), so no
 /// extra switch is needed to keep Finch trials inert.
-pub const DISABLE_FEATURES: &[&str] = &["OptimizationHints"];
+///
+/// All two-arg `BASE_FEATURE(kFoo, …)` macros derive the runtime string from
+/// the identifier (base/feature.h), so each name below is the exact
+/// `--disable-features` token.
+pub const DISABLE_FEATURES: &[&str] = &[
+    "OptimizationHints",
+    // CD-26 (D-0042): Google AI-Mode eligibility. AimEligibilityService is
+    // created EAGERLY with every profile
+    // (chrome/browser/autocomplete/aim_eligibility_service_factory.cc) and its
+    // constructor fires `GET www.google.com/async/folae?…udm=50…` at startup
+    // (net-log annotation `aim_eligibility_fetch`), sending google cookies AND
+    // the x-client-data variations header. `kAimEnabled`
+    // (components/omnibox/browser/aim_eligibility_service_features.cc) is the
+    // umbrella: the service constructor returns before registering ANY
+    // observer or request when it is disabled, and IsAimLocallyEligible()
+    // documents it as the kill switch.
+    "AimEnabled",
+    // Belt-and-suspenders under the AimEnabled umbrella: the startup-fired
+    // request (the one the idle audit caught) and the identity-change refetch,
+    // each individually gated in aim_eligibility_service.cc.
+    "AimServerRequestOnStartupEnabled",
+    "AimServerRequestOnIdentityChangeEnabled",
+    // CD-26 (D-0042): the GENERIC Reporting API + Network Error Logging —
+    // NOT covered by `disable-domain-reliability` (a different feature). Both
+    // default-enabled (`kReporting`, `kNetworkErrorLogging`,
+    // services/network/public/cpp/features.cc) and gated per network context
+    // in NetworkContext::MakeURLRequestContext, so disabling stops background
+    // report delivery AND stops the persisted "<profile>/Network/Reporting
+    // and NEL" endpoint store (observed carrying 10 csp.withgoogle.com
+    // registrations from a past google.com visit) from being loaded at all.
+    "Reporting",
+    "NetworkErrorLogging",
+];
 
 /// Env var (set to a writable path) that turns on the net-log capture used for
 /// the CD-17 §2 audit. OFF by default — nothing lands on disk in a normal run
@@ -204,38 +301,46 @@ pub fn merge_disable_features(existing: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The full canonical feature list as one `--disable-features` value.
+    fn ours() -> String {
+        DISABLE_FEATURES.join(",")
+    }
+
     #[test]
     fn merge_into_empty_is_just_ours() {
-        assert_eq!(merge_disable_features(""), "OptimizationHints");
-        assert_eq!(merge_disable_features("   "), "OptimizationHints");
+        assert_eq!(merge_disable_features(""), ours());
+        assert_eq!(merge_disable_features("   "), ours());
     }
 
     #[test]
     fn merge_preserves_existing_and_appends() {
         assert_eq!(
             merge_disable_features("Foo,Bar"),
-            "Foo,Bar,OptimizationHints"
+            format!("Foo,Bar,{}", ours())
         );
     }
 
     #[test]
     fn merge_is_idempotent_and_dedups() {
-        // Ours already present anywhere in the list → not added twice.
-        assert_eq!(merge_disable_features("OptimizationHints"), "OptimizationHints");
+        // One of ours already present anywhere in the list → not added twice.
+        let merged = merge_disable_features("Foo,Reporting,Bar");
         assert_eq!(
-            merge_disable_features("Foo,OptimizationHints,Bar"),
-            "Foo,OptimizationHints,Bar"
+            merged.split(',').filter(|f| *f == "Reporting").count(),
+            1,
+            "duplicated feature in {merged}"
         );
         // Merging our own output again changes nothing.
         let once = merge_disable_features("Foo");
         assert_eq!(merge_disable_features(&once), once);
+        // The canonical list itself is a fixpoint.
+        assert_eq!(merge_disable_features(&ours()), ours());
     }
 
     #[test]
     fn merge_trims_stray_whitespace() {
         assert_eq!(
             merge_disable_features(" Foo , Bar "),
-            "Foo,Bar,OptimizationHints"
+            format!("Foo,Bar,{}", ours())
         );
     }
 
@@ -243,6 +348,7 @@ mod tests {
     fn tables_are_populated_and_well_formed() {
         // A regression guard: the enforced set must never silently empty out.
         assert!(!SWITCHES.is_empty());
+        assert!(!VALUED_SWITCHES.is_empty());
         assert!(!CONTEXT_PREFS.is_empty());
         assert!(!GLOBAL_PREFS.is_empty());
         assert!(!DISABLE_FEATURES.is_empty());
@@ -254,5 +360,36 @@ mod tests {
         for s in SWITCHES {
             assert!(!s.is_empty() && !s.starts_with('-'), "switch should be bare: {s}");
         }
+        for s in VALUED_SWITCHES {
+            assert!(
+                !s.name.is_empty() && !s.name.starts_with('-'),
+                "switch should be bare: {}",
+                s.name
+            );
+            assert!(!s.value.is_empty(), "valued switch without value: {}", s.name);
+            assert!(!s.source.is_empty());
+            assert!(!s.closes.is_empty());
+        }
+        // The feature table itself stays canonical (the merge dedups anyway).
+        let mut seen = std::collections::HashSet::new();
+        for f in DISABLE_FEATURES {
+            assert!(seen.insert(f), "duplicate feature: {f}");
+        }
+    }
+
+    #[test]
+    fn gaia_redirect_stays_on_loopback() {
+        // The gaia-url override must NEVER point at a routable origin — the
+        // point of the dead origin is that the neutered GAIA stack cannot
+        // leave the machine (CD-26, D-0042).
+        let gaia = VALUED_SWITCHES
+            .iter()
+            .find(|s| s.name == "gaia-url")
+            .expect("gaia-url redirect missing from VALUED_SWITCHES");
+        assert!(
+            gaia.value.starts_with("http://127.0.0.1:"),
+            "gaia-url must stay loopback: {}",
+            gaia.value
+        );
     }
 }
