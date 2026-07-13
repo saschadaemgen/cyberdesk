@@ -45,6 +45,10 @@ Transport: `window.cefQuery({ request, persistent: false, onSuccess, onFailure }
     string, clamped host-side to 50..=220).
   - `search_engine` — string (CD-07); one of `google`, `duckduckgo`, `bing`,
     `startpage`, `brave` (CD-27). Any other value is rejected with code 3.
+  - `screen_preset` — string (CD-29); the GLOBAL reported-screen size, one of
+    `1920x1080` (default), `1600x900`, `1280x720`. Sets the common resolution web
+    slots report for `screen.*`; the actual viewport is never faked. Changing it
+    respawns every slot that inherits the global screen. Any other value → code 3.
 - Effect: updates the in-memory setting (applied by the next rendered frame /
   next navigation) and the SQLite `settings` row (survives restart).
 - Success: `{"ok":true,"key":"<key>","value":<bool|int|str>}`
@@ -56,13 +60,18 @@ CD-05 (D-0012) renamed the background toggle `deep_field` -> `animated_backgroun
 `glow_intensity`; the store migrates the old key. Unknown commands are rejected
 with code 4. There is no passthrough channel.
 
-### `set_hardening` (view -> host, CD-25)
+### `set_hardening` (view -> host, CD-25; vectors extended CD-29)
 
 The GLOBAL fingerprinting-hardening preset — its own command (not `set_setting`)
 because it carries a structured `vectors` object and a weakening `confirm` flag.
 
-- Request: `{"cmd":"set_hardening","level":"<off|standard|strict|custom>"[,"vectors":{"canvas":<bool>,"webgl":<bool>,"audio":<bool>,"metrics":<bool>,"nav":<bool>,"fonts":<bool>}][,"confirm":<bool>]}`
-  - `vectors` is read only when `level` is `custom`; absent flags default to `true`.
+- Request: `{"cmd":"set_hardening","level":"<off|standard|strict|custom>"[,"vectors":{...}][,"confirm":<bool>]}`
+  - `vectors` (CD-29) keys are the ten vectors: `canvas`, `webgl` (readback), `gpu`
+    (vendor/renderer identity), `audio`, `metrics`, `nav` (device profile), `fonts`,
+    `timing` (clock), `media` (codecs/voices), `math`. Read only when `level` is
+    `custom`; **absent flags default to `true`** (so an older/partial page never
+    silently weakens a vector — and a CD-25 six-key object upgrades with the four new
+    vectors ON).
   - `confirm` — REQUIRED (`true`) to WEAKEN (drop a vector, or turn off). The host
     re-validates the two-confirmation safety gate rather than trusting the page to
     have run it; an unconfirmed weakening is rejected with code 3. Strengthening
@@ -73,12 +82,15 @@ because it carries a structured `vectors` object and a weakening `confirm` flag.
 - Success: `{"ok":true,"key":"hardening_level","value":"<level>"}`
 - Failure: code 2 (missing `level`), 3 (unknown level / unconfirmed weakening).
 
-### `set_slot_hardening` (view -> host, CD-25)
+### `set_slot_hardening` (view -> host, CD-25; per-vector custom CD-29)
 
-A PER-WINDOW override (presets only; per-vector custom is a global capability).
+A PER-WINDOW override. Since CD-29 (Task C) it accepts a full per-vector `custom`,
+not just presets — every vector is settable per-window as well as globally.
 
-- Request: `{"cmd":"set_slot_hardening","level":"<inherit|off|standard|strict>"[,"confirm":<bool>][,"slot":<int>]}`
+- Request: `{"cmd":"set_slot_hardening","level":"<inherit|off|standard|strict|custom>"[,"vectors":{...}][,"confirm":<bool>][,"slot":<int>]}`
   - `inherit` clears the override (the window follows the global again).
+  - `custom` carries a `vectors` object (same ten keys as `set_hardening`); absent
+    keys stay ON. When `vectors` is omitted the slot's existing custom is reused.
   - `confirm` — same weakening rule as `set_hardening`; the host compares the window's
     current effective config to the target and rejects an unconfirmed weakening (code 3).
 - Effect: queues the override for the main thread, which respawns the slot's browser
@@ -86,6 +98,27 @@ A PER-WINDOW override (presets only; per-vector custom is a global capability).
   persisted); a reused slot id starts fresh (inheriting the global).
 - Success: `{"ok":true}`
 - Failure: code 2 (missing/invalid `level`), 3 (unconfirmed weakening).
+
+### `get_slot_hardening` (view -> host, CD-29)
+
+Read-only: the per-window Custom detail paints each vector's current state from this
+rather than the frame push (which stays compact).
+
+- Request: `{"cmd":"get_slot_hardening"[,"slot":<int>]}`
+- Success: `{"level":"<off|standard|strict|custom>","inherited":<bool>,"config":{"on":..,"strict":..,<ten vector flags>}}`
+
+### `set_slot_screen` / `get_slot_screen` (view -> host, CD-29)
+
+The PER-WINDOW reported-screen preset (the per-window counterpart of the global
+`screen_preset`). Every option is a common real resolution, so there is no weakening
+gate.
+
+- `set_slot_screen`: `{"cmd":"set_slot_screen","value":"<inherit|1920x1080|1600x900|1280x720>"[,"slot":<int>]}`
+  - `inherit` clears the override; else respawns the slot so `screen.*` reports the
+    new common value. Session-ephemeral; a reused slot id starts fresh.
+  - Success: `{"ok":true}`; Failure: code 2 (missing/unknown value).
+- `get_slot_screen`: `{"cmd":"get_slot_screen"[,"slot":<int>]}` →
+  `{"value":"<preset name>","inherited":<bool>}`.
 
 ## Command bar / navigation IPC (CD-04, live)
 

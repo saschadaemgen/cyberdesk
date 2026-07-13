@@ -130,6 +130,45 @@
     })(engineOpts[i]);
   }
 
+  // Reported screen-size select (CD-29): a common real resolution for screen.*.
+  // Same custom-dropdown pattern as the engine select; applied live, persisted.
+  var screenSelect = document.getElementById("screen-select");
+  var screenBtn = document.getElementById("screen-btn");
+  var screenMenu = document.getElementById("screen-menu");
+  var screenVal = document.getElementById("screen-val");
+  var SCREEN_LABELS = { "1920x1080": "1920 × 1080", "1600x900": "1600 × 900", "1280x720": "1280 × 720" };
+
+  function paintScreen(value) {
+    var v = SCREEN_LABELS[value] ? value : "1920x1080";
+    screenVal.textContent = SCREEN_LABELS[v];
+    var opts = screenMenu.querySelectorAll("li");
+    for (var i = 0; i < opts.length; i++) {
+      opts[i].setAttribute("aria-selected", opts[i].dataset.value === v ? "true" : "false");
+    }
+  }
+  function openScreen(open) {
+    screenSelect.classList.toggle("open", open);
+    screenBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    screenMenu.hidden = !open;
+  }
+  screenBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    openScreen(!screenSelect.classList.contains("open"));
+  });
+  var screenOpts = screenMenu.querySelectorAll("li");
+  for (var si = 0; si < screenOpts.length; si++) {
+    (function (li) {
+      li.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var value = li.dataset.value;
+        paintScreen(value);
+        openScreen(false);
+        query({ cmd: "set_setting", key: "screen_preset", value: value })
+          .catch(function (err) { setStatus(String(err), true); });
+      });
+    })(screenOpts[si]);
+  }
+
   // --- Fingerprinting-hardening controls (CD-25) ---------------------------
   // Global preset (Off/Standard/Strict/Custom) + a per-vector detail view, with a
   // two-confirmation gate on any WEAKENING. The weaken classification mirrors
@@ -320,7 +359,7 @@
   }
 
   // Click anywhere else closes the menus.
-  document.addEventListener("click", function () { openEngine(false); openFp(false); });
+  document.addEventListener("click", function () { openEngine(false); openFp(false); openScreen(false); });
 
   // Load current values on startup.
   query({ cmd: "get_settings" })
@@ -333,6 +372,7 @@
       paint("tor_enabled", s.tor_enabled);
       paintGlow(s.glow_intensity);
       paintEngine(s.search_engine);
+      paintScreen(s.screen_preset);
       fpState.preset = FP_LABELS[s.fp_preset] ? s.fp_preset : "standard";
       if (s.fp_custom) {
         VECTORS.forEach(function (k) { fpState.vectors[k] = s.fp_custom[k] !== false; });

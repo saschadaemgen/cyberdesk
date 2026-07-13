@@ -220,6 +220,8 @@ html, body {
    sets the Back control apart from the vector list. */
 .fp-pop-opt.fp-vec { font-size: 12.5px; padding: 6px 10px; }
 .fp-pop-back { margin-top: 4px; border-top: 1px solid var(--panel-border); color: var(--text-dim); }
+/* Per-window screen-size cycler (CD-29): set apart below the level list. */
+.fp-screen-row { margin-top: 4px; border-top: 1px solid var(--panel-border); font-size: 12.5px; }
 .fp-pop-warn { font-size: 12px; color: var(--text-dim); line-height: 1.5; padding: 6px 8px 8px; }
 .fp-pop-warn b { color: var(--text); font-weight: 600; }
 .fp-pop-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 4px; }

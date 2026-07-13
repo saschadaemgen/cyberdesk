@@ -173,6 +173,30 @@
         </div>
       </div>
 
+      <!-- Reported screen size (CD-29): a common, real resolution every window
+           reports for screen.*, so each machine looks ordinary. The actual viewport
+           is never faked; a larger window bumps to the next common size. -->
+      <div class="row">
+        <div class="label">
+          <span class="name">Reported screen size</span>
+          <span class="hint">A common resolution sites see; your real window size is never faked</span>
+        </div>
+        <div class="select" id="screen-select">
+          <button class="select-btn" id="screen-btn" type="button"
+                  aria-haspopup="listbox" aria-expanded="false">
+            <span class="select-val" id="screen-val">1920 × 1080</span>
+            <svg class="select-chev" viewBox="0 0 24 24" width="16" height="16"><path
+              d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <ul class="select-menu" id="screen-menu" role="listbox" hidden>
+            <li role="option" data-value="1920x1080">1920 × 1080</li>
+            <li role="option" data-value="1600x900">1600 × 900</li>
+            <li role="option" data-value="1280x720">1280 × 720</li>
+          </ul>
+        </div>
+      </div>
+
       <!-- Detailed per-vector view — shown only in Custom. Disabling a protection is
            a weakening action and is gated (settings.js). Timezone is process-global
            (always UTC), so it is not a per-vector toggle. -->

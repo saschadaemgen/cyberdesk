@@ -473,11 +473,46 @@
       row.addEventListener("click", function (ev) { ev.stopPropagation(); chooseLevel(e, opt.level); });
       fpPop.appendChild(row);
     });
+    // Reported screen size for THIS window (CD-29): a compact cycler row. Tapping it
+    // advances inherit → 1080p → 900p → 720p → inherit. Every option is a common real
+    // resolution (never a decoy), so it is ungated.
+    var screenRow = document.createElement("button");
+    screenRow.className = "fp-pop-opt fp-screen-row";
+    screenRow.type = "button";
+    screenRow.textContent = "Screen size: …";
+    query({ cmd: "get_slot_screen", slot: e.id }).then(function (r) {
+      var d; try { d = JSON.parse(r); } catch (x) { d = null; }
+      var label = d ? (d.inherited ? "Global (" + SCREEN_SHORT(d.value) + ")" : SCREEN_SHORT(d.value)) : "…";
+      screenRow.textContent = "Screen size: " + label;
+    }).catch(function () {});
+    screenRow.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      cycleSlotScreen(e);
+    });
+    fpPop.appendChild(screenRow);
+
     fpPop.hidden = false;
     var r = e.fp.getBoundingClientRect();
     var w = fpPop.offsetWidth || 240;
     fpPop.style.left = Math.min(Math.max(6, r.left), window.innerWidth - w - 6) + "px";
     fpPop.style.top = (r.bottom + 6) + "px";
+  }
+
+  // Per-window screen preset (CD-29): the cycle order and short labels.
+  var SCREEN_CYCLE = ["inherit", "1920x1080", "1600x900", "1280x720"];
+  function SCREEN_SHORT(v) {
+    return v === "1920x1080" ? "1080p" : v === "1600x900" ? "900p" : v === "1280x720" ? "720p" : v;
+  }
+  function cycleSlotScreen(e) {
+    query({ cmd: "get_slot_screen", slot: e.id }).then(function (r) {
+      var d; try { d = JSON.parse(r); } catch (x) { d = null; }
+      var cur = d ? (d.inherited ? "inherit" : d.value) : "inherit";
+      var idx = SCREEN_CYCLE.indexOf(cur);
+      var next = SCREEN_CYCLE[(idx + 1) % SCREEN_CYCLE.length];
+      query({ cmd: "set_slot_screen", slot: e.id, value: next })
+        .then(function () { openFpMenu(e); }) // re-open so the row shows the new value
+        .catch(function () {});
+    }).catch(function () {});
   }
 
   // A click anywhere else closes the menu (its own clicks stopPropagation).

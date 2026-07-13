@@ -573,15 +573,15 @@ impl Shell {
         tracing::info!(slot = id, "toggle_tor: end (respawn requested, returned immediately)");
     }
 
-    /// Apply a hardening change to slot `id` (CD-25): respawn its browser so the
-    /// fresh document injects under the new effective config — a live context can't
-    /// be re-hardened (the patches are irreversible, applied before page scripts).
-    /// Mirrors [`toggle_tor`]'s respawn, but RELOADS the current page (not the start
-    /// page): a hardening change is not a network-identity change, so the user stays
-    /// on their page, just re-hardened. The per-slot override / global preset was
-    /// already updated before this runs; `create_browser_url` reads the (unchanged)
-    /// Tor mode, so a Tor slot stays Tor.
-    fn apply_slot_hardening(&mut self, id: usize) {
+    /// Respawn slot `id`'s browser at its CURRENT url (CD-25 / CD-29): the fresh
+    /// document picks up the new effective fingerprint config — hardening vectors AND
+    /// the reported screen preset — which a live context can't adopt (the patches are
+    /// irreversible / `screen_info` is read at create time). Mirrors [`toggle_tor`]'s
+    /// respawn, but RELOADS the current page (not the start page): a fingerprint-config
+    /// change is not a network-identity change, so the user stays on their page. The
+    /// per-slot override / global preset was already updated before this runs;
+    /// `create_browser_url` reads the (unchanged) Tor mode, so a Tor slot stays Tor.
+    fn respawn_slot_preserving_url(&mut self, id: usize) {
         if !self.order.contains(&id) {
             return;
         }
@@ -636,9 +636,11 @@ impl Shell {
             crate::tor::init();
         }
         browser::set_slot_tor(free, src_tor);
-        // CD-25: a popup inherits the source window's hardening override too (so a
-        // Strict window's popups stay Strict), read BEFORE the browser is created.
+        // CD-25 / CD-29: a popup inherits the source window's hardening AND screen
+        // overrides (so a Strict / 720p window's popups match it), read BEFORE the
+        // browser is created.
         browser::set_slot_hardening(free, browser::slot_hardening_override(source_id));
+        browser::set_slot_screen(free, browser::slot_screen_override(source_id));
         if let Some(window) = self.window.clone() {
             self.push_geometry();
             let hwnd = window_hwnd(&window);
@@ -817,11 +819,12 @@ impl Shell {
         self.loading[id] = 0.0;
         self.width_units[id] = 1;
         self.disp_rects[id] = None;
-        // CD-25: slot ids are reused; clear any per-window hardening override so a
-        // reused id starts fresh (inheriting the global preset), never carrying a
-        // closed window's override. (Respawns use `close_slot`, not this path, so an
-        // override survives a hardening/Tor respawn.)
+        // CD-25 / CD-29: slot ids are reused; clear any per-window hardening AND
+        // screen overrides so a reused id starts fresh (inheriting the global), never
+        // carrying a closed window's override. (Respawns use `close_slot`, not this
+        // path, so an override survives a hardening/Tor/screen respawn.)
         browser::set_slot_hardening(id, None);
+        browser::set_slot_screen(id, None);
         // Promote a neighbor only if the active slot itself was the one closed;
         // closing a non-active slot (via its orb) leaves the active slot as is.
         if closed_active {
@@ -1940,23 +1943,41 @@ impl ApplicationHandler for Shell {
             }
         }
 
-        // Per-window hardening overrides + a global-preset change (CD-25). Each
-        // respawns the affected slot(s) under the new config. A global change
-        // respawns only slots that INHERIT it (an overridden slot keeps its own).
+        // Per-window hardening overrides + a global-preset change (CD-25), and the
+        // reported-screen preset (CD-29). Each respawns the affected slot(s) under the
+        // new config. A global change respawns only slots that INHERIT it (an
+        // overridden slot keeps its own). Screen inheritance is tracked separately
+        // from hardening inheritance — a slot may override one and inherit the other —
+        // so a slot is respawned at most once even if both changed this pass.
         if self.views_started {
+            let mut respawn: Vec<usize> = Vec::new();
+            let mark = |id: usize, respawn: &mut Vec<usize>| {
+                if !respawn.contains(&id) {
+                    respawn.push(id);
+                }
+            };
             for id in browser::take_pending_slot_hardening() {
-                self.apply_slot_hardening(id);
+                mark(id, &mut respawn);
+            }
+            for id in browser::take_pending_slot_screen() {
+                mark(id, &mut respawn);
             }
             if browser::take_pending_global_hardening() {
-                let inherit: Vec<usize> = self
-                    .order
-                    .iter()
-                    .copied()
-                    .filter(|&id| browser::slot_hardening_override(id).is_none())
-                    .collect();
-                for id in inherit {
-                    self.apply_slot_hardening(id);
+                for &id in &self.order {
+                    if browser::slot_hardening_override(id).is_none() {
+                        mark(id, &mut respawn);
+                    }
                 }
+            }
+            if browser::take_pending_global_screen() {
+                for &id in &self.order {
+                    if browser::slot_screen_override(id).is_none() {
+                        mark(id, &mut respawn);
+                    }
+                }
+            }
+            for id in respawn {
+                self.respawn_slot_preserving_url(id);
             }
         }
 

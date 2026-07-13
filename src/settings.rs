@@ -47,6 +47,14 @@ static HARDENING_LEVEL: AtomicU8 = AtomicU8::new(1);
 /// browser-create time and by the frame-state push (not per rendered frame), so a
 /// Mutex is fine. Defaults to Standard (all vectors on).
 static HARDENING_CUSTOM: Mutex<harden::Config> = Mutex::new(harden::Config::STANDARD);
+/// The GLOBAL reported-screen-size preset (CD-29): 0=1280x720, 1=1600x900,
+/// 2=1920x1080 (default — the most common real desktop resolution). This is the
+/// COMMON value web slots report for `screen.*`; the actual viewport is never
+/// faked (browser.rs `common_screen_for` keeps reported ≥ measured). A per-window
+/// override lives in browser.rs (`SLOT_SCREEN`).
+static SCREEN_PRESET: AtomicU8 = AtomicU8::new(DEFAULT_SCREEN_PRESET);
+/// The factory-default reported screen preset: 1920x1080 (id 2).
+const DEFAULT_SCREEN_PRESET: u8 = 2;
 
 /// The settings keys the internal view is allowed to read and write. Anything
 /// outside this list is rejected by [`set`] / [`set_glow_intensity`].
@@ -65,6 +73,8 @@ pub const KEY_TOR_DEFAULT: &str = "tor_default";
 /// Global fingerprinting-hardening preset + custom per-vector flags (CD-25).
 pub const KEY_HARDENING_LEVEL: &str = "hardening_level";
 pub const KEY_HARDENING_CUSTOM: &str = "hardening_custom";
+/// Global reported-screen-size preset (CD-29).
+pub const KEY_SCREEN_PRESET: &str = "screen_preset";
 
 /// Glow-intensity slider bounds (percent).
 pub const GLOW_MIN: u32 = 50;
@@ -135,6 +145,60 @@ pub fn hardening_global_config() -> harden::Config {
     harden::resolve(hardening_level(), hardening_custom())
 }
 
+// --- Reported screen-size preset (CD-29) ------------------------------------
+
+/// Map a screen-preset name to its code (and back). The allowlist is the small set
+/// of common real resolutions the ticket pins.
+pub fn screen_code(name: &str) -> Option<u8> {
+    match name {
+        "1280x720" => Some(0),
+        "1600x900" => Some(1),
+        "1920x1080" => Some(2),
+        _ => None,
+    }
+}
+pub fn screen_name(code: u8) -> &'static str {
+    match code {
+        0 => "1280x720",
+        1 => "1600x900",
+        // The factory default AND the fallback for any out-of-range id.
+        _ => "1920x1080",
+    }
+}
+/// A preset code's (width, height) in CSS px (DIP).
+pub fn screen_dims(code: u8) -> (u32, u32) {
+    match code {
+        0 => (1280, 720),
+        1 => (1600, 900),
+        _ => (1920, 1080),
+    }
+}
+
+/// The GLOBAL reported-screen-size preset code.
+pub fn screen_preset_code() -> u8 {
+    SCREEN_PRESET.load(Ordering::Relaxed)
+}
+/// The GLOBAL reported-screen-size preset name (for the settings snapshot).
+pub fn screen_preset_name() -> &'static str {
+    screen_name(screen_preset_code())
+}
+/// The GLOBAL reported-screen-size preset dimensions a window inherits.
+pub fn screen_preset_dims() -> (u32, u32) {
+    screen_dims(screen_preset_code())
+}
+
+/// Apply and persist the global reported-screen preset (validated against the
+/// allowlist). A screen-size change is a fingerprint-config change: the caller
+/// (the IPC) respawns inheriting slots so the new value takes effect on load.
+pub fn set_screen_preset(value: &str) -> Result<String, String> {
+    let code = screen_code(value).ok_or_else(|| format!("unknown screen preset: {value}"))?;
+    SCREEN_PRESET.store(code, Ordering::Relaxed);
+    store().lock().unwrap().set(KEY_SCREEN_PRESET, value);
+    Ok(format!(
+        "{{\"ok\":true,\"key\":\"{KEY_SCREEN_PRESET}\",\"value\":\"{value}\"}}"
+    ))
+}
+
 /// Apply and persist the global hardening config (CD-25). `level` is one of
 /// off/standard/strict/custom; `vectors` supplies the per-vector flags for custom.
 /// A WEAKENING change (any vector dropped, or turned off) is refused without
@@ -197,6 +261,11 @@ pub fn init() {
     if let Some(j) = s.get(KEY_HARDENING_CUSTOM) {
         *HARDENING_CUSTOM.lock().unwrap() = harden::Config::from_json(&j);
     }
+    let screen = s
+        .get(KEY_SCREEN_PRESET)
+        .and_then(|v| screen_code(&v))
+        .unwrap_or(DEFAULT_SCREEN_PRESET);
+    SCREEN_PRESET.store(screen, Ordering::Relaxed);
 }
 
 /// Is the Tor engine available (the master switch)?
@@ -236,7 +305,7 @@ pub fn glow_intensity() -> f32 {
 pub fn snapshot_json() -> String {
     // `fp_custom` is injected raw (it is already a JSON object, not a string).
     format!(
-        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"glow_intensity\":{},\"search_engine\":\"{}\",\"tor_enabled\":{},\"tor_default\":{},\"fp_preset\":\"{}\",\"fp_custom\":{}}}",
+        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"glow_intensity\":{},\"search_engine\":\"{}\",\"tor_enabled\":{},\"tor_default\":{},\"fp_preset\":\"{}\",\"fp_custom\":{},\"screen_preset\":\"{}\"}}",
         feather_edges(),
         animated_background(),
         stay_foreground(),
@@ -246,6 +315,7 @@ pub fn snapshot_json() -> String {
         TOR_DEFAULT.load(Ordering::Relaxed),
         hardening_level().as_str(),
         hardening_custom().to_json(),
+        screen_preset_name(),
     )
 }
 

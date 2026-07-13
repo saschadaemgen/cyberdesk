@@ -28,7 +28,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::os::raw::c_int;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use cef::wrapper::message_router::{
@@ -1054,6 +1054,77 @@ fn harden_extra_info(i: usize) -> Option<DictionaryValue> {
     Some(dict)
 }
 
+// --- CD-29: reported screen-size preset, per-window override ----------------
+// Web slots report a COMMON, real monitor resolution for `screen.*` (default
+// 1920x1080), so every machine looks ordinary. The reported size is never smaller
+// than the actual column viewport — `common_screen_for` buckets the real display
+// up a common-resolution ladder with the user's preset as a floor, so the VIEWPORT
+// (view_rect / innerWidth, left untouched) never contradicts `screen.*` (a
+// reported/measured contradiction is itself a fingerprint). A change respawns the
+// slot (reuses the hardening respawn path) so the new value takes effect on load.
+
+/// Per-slot screen-preset override: [`SCREEN_INHERIT`] = follow the global preset,
+/// else a preset code (0=720p, 1=900p, 2=1080p). Read on the CEF UI thread in
+/// `screen_info` and by the respawn path.
+const SCREEN_INHERIT: u8 = u8::MAX;
+static SLOT_SCREEN: [AtomicU8; MAX_SLOTS] = [const { AtomicU8::new(SCREEN_INHERIT) }; MAX_SLOTS];
+
+/// Set slot `i`'s screen-preset override (`None` = inherit the global preset).
+pub fn set_slot_screen(i: usize, code: Option<u8>) {
+    if i < MAX_SLOTS {
+        SLOT_SCREEN[i].store(code.unwrap_or(SCREEN_INHERIT), Ordering::Relaxed);
+    }
+}
+
+/// Slot `i`'s screen-preset override code, if any (`None` = inheriting the global).
+pub fn slot_screen_override(i: usize) -> Option<u8> {
+    if i >= MAX_SLOTS {
+        return None;
+    }
+    match SLOT_SCREEN[i].load(Ordering::Relaxed) {
+        SCREEN_INHERIT => None,
+        c => Some(c),
+    }
+}
+
+/// The effective (override else global) screen-preset dimensions for slot `i`.
+fn slot_screen_preset_dims(i: usize) -> (u32, u32) {
+    match slot_screen_override(i) {
+        Some(code) => crate::settings::screen_dims(code),
+        None => crate::settings::screen_preset_dims(),
+    }
+}
+
+/// The common-resolution ladder: the small set of real desktop sizes a slot's
+/// `screen.*` may report. Anything larger than 1080p is only ever reported when the
+/// actual viewport genuinely needs it (a big single-column layout on a large
+/// monitor) — bucketed to a common value, never the exact pixel size.
+const SCREEN_LADDER: [(u32, u32); 5] =
+    [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160)];
+
+/// The COMMON reported screen size for a viewport of `(vw, vh)` DIP under `preset`.
+/// Pure + unit-tested. Reported ≥ max(preset, viewport) on BOTH axes (so it never
+/// contradicts what the page measures of its real viewport), snapped UP to the
+/// smallest common ladder entry that fits; if the viewport exceeds the whole ladder,
+/// the real viewport size is reported (coherent — an unusually large window can't be
+/// hidden, only the exact monitor size is withheld).
+pub fn common_screen_for(preset: (u32, u32), viewport: (u32, u32)) -> (u32, u32) {
+    let need_w = preset.0.max(viewport.0);
+    let need_h = preset.1.max(viewport.1);
+    for &(w, h) in SCREEN_LADDER.iter() {
+        if w >= need_w && h >= need_h {
+            return (w, h);
+        }
+    }
+    // Larger than every ladder rung: report the actual viewport (never a decoy).
+    (need_w, need_h)
+}
+
+/// The reported `screen.*` dimensions for slot `i` given its current viewport DIP.
+pub fn slot_screen_dims(i: usize, viewport: (u32, u32)) -> (u32, u32) {
+    common_screen_for(slot_screen_preset_dims(i), viewport)
+}
+
 /// Per-window hardening changes from the page (CEF UI thread), drained by the main
 /// thread which owns the slot lifecycle and performs the respawn.
 fn pending_slot_hardening() -> &'static Mutex<Vec<usize>> {
@@ -1072,6 +1143,27 @@ fn pending_global_hardening() -> &'static Mutex<bool> {
 }
 pub fn take_pending_global_hardening() -> bool {
     std::mem::replace(&mut pending_global_hardening().lock().unwrap(), false)
+}
+
+/// Per-window screen-preset changes (CD-29), drained by the main thread which
+/// respawns the slot so `screen.*` reports the new value on load.
+fn pending_slot_screen() -> &'static Mutex<Vec<usize>> {
+    static P: OnceLock<Mutex<Vec<usize>>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new(Vec::new()))
+}
+pub fn take_pending_slot_screen() -> Vec<usize> {
+    std::mem::take(&mut pending_slot_screen().lock().unwrap())
+}
+
+/// Set when the GLOBAL screen preset changes (CD-29): the main thread respawns every
+/// slot that INHERITS the global screen (independent of the hardening inheritance,
+/// which a slot may override separately).
+fn pending_global_screen() -> &'static Mutex<bool> {
+    static P: OnceLock<Mutex<bool>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new(false))
+}
+pub fn take_pending_global_screen() -> bool {
+    std::mem::replace(&mut pending_global_screen().lock().unwrap(), false)
 }
 
 // Render-side per-browser hardening config, keyed by Browser::identifier() (the
@@ -1472,6 +1564,15 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
                     .as_str()
                     .ok_or((2, "'value' must be a string for search_engine".to_string()))?;
                 crate::settings::set_search_engine(s).map_err(|e| (3, e))
+            } else if key == crate::settings::KEY_SCREEN_PRESET {
+                // A global screen-size change respawns every slot that inherits the
+                // global screen (CD-29) so `screen.*` reports the new common value.
+                let s = value
+                    .as_str()
+                    .ok_or((2, "'value' must be a string for screen_preset".to_string()))?;
+                let reply = crate::settings::set_screen_preset(s).map_err(|e| (3, e))?;
+                *pending_global_screen().lock().unwrap() = true;
+                Ok(reply)
             } else if key == crate::settings::KEY_GLOW_INTENSITY {
                 let n = value
                     .as_i64()
@@ -1593,6 +1694,40 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             let reply = crate::settings::set_hardening(level, vectors, confirm).map_err(|e| (3, e))?;
             *pending_global_hardening().lock().unwrap() = true;
             Ok(reply)
+        }
+        // PER-WINDOW reported-screen preset (CD-29): "inherit" or a preset name
+        // (1280x720 / 1600x900 / 1920x1080). Queued for the main thread, which
+        // respawns the slot so `screen.*` reports the new value on load. No weakening
+        // gate: every option is a common real resolution (never a decoy).
+        "set_slot_screen" => {
+            let slot = target_slot(&v);
+            let value = v
+                .get("value")
+                .and_then(|x| x.as_str())
+                .ok_or((2, "missing 'value'".to_string()))?;
+            let code = if value == "inherit" {
+                None
+            } else {
+                Some(
+                    crate::settings::screen_code(value)
+                        .ok_or((2, format!("unknown screen preset: {value}")))?,
+                )
+            };
+            set_slot_screen(slot, code);
+            pending_slot_screen().lock().unwrap().push(slot);
+            Ok(serde_json::json!({ "ok": true }).to_string())
+        }
+        // Per-window screen state (CD-29): the slot's effective preset name + whether
+        // it inherits the global — for the per-window screen cycler.
+        "get_slot_screen" => {
+            let slot = target_slot(&v);
+            let ov = slot_screen_override(slot);
+            let code = ov.unwrap_or_else(crate::settings::screen_preset_code);
+            Ok(format!(
+                "{{\"value\":\"{}\",\"inherited\":{}}}",
+                crate::settings::screen_name(code),
+                ov.is_none()
+            ))
         }
         // Per-window hardening state (CD-29): the slot's effective level, whether it
         // is inheriting the global, and the full per-vector config — so the per-window
@@ -1963,9 +2098,19 @@ wrap_render_handler! {
             if let Some(info) = screen_info {
                 let g = *view(self.role).geom.lock().unwrap();
                 info.device_scale_factor = g.scale;
-                let dip_w = (g.phys_w as f32 / g.scale).round() as i32;
-                let dip_h = (g.phys_h as f32 / g.scale).round() as i32;
-                info.rect = Rect { x: 0, y: 0, width: dip_w, height: dip_h };
+                let dip_w = (g.phys_w as f32 / g.scale).round().max(1.0) as u32;
+                let dip_h = (g.phys_h as f32 / g.scale).round().max(1.0) as u32;
+                // CD-29: a web slot reports a COMMON, real monitor resolution for
+                // `screen.*` (clamped to the preset, bucketed up if the viewport
+                // needs it) so every machine looks ordinary — while the VIEWPORT
+                // (view_rect / innerWidth) stays the actual column size (no decoy).
+                // The internal / MF-zone cyberdesk:// UI is never fingerprinted and
+                // keeps its real geometry.
+                let (sw, sh) = match self.role {
+                    Role::Slot(i) => slot_screen_dims(i, (dip_w, dip_h)),
+                    Role::Internal | Role::MfZone => (dip_w, dip_h),
+                };
+                info.rect = Rect { x: 0, y: 0, width: sw as i32, height: sh as i32 };
                 info.available_rect = info.rect.clone();
                 return 1;
             }
@@ -2439,7 +2584,44 @@ wrap_render_process_handler! {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_input_for, restamp_tor_status, search_url_for};
+    use super::{classify_input_for, common_screen_for, restamp_tor_status, search_url_for};
+
+    // --- Screen presets (CD-29): common-and-consistent, never a decoy ---------
+
+    /// The reported screen is the preset when the viewport fits inside it — every
+    /// ordinary window on the default 1080p preset reports exactly 1920x1080.
+    #[test]
+    fn screen_reports_the_preset_when_viewport_fits() {
+        assert_eq!(common_screen_for((1920, 1080), (800, 1000)), (1920, 1080));
+        assert_eq!(common_screen_for((1280, 720), (600, 700)), (1280, 720));
+        assert_eq!(common_screen_for((1600, 900), (1500, 850)), (1600, 900));
+    }
+
+    /// The reported screen is NEVER smaller than the viewport on either axis (a
+    /// viewport larger than the monitor is an impossible contradiction). A big
+    /// single-column layout bumps up to the next COMMON ladder rung, not the exact
+    /// pixel size.
+    #[test]
+    fn screen_never_contradicts_the_viewport() {
+        // A 2000-wide column on the 1080p preset can't report 1920 — bump to 2560x1440.
+        assert_eq!(common_screen_for((1920, 1080), (2000, 1300)), (2560, 1440));
+        // A tall column forces a taller common resolution (a 1000-tall column on the
+        // 720p preset can't report 720 or 900 — bump to 1920x1080).
+        assert_eq!(common_screen_for((1280, 720), (600, 1000)), (1920, 1080));
+        // Reported ≥ viewport on both axes, always.
+        for &(vw, vh) in &[(3000u32, 1600u32), (5000, 2000), (1000, 1000)] {
+            let (sw, sh) = common_screen_for((1920, 1080), (vw, vh));
+            assert!(sw >= vw && sh >= vh, "reported {sw}x{sh} must contain viewport {vw}x{vh}");
+        }
+    }
+
+    /// A viewport larger than the whole ladder falls back to its real size — an
+    /// unusually large window can't be hidden, only the exact monitor size withheld;
+    /// still never a decoy (reported == the real viewport, not something smaller).
+    #[test]
+    fn screen_falls_back_to_real_size_past_the_ladder() {
+        assert_eq!(common_screen_for((1920, 1080), (5000, 3000)), (5000, 3000));
+    }
 
     // --- Search routing (CD-27, D-0043): the selector is authoritative --------
 
