@@ -217,7 +217,7 @@
     if (gateStep === 1) {
       gateStep = 2;
       gateBody.innerHTML = "This lowers <strong>your own</strong> protection. Continue anyway? " +
-        "For serious anti-fingerprinting anonymity, use <strong>Tor Browser</strong>.";
+        "You can restore full protection here at any time.";
       gateConfirm.textContent = "Yes, weaken protection";
       return;
     }

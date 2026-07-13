@@ -365,7 +365,7 @@
       ev.stopPropagation();
       if (step === 1) {
         step = 2;
-        warn.innerHTML = "Lower <b>your own</b> protection? For serious anti-fingerprinting anonymity use <b>Tor Browser</b>.";
+        warn.innerHTML = "Lower <b>your own</b> protection? You can restore it from this menu at any time.";
         weakenBtn.textContent = "Yes, weaken";
         return;
       }

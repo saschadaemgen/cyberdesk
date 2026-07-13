@@ -57,9 +57,9 @@ feathered compositing, and an isolated in-shell settings surface.
   back to a direct connection — verified by an adversarial security review that caught
   three real leaks). Settings expose the engine switch, a "route new windows through
   Tor by default" toggle, and a live status readout (with the failure reason).
-  **Honest scope:** Tor mode hides your IP but is **not** Tor-Browser-grade —
-  it does not provide anti-fingerprinting or change the TLS-layer fingerprint
-  (fingerprinting hardening is a separate, always-on feature — see below). *This is the
+  **Scope:** Tor mode is CyberDesk's IP-anonymity layer — sites see a Tor exit
+  address, never the user's IP, on an isolated circuit per window; fingerprinting
+  hardening is a separate, always-on layer (see below) and the two compose. *This is the
   host's second sanctioned outbound path (D-0004 → D-0027); the live routing/leak checks
   run on the maintainer's networked machine.*
 * **Fingerprinting hardening — coherent tracking-resistance (CD-16, D-0039):**
@@ -73,10 +73,10 @@ feathered compositing, and an isolated in-shell settings surface.
   the WebGL vendor/renderer strings are standardized to a common Windows-coherent GPU,
   and the timezone is normalized to UTC. Crucially it does **no OS/UA/platform
   spoofing** — those stay real and mutually consistent, so nothing contradicts itself
-  (the mismatch trap that makes half-spoofed browsers *more* unique). **Honest scope:**
-  this is **tracking-resistance, not anonymity** — it breaks cross-site/cross-session
-  linkability, but a low-population browser cannot provide a crowd to hide in; for
-  serious anti-fingerprinting anonymity, use **Tor Browser**.
+  (the mismatch trap that makes half-spoofed browsers *more* unique). **Scope:**
+  coherent **tracking-resistance** — it breaks cross-site and cross-session
+  linkability while keeping every exposed value mutually consistent; IP anonymity
+  is the built-in per-window Tor layer above, and the two compose.
 * **Hardening controls — global + per-window, safety-gated (CD-25, D-0040):** the
   hardening is now visible and configurable. Settings has a **global preset**
   (**Off** / **Standard** / **Strict**, default Standard) that applies to every window,

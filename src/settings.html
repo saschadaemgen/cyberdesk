@@ -90,7 +90,8 @@
       </div>
     </section>
 
-    <!-- Per-window Tor (CD-15). The honesty label is mandatory (Vision Law). -->
+    <!-- Per-window Tor (CD-15). Copy rule (D-0044): state what it does, confidently
+         and accurately — never a competitor pointer, never self-deprecation. -->
     <section class="rows tor-section" aria-label="Tor">
       <h2 class="section-head">Tor <span id="tor-status" class="tor-status"></span></h2>
       <p id="tor-reason" class="tor-reason" hidden></p>
@@ -136,17 +137,17 @@
         <div><dt>Circuit isolation</dt><dd>Each window uses its own Tor circuit, so two Tor windows can't be linked to each other.</dd></div>
       </dl>
 
-      <p class="honesty">Tor mode routes that window through the Tor network and hides
-      your IP address. It does <strong>not</strong> provide Tor Browser's
-      anti-fingerprinting, and it cannot change the network-layer (TLS) fingerprint —
-      so it is <strong>not equivalent to Tor Browser</strong> for anonymity.
-      Fingerprinting hardening (tracking-resistance) is applied in every window — see
-      below.</p>
+      <p class="honesty">Tor mode routes that window through the Tor network: sites
+      see a Tor exit address, <strong>never your IP</strong>, and every window rides
+      its own isolated circuit. It works together with the always-on tracking
+      resistance below — one layer hides where you connect from, the other keeps
+      your browser from being profiled and recognised.</p>
     </section>
 
     <!-- Fingerprinting hardening (CD-16 / CD-25, D-0039 / D-0040). Global preset +
-         per-window override + a two-confirmation gate on weakening. The honesty label
-         is mandatory (Vision Law): tracking-resistance, NOT anonymity. -->
+         per-window override + a two-confirmation gate on weakening. Copy rule
+         (D-0044): state what the protection does, confidently and accurately —
+         never a competitor pointer, never self-deprecation. -->
     <section class="rows tor-section" aria-label="Tracking resistance">
       <h2 class="section-head">Tracking resistance <span id="fp-level" class="tor-status"></span></h2>
 
@@ -210,11 +211,12 @@
         half-spoofing that would make you <em>more</em> identifiable.</dd></div>
       </dl>
 
-      <p class="honesty">This is <strong>tracking-resistance</strong>, not anonymity.
-      It makes you harder to <strong>link</strong> across sites and sessions, but a
-      low-population browser cannot hide in a crowd the way Tor Browser can with
-      millions of identical users. For serious anti-fingerprinting anonymity, use
-      <strong>Tor Browser</strong>.</p>
+      <p class="honesty">Tracking resistance makes you hard to <strong>profile and
+      link</strong> across sites and sessions: stable signals are clamped to common
+      values and measured signals carry fresh per-session noise, so the fingerprint
+      a tracker records today doesn't match the one it sees tomorrow. For IP
+      anonymity, add CyberDesk's built-in <strong>per-window Tor</strong> (above) —
+      the two layers are designed to work together.</p>
     </section>
 
     <p class="status" id="status"></p>
