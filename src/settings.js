@@ -335,8 +335,8 @@
         title: "Step down from Red?",
         body: "Red is maximum protection. Stepping down returns the noise and timer clamps from " +
           "their <strong>tightest</strong> setting to standard strength" +
-          (level === "green" ? ", and turns the clock-precision, media-codec and math-rounding clamps off" : "") +
-          ". Sites see slightly more detail than they do now."
+          (level === "green" ? ", turns the clock-precision, media-codec and math-rounding clamps off" : "") +
+          ", and unlocks the window size (free sizing returns). Sites see slightly more detail than they do now."
       };
     }
     return {

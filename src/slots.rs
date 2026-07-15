@@ -196,10 +196,19 @@ pub fn mf_width_px(scale: f32, t: &Slots, mf_wide: bool) -> f32 {
 /// (left | gutter | slots | gutter | MF) is centered in the window; when even
 /// the Rail state cannot hold the nominal columns (the wide terminal), the
 /// columns COMPRESS proportionally toward `slot_min_width` instead of closing
-/// (CD-30) — they return to nominal width when the terminal hides. One call →
-/// all rects, so the animated reflow drives the interpolated `left_width` and
-/// both rendering and input read the same per-frame geometry (desync-safe by
-/// construction).
+/// (CD-30) — they return to nominal width when the terminal hides.
+///
+/// `locked` (CD-30 Task D, the red "bunker" mode) carries an optional FIXED
+/// `(w, h)` in device px per display position: a locked column keeps exactly
+/// that size — it neither compresses nor stretches — and is vertically centered
+/// in the zone; only the UNLOCKED columns absorb compression. A lock the frame
+/// genuinely cannot hold is clamped to what fits (the caller ladders the
+/// requested size down so this is the last resort, not the norm). Missing
+/// trailing entries mean "not locked".
+///
+/// One call → all rects, so the animated reflow drives the interpolated
+/// `left_width` and both rendering and input read the same per-frame geometry
+/// (desync-safe by construction).
 pub fn frame_layout(
     width: u32,
     height: u32,
@@ -207,24 +216,27 @@ pub fn frame_layout(
     scale: f32,
     t: &Slots,
     mf_wide: bool,
+    locked: &[Option<(f32, f32)>],
 ) -> FrameLayout {
     let unit = (t.width * scale).round();
     let g = (t.gutter * scale).round();
     let mf_width = mf_width_px(scale, t, mf_wide);
+    let (zy, zh) = zone_vertical(height, scale, t);
+    let lock_at = |i: usize| locked.get(i).copied().flatten();
 
     // Nominal per-slot widths by the U-unit invariant (CD-10): a u-unit column
     // spans u·unit + (u-1)·gutter, so a U-unit group spans as much as U singles.
-    let mut widths: Vec<f32> = if slot_units.is_empty() {
-        vec![unit]
-    } else {
-        slot_units
-            .iter()
-            .map(|&u| {
-                let u = u.max(1) as f32;
-                u * unit + (u - 1.0) * g
-            })
-            .collect()
-    };
+    // A locked column's width is its fixed lock width (capped to the zone).
+    let n_slots = slot_units.len().max(1);
+    let mut widths: Vec<f32> = (0..n_slots)
+        .map(|i| {
+            if let Some((lw, _)) = lock_at(i) {
+                return lw.round();
+            }
+            let u = slot_units.get(i).copied().unwrap_or(1).max(1) as f32;
+            u * unit + (u - 1.0) * g
+        })
+        .collect();
     let n = widths.len() as f32;
     let gutters_w = g * (n - 1.0);
     let group_w = widths.iter().sum::<f32>() + gutters_w;
@@ -238,16 +250,37 @@ pub fn frame_layout(
         (SideState::Rail, (t.side_rail_width * scale).round())
     };
 
-    // Compression (CD-30): the group must fit between the zones. Squeeze every
-    // column proportionally, floored at `slot_min_width` — never close a column
-    // for a transient layout state like the wide terminal.
+    // Compression (CD-30): the group must fit between the zones. Squeeze the
+    // UNLOCKED columns proportionally, floored at `slot_min_width` — never close
+    // a column for a transient layout state, never touch a locked column (its
+    // size is the point). If the locked columns alone still overflow, clamp them
+    // as the last resort so the frame stays on-screen.
     let avail = (width as f32 - left_width - mf_width - 2.0 * g - gutters_w).max(0.0);
-    let slots_w: f32 = widths.iter().sum();
-    if slots_w > avail && slots_w > 0.0 {
+    let total: f32 = widths.iter().sum();
+    if total > avail {
         let floor = (t.slot_min_width * scale).round();
-        let f = avail / slots_w;
-        for w in &mut widths {
-            *w = (*w * f).round().max(floor);
+        let locked_w: f32 = (0..n_slots).filter(|&i| lock_at(i).is_some()).map(|i| widths[i]).sum();
+        let free_w: f32 = total - locked_w;
+        let free_avail = (avail - locked_w).max(0.0);
+        if free_w > 0.0 && free_w > free_avail {
+            let f = free_avail / free_w;
+            for (i, w) in widths.iter_mut().enumerate() {
+                if lock_at(i).is_none() {
+                    *w = (*w * f).round().max(floor);
+                }
+            }
+        }
+        // Last resort: locked columns wider than everything available shrink to
+        // fit (the caller's ladder normally prevents this).
+        let total_now: f32 = widths.iter().sum();
+        if total_now > avail && locked_w > 0.0 {
+            let over = total_now - avail;
+            let f = ((locked_w - over) / locked_w).max(0.0);
+            for (i, w) in widths.iter_mut().enumerate() {
+                if lock_at(i).is_some() {
+                    *w = (*w * f).round();
+                }
+            }
         }
     }
     let group_w = widths.iter().sum::<f32>() + gutters_w;
@@ -256,12 +289,20 @@ pub fn frame_layout(
     // overflows after the compression floor.
     let frame_w = left_width + g + group_w + g + mf_width;
     let fx = ((width as f32 - frame_w) * 0.5).max(0.0).round();
-    let (zy, zh) = zone_vertical(height, scale, t);
 
+    // A locked column keeps its fixed height (capped to the zone), vertically
+    // centered; unlocked columns span the full zone.
     let mut slots = Vec::with_capacity(widths.len());
     let mut x = fx + left_width + g;
-    for &w in &widths {
-        slots.push(Rect { x, y: zy, w, h: zh });
+    for (i, &w) in widths.iter().enumerate() {
+        let (y, h) = match lock_at(i) {
+            Some((_, lh)) => {
+                let h = lh.round().min(zh);
+                (zy + ((zh - h) * 0.5).round(), h)
+            }
+            None => (zy, zh),
+        };
+        slots.push(Rect { x, y, w, h });
         x += w + g;
     }
 
@@ -595,12 +636,12 @@ mod tests {
         let t = slots();
         // One slot: the full left zone + permanent MF doesn't fit at 1920 (Rail),
         // but does at 2560 (Full).
-        assert_eq!(frame_layout(1920, 1440, &units(1), 1.0, &t, false).left_state, SideState::Rail);
-        assert_eq!(frame_layout(2560, 1440, &units(1), 1.0, &t, false).left_state, SideState::Full);
+        assert_eq!(frame_layout(1920, 1440, &units(1), 1.0, &t, false, &[]).left_state, SideState::Rail);
+        assert_eq!(frame_layout(2560, 1440, &units(1), 1.0, &t, false, &[]).left_state, SideState::Full);
         // On the ultrawide all three slots leave room for the full left zone.
-        assert_eq!(frame_layout(5120, 1440, &units(1), 1.0, &t, false).left_state, SideState::Full);
-        assert_eq!(frame_layout(5120, 1440, &units(2), 1.0, &t, false).left_state, SideState::Full);
-        assert_eq!(frame_layout(5120, 1440, &units(3), 1.0, &t, false).left_state, SideState::Full);
+        assert_eq!(frame_layout(5120, 1440, &units(1), 1.0, &t, false, &[]).left_state, SideState::Full);
+        assert_eq!(frame_layout(5120, 1440, &units(2), 1.0, &t, false, &[]).left_state, SideState::Full);
+        assert_eq!(frame_layout(5120, 1440, &units(3), 1.0, &t, false, &[]).left_state, SideState::Full);
     }
 
     #[test]
@@ -608,7 +649,7 @@ mod tests {
         let t = slots();
         // The right MF zone is always mf_zone_width, whatever the left zone does.
         for w in [1920u32, 2560, 3440, 5120] {
-            let f = frame_layout(w, 1440, &units(1), 1.0, &t, false);
+            let f = frame_layout(w, 1440, &units(1), 1.0, &t, false, &[]);
             assert_eq!(f.right.w, 320.0, "MF permanent at {w}");
             assert!(f.right.x + f.right.w <= w as f32, "MF on-screen at {w}");
         }
@@ -619,8 +660,8 @@ mod tests {
         let t = slots();
         // At 3000 a single slot's full left zone fits, but a double's (2 units)
         // does not — so it depends on the unit total, not the column count.
-        assert_eq!(frame_layout(3000, 1440, &units(1), 1.0, &t, false).left_state, SideState::Full);
-        assert_eq!(frame_layout(3000, 1440, &[2], 1.0, &t, false).left_state, SideState::Rail);
+        assert_eq!(frame_layout(3000, 1440, &units(1), 1.0, &t, false, &[]).left_state, SideState::Full);
+        assert_eq!(frame_layout(3000, 1440, &[2], 1.0, &t, false, &[]).left_state, SideState::Rail);
     }
 
     #[test]
@@ -646,7 +687,7 @@ mod tests {
     #[test]
     fn three_slots_and_both_full_zones_fit_the_ultrawide() {
         let t = slots();
-        let f = frame_layout(5120, 1440, &units(3), 1.0, &t, false);
+        let f = frame_layout(5120, 1440, &units(3), 1.0, &t, false, &[]);
         assert_eq!(f.left_state, SideState::Full);
         assert_eq!(f.left.w, 320.0);
         assert_eq!(f.right.w, 320.0);
@@ -666,7 +707,7 @@ mod tests {
         // The minimum working set (D-0022): exactly one slot + the MF zone + the
         // left rail, all on-screen at 1920 with balanced margins.
         assert_eq!(frame_capacity(1920, 1.0, &t), 1);
-        let f = frame_layout(1920, 1440, &units(1), 1.0, &t, false);
+        let f = frame_layout(1920, 1440, &units(1), 1.0, &t, false, &[]);
         assert_eq!(f.left_state, SideState::Rail);
         assert_eq!(f.left.w, 48.0);
         assert_eq!(f.right.w, 320.0);
@@ -681,7 +722,7 @@ mod tests {
     #[test]
     fn zones_flank_the_group_one_gutter_away_at_the_slot_height() {
         let t = slots();
-        let f = frame_layout(5120, 1440, &units(2), 1.0, &t, false);
+        let f = frame_layout(5120, 1440, &units(2), 1.0, &t, false, &[]);
         let group_left = f.slots.first().unwrap().x;
         let group_right = f.slots.last().map(|r| r.x + r.w).unwrap();
         // One gutter between each zone and the slot group.
@@ -699,13 +740,13 @@ mod tests {
         let t = slots();
         // With the left at rail (48) and the MF permanent (320), the group shifts
         // LEFT of window-center by (left_width - mf_width)/2 = -136.
-        let f = frame_layout(1920, 1440, &units(1), 1.0, &t, false);
+        let f = frame_layout(1920, 1440, &units(1), 1.0, &t, false, &[]);
         let centered = slot_rects_units(1920, 1440, &units(1), 1.0, &t);
         let dx = (f.left_width - f.right.w) * 0.5; // (48 - 320)/2 = -136
         assert_eq!(dx, -136.0);
         assert_eq!(f.slots[0].x, centered[0].x + dx);
         // With both zones full (5120, 3 slots) the difference is zero → centered.
-        let ff = frame_layout(5120, 1440, &units(3), 1.0, &t, false);
+        let ff = frame_layout(5120, 1440, &units(3), 1.0, &t, false, &[]);
         let cc = slot_rects_units(5120, 1440, &units(3), 1.0, &t);
         assert_eq!(ff.slots, cc);
     }
@@ -716,15 +757,15 @@ mod tests {
         // At 3000 the boundary is reachable within capacity (2 units): a single
         // slot is Full, a two-unit group is Rail.
         assert!(frame_capacity(3000, 1.0, &t) >= 2);
-        assert_eq!(frame_layout(3000, 1440, &units(1), 1.0, &t, false).left_state, SideState::Full);
-        assert_eq!(frame_layout(3000, 1440, &[2], 1.0, &t, false).left_state, SideState::Rail);
+        assert_eq!(frame_layout(3000, 1440, &units(1), 1.0, &t, false, &[]).left_state, SideState::Full);
+        assert_eq!(frame_layout(3000, 1440, &[2], 1.0, &t, false, &[]).left_state, SideState::Rail);
     }
 
     #[test]
     fn frame_slots_are_the_centered_group_translated_by_the_zone_difference() {
         let t = slots();
         for n in 1..=3 {
-            let f = frame_layout(5120, 1440, &units(n), 1.0, &t, false);
+            let f = frame_layout(5120, 1440, &units(n), 1.0, &t, false, &[]);
             let centered = slot_rects_units(5120, 1440, &units(n), 1.0, &t);
             let dx = ((f.left_width - f.right.w) * 0.5).round();
             for (a, b) in f.slots.iter().zip(centered.iter()) {
@@ -744,14 +785,14 @@ mod tests {
         // At 1920 a single 1200 column + narrow MF fits; the 2×-wide terminal
         // does not — the column compresses (1920 - 48 rail - 640 MF - 2 gutters
         // = 1120), it does NOT close, and the whole frame stays on-screen.
-        let f = frame_layout(1920, 1440, &units(1), 1.0, &t, true);
+        let f = frame_layout(1920, 1440, &units(1), 1.0, &t, true, &[]);
         assert_eq!(f.right.w, 640.0, "MF zone is 2x wide while the terminal shows");
         assert_eq!(f.slots.len(), 1, "no column closes for a transient layout state");
         assert_eq!(f.slots[0].w, 1120.0);
         assert!(f.left.x >= 0.0);
         assert!(f.right.x + f.right.w <= 1920.0, "frame on-screen");
         // Hiding the terminal returns the column to its nominal width.
-        let back = frame_layout(1920, 1440, &units(1), 1.0, &t, false);
+        let back = frame_layout(1920, 1440, &units(1), 1.0, &t, false, &[]);
         assert_eq!(back.right.w, 320.0);
         assert_eq!(back.slots[0].w, 1200.0);
     }
@@ -761,7 +802,7 @@ mod tests {
         let t = slots();
         // The ultrawide holds three 1200 columns + the full left zone + the wide
         // terminal — nothing compresses.
-        let f = frame_layout(5120, 1440, &units(3), 1.0, &t, true);
+        let f = frame_layout(5120, 1440, &units(3), 1.0, &t, true, &[]);
         assert_eq!(f.left_state, SideState::Full);
         assert_eq!(f.right.w, 640.0);
         for s in &f.slots {
@@ -775,12 +816,73 @@ mod tests {
         let t = slots();
         // Degenerately narrow: two columns squeeze to the floor, never below,
         // and the frame clamps to the left edge instead of going negative.
-        let f = frame_layout(1400, 900, &units(2), 1.0, &t, false);
+        let f = frame_layout(1400, 900, &units(2), 1.0, &t, false, &[]);
         assert_eq!(f.slots.len(), 2);
         for s in &f.slots {
             assert_eq!(s.w, 480.0, "compression floors at slot_min_width");
         }
         assert!(f.left.x >= 0.0, "frame block clamps at the window edge");
+    }
+
+    // --- CD-30 Task D: the red bunker mode's viewport lock -------------------
+
+    #[test]
+    fn red_lock_pins_the_column_to_the_standard_size() {
+        let t = slots();
+        // One window at Red on a 2560×1440 display: the viewport locks to
+        // exactly 1920×1080, vertically centered in the zone; the frame stays
+        // on-screen with the left rail + permanent MF around it.
+        let lock = [Some((1920.0, 1080.0))];
+        let f = frame_layout(2560, 1440, &units(1), 1.0, &t, false, &lock);
+        assert_eq!(f.slots[0].w, 1920.0);
+        assert_eq!(f.slots[0].h, 1080.0);
+        // Vertically centered in the zone (zy 118, zh 1278).
+        assert_eq!(f.slots[0].y, 118.0 + ((1278.0 - 1080.0) / 2.0f32).round());
+        assert!(f.left.x >= 0.0 && f.right.x + f.right.w <= 2560.0);
+        // The zones keep the full zone height — only the locked column shrinks.
+        assert_eq!(f.right.h, 1278.0);
+    }
+
+    #[test]
+    fn red_lock_makes_the_neighbors_absorb_the_squeeze() {
+        let t = slots();
+        // Two columns at 3440, the first locked to 1920×1080: the locked column
+        // keeps its exact size, the unlocked neighbor compresses to what remains
+        // (never the locked one), nothing closes.
+        let lock = [Some((1920.0, 1080.0)), None];
+        let f = frame_layout(3440, 1440, &units(2), 1.0, &t, false, &lock);
+        assert_eq!(f.slots.len(), 2);
+        assert_eq!(f.slots[0].w, 1920.0, "locked column never compresses");
+        assert_eq!(f.slots[0].h, 1080.0);
+        // avail = 3440 − rail 48 − MF 320 − 2·56 − 56 = 2904; neighbor = 984.
+        assert_eq!(f.slots[1].w, 984.0);
+        assert_eq!(f.slots[1].h, 1278.0, "unlocked column keeps the zone height");
+        assert!(f.right.x + f.right.w <= 3440.0);
+    }
+
+    #[test]
+    fn red_lock_clamps_only_as_the_last_resort() {
+        let t = slots();
+        // A lock the display genuinely cannot hold (the caller's ladder normally
+        // prevents this) is clamped to what fits instead of overflowing.
+        let lock = [Some((1920.0, 1080.0))];
+        let f = frame_layout(1500, 900, &units(1), 1.0, &t, false, &lock);
+        // avail = 1500 − 48 − 320 − 112 = 1020; zone height = 738.
+        assert_eq!(f.slots[0].w, 1020.0);
+        assert_eq!(f.slots[0].h, 738.0);
+        assert!(f.left.x >= 0.0 && f.right.x + f.right.w <= 1500.0);
+    }
+
+    #[test]
+    fn unlocking_restores_the_nominal_layout_exactly() {
+        let t = slots();
+        // The lock is layout-only: the same units with no lock reproduce the
+        // pre-Red geometry bit-for-bit (stepping down restores the layout).
+        let before = frame_layout(2560, 1440, &units(1), 1.0, &t, false, &[]);
+        let locked = frame_layout(2560, 1440, &units(1), 1.0, &t, false, &[Some((1920.0, 1080.0))]);
+        let after = frame_layout(2560, 1440, &units(1), 1.0, &t, false, &[]);
+        assert_ne!(before.slots[0], locked.slots[0]);
+        assert_eq!(before, after);
     }
 
     #[test]
@@ -789,7 +891,7 @@ mod tests {
         // Wide terminal at 3000 with a double+single group (3 units): avail =
         // 3000 - 48 - 640 - 2·56 - 56 = 2144, nominal 2456+1200 = 3656 → both
         // compress proportionally (f ≈ 0.5865) above the 480 floor.
-        let f = frame_layout(3000, 1440, &[2, 1], 1.0, &t, true);
+        let f = frame_layout(3000, 1440, &[2, 1], 1.0, &t, true, &[]);
         let total: f32 = f.slots.iter().map(|r| r.w).sum();
         assert!(total <= 2144.0 + 2.0, "group fits the available span");
         assert!(f.slots[0].w > f.slots[1].w, "proportional: the double stays wider");

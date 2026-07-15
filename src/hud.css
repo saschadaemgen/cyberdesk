@@ -118,6 +118,15 @@ html, body {
 }
 .ampel[data-level="custom"] .lamp { background: color-mix(in srgb, var(--brand) 50%, transparent); }
 
+/* The red slam (CD-30 Task E, page-side echo of the grid burst): one hard pulse
+   as Red engages. One-shot, restarted from JS only on a real level transition. */
+.ampel.slam { animation: ampel-slam 900ms ease-out 1; }
+@keyframes ampel-slam {
+  0%   { box-shadow: 0 0 30px var(--ampel-red), inset 0 0 12px color-mix(in srgb, var(--ampel-red) 60%, transparent); }
+  100% { box-shadow: 0 0 12px color-mix(in srgb, var(--ampel-red) 35%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .ampel.slam { animation: none; } }
+
 /* The level menu replaces the fields row while open (compact chips; the strip
    is narrow). Stepping up applies at once; stepping down opens the gate row. */
 .menu { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

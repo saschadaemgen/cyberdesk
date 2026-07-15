@@ -1237,6 +1237,15 @@ pub fn slot_effective_config(i: usize) -> crate::harden::Config {
     }
 }
 
+/// The EFFECTIVE Ampel level for slot `i` (its override's level, else the global).
+/// CD-30: the shell keys the red bunker mode — viewport lock + transition — on
+/// this, so the lock can only ever accompany a level that is actually applied.
+pub fn slot_effective_level(i: usize) -> crate::harden::Level {
+    slot_hardening_override(i)
+        .map(|o| o.level)
+        .unwrap_or_else(crate::settings::hardening_level)
+}
+
 /// Per-slot browser GENERATION (CD-25). Browsers are created ASYNCHRONOUSLY (MTML:
 /// `on_after_created` fires later on the CEF UI thread), so within one main-thread
 /// pass a `close_slot` cannot tear down a browser whose creation is still in flight.
@@ -1308,6 +1317,12 @@ fn slot_screen_preset_dims(i: usize) -> (u32, u32) {
         Some(code) => crate::settings::screen_dims(code),
         None => crate::settings::screen_preset_dims(),
     }
+}
+
+/// The effective (override else global) screen-preset CODE for slot `i` (CD-30:
+/// the red bunker mode starts its viewport-lock ladder at this preset).
+pub fn slot_effective_screen_code(i: usize) -> u8 {
+    slot_screen_override(i).unwrap_or_else(crate::settings::screen_preset_code)
 }
 
 /// The common-resolution ladder: the small set of real desktop sizes a slot's

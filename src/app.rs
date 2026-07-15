@@ -140,6 +140,8 @@ pub fn run(windowed: bool) {
         start: Instant::now(),
         rot_anchor: Instant::now(),
         rot_flash_until: None,
+        red_flash_until: None,
+        red_slots: 0,
         cef_inited: false,
         views_started: false,
         scale: 1.0,
@@ -192,6 +194,13 @@ struct Shell {
     rot_anchor: Instant,
     /// A brief post-rotation flash deadline — drives the Pulse Grid re-roll burst.
     rot_flash_until: Option<Instant>,
+    /// The red-transition burst deadline (CD-30 Task E): armed by
+    /// [`Shell::trigger_red_transition`] when Red actually engages.
+    red_flash_until: Option<Instant>,
+    /// How many windows were at effective Red last pass — the truthful edge
+    /// detector for the transition (fires only on an INCREASE, i.e. a window
+    /// actually entering Red).
+    red_slots: usize,
     cef_inited: bool,
     views_started: bool,
     scale: f32,
@@ -339,7 +348,8 @@ impl Shell {
     }
 
     /// The full target frame layout for a given surface size (CD-30: one source
-    /// of truth — includes the wide-terminal MF state and column compression).
+    /// of truth — includes the wide-terminal MF state, column compression, and
+    /// the red-mode viewport locks).
     fn frame_target(&self, w: u32, h: u32) -> slots::FrameLayout {
         slots::frame_layout(
             w,
@@ -348,7 +358,62 @@ impl Shell {
             self.scale,
             &self.theme.slots,
             browser::mf_wide(),
+            &self.red_locks(w, h),
         )
+    }
+
+    /// Per-display-position viewport locks (CD-30 Task D — the red "bunker"
+    /// mode). A window whose EFFECTIVE Ampel level is Red snaps to a STANDARD
+    /// viewport — its reported-screen preset (default 1920×1080), laddered DOWN
+    /// (1600×900, 1280×720) to the largest standard size the frame can hold —
+    /// and stays locked while Red is active (`toggle_active_width` refuses, the
+    /// layout ignores its width units). With viewport == reported screen the
+    /// window reads exactly like a fullscreen browser on an ordinary machine.
+    /// Slots are allocated in display order (earlier locks count against later
+    /// ones); if not even the smallest standard size fits this display, the slot
+    /// stays zone-sized — the LEVEL and its vectors are unaffected, the lock is
+    /// honestly recorded as the minor, presentational increment it is (D-0047).
+    /// `width_units` are never modified, so stepping down from Red restores the
+    /// user's previous layout by construction.
+    fn red_locks(&self, w: u32, h: u32) -> Vec<Option<(f32, f32)>> {
+        let t = &self.theme.slots;
+        let (_, zh) = slots::zone_vertical(h, self.scale, t);
+        let g = (t.gutter * self.scale).round();
+        let mf = slots::mf_width_px(self.scale, t, browser::mf_wide());
+        let rail = (t.side_rail_width * self.scale).round();
+        let floor = (t.slot_min_width * self.scale).round();
+        let base_avail = w as f32 - rail - mf - 2.0 * g - g * (self.order.len() as f32 - 1.0);
+        let mut taken = 0.0f32; // width already claimed by earlier locked slots
+        let mut floored_before = 0usize; // earlier columns assumed at the floor
+        let mut locks = Vec::with_capacity(self.order.len());
+        for (p, &id) in self.order.iter().enumerate() {
+            if browser::slot_effective_level(id) != crate::harden::Level::Red {
+                floored_before += 1;
+                locks.push(None);
+                continue;
+            }
+            // Every column not yet allocated is assumed at its compression
+            // floor; earlier locked columns count at their picked size.
+            let others = self.order.len() - 1 - p + floored_before;
+            let avail = base_avail - taken - others as f32 * floor;
+            let mut pick = None;
+            let mut code = browser::slot_effective_screen_code(id).min(2) as i32;
+            while code >= 0 {
+                let (cw, ch) = settings::screen_dims(code as u8);
+                let (dw, dh) = ((cw as f32 * self.scale).round(), (ch as f32 * self.scale).round());
+                if dw <= avail && dh <= zh {
+                    pick = Some((dw, dh));
+                    break;
+                }
+                code -= 1;
+            }
+            match pick {
+                Some((dw, _)) => taken += dw,
+                None => floored_before += 1,
+            }
+            locks.push(pick);
+        }
+        locks
     }
 
     /// The current slot rectangles (device px, one per live column in display
@@ -973,6 +1038,13 @@ impl Shell {
     /// reflows to the new width); the others merely recenter (CD-10).
     fn toggle_active_width(&mut self) {
         let id = self.active_slot;
+        // CD-30 Task D: while a window is at Red its size is LOCKED — resizing
+        // is refused until the level steps down (through the gate). Outside Red,
+        // sizing stays completely free.
+        if browser::slot_effective_level(id) == crate::harden::Level::Red {
+            tracing::info!(slot = id, "red mode: size is locked; step down to resize");
+            return;
+        }
         if self.width_units[id] == 2 {
             self.width_units[id] = 1;
         } else if self.total_units() < self.capacity() as u32 {
@@ -1274,6 +1346,59 @@ impl Shell {
             // ease-in (t^2) so the charge visibly accelerates toward the re-roll.
             1.0 + 0.55 * t * t
         }
+    }
+
+    // --- The red transition (CD-30 Task E) -----------------------------------
+
+    /// THE red-transition entry point — the single, replaceable hook for the
+    /// "bulkhead coming down" choreography. What ships here is the tasteful
+    /// BASELINE, deliberately built on the CD-29 charge-and-burst mechanism (one
+    /// glow scalar through the existing uniform — no new shader): a bright pulse
+    /// sweeps the Pulse Grid as Red engages, while the layout snap+lock (Task D,
+    /// `red_locks`) lands in the same pass. Sascha elevates the final
+    /// choreography by replacing THIS function's body (and, if the finale needs
+    /// more channels, extending `red_glow_factor` alongside it) — nothing else
+    /// needs refactoring. Truthful by construction: the only caller is the
+    /// `tick_red_state` edge detector, which fires strictly when a window's
+    /// EFFECTIVE level becomes Red (level committed + respawn queued + lock
+    /// applied in the same pass), never on a mere UI event.
+    fn trigger_red_transition(&mut self) {
+        self.red_flash_until = Some(Instant::now() + Duration::from_millis(1400));
+        tracing::info!("red mode engaged: bunker transition (baseline choreography)");
+    }
+
+    /// The red-transition glow multiplier (≥ 1.0, multiplied with the CD-29
+    /// rotation factor on top of the user's setting): a strong burst decaying
+    /// over ~1.4 s — brighter and longer than the identity re-roll, as befits
+    /// the bulkhead. 1.0 whenever no transition is live.
+    fn red_glow_factor(&self) -> f32 {
+        if let Some(until) = self.red_flash_until {
+            let now = Instant::now();
+            if now < until {
+                let t = ((until - now).as_secs_f32() / 1.4).clamp(0.0, 1.0);
+                // Ease-out from ~2.6× so the slam hits hard and settles smoothly.
+                return 1.0 + 1.6 * t * t;
+            }
+        }
+        1.0
+    }
+
+    /// Truthful red-engagement edge detector (CD-30, rule 0.1): counts the
+    /// windows whose EFFECTIVE level is Red this pass and fires the transition
+    /// only when that count INCREASES — i.e. a window genuinely entered Red
+    /// (global level committed for inheriting windows, or a per-window override).
+    /// Every Red-level vector is active by construction (`resolve(Red)` is the
+    /// full strict config, carried by the respawn queued in the same drain).
+    fn tick_red_state(&mut self) {
+        let now = self
+            .order
+            .iter()
+            .filter(|&&id| browser::slot_effective_level(id) == crate::harden::Level::Red)
+            .count();
+        if now > self.red_slots {
+            self.trigger_red_transition();
+        }
+        self.red_slots = now;
     }
 
     /// Ctrl+L: reveal + focus the keyboard-active slot's own capsule.
@@ -2101,9 +2226,11 @@ impl ApplicationHandler for Shell {
                         count: crate::updates::update_count() as f32,
                     };
                     // CD-29: the identity-rotation countdown modulates the glow (charge
-                    // → re-roll burst), on top of the user's setting. Computed before
+                    // → re-roll burst), and CD-30 layers the red-transition burst on
+                    // top — both multiply the user's setting and are computed before
                     // the mutable renderer borrow below (as is the HUD rect, CD-30).
-                    let glow = settings::glow_intensity() * self.rotation_glow_factor();
+                    let glow =
+                        settings::glow_intensity() * self.rotation_glow_factor() * self.red_glow_factor();
                     let hud = self.hud_rect();
                     if let Some(r) = self.renderer.as_mut() {
                         r.render(
@@ -2147,6 +2274,9 @@ impl ApplicationHandler for Shell {
         // Drive automatic identity rotation + its Pulse Grid countdown (CD-29).
         if self.views_started {
             self.tick_identity_rotation();
+            // Red-engagement edge detector (CD-30 Task E): fires the bunker
+            // transition strictly when a window's effective level becomes Red.
+            self.tick_red_state();
             // Keep the HUD strip current (CD-30): a cheap signature compare per
             // pass; an IPC push fires only when a displayed value really changed.
             self.push_hud();

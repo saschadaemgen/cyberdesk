@@ -320,7 +320,7 @@
     { level: "inherit", label: "Use global default" },
     { level: "green", label: "Green — everyday" },
     { level: "yellow", label: "Yellow — elevated" },
-    { level: "red", label: "Red — maximum" },
+    { level: "red", label: "Red — maximum, locks size" },
     { level: "custom", label: "Custom…" },
     { level: "off", label: "Off" }
   ];

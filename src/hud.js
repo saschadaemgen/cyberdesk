@@ -96,6 +96,7 @@
     }
   }
 
+  var prevLevel = null;
   function paint() {
     if (!state) return;
     // Protection level — the Ampel state in text, with the honest tint rules:
@@ -105,7 +106,15 @@
     levelField.classList.toggle("warn", !!state.reduced || state.level === "off");
     levelField.classList.toggle("good", state.level === "red" && !state.reduced);
     // The Ampel lamps — lit strictly from the ACTIVE global level (rule 0.1).
+    // Entering Red slams the lamp (the page-side echo of the grid transition —
+    // it can only fire on a real push carrying the committed Red level).
     ampelEl.setAttribute("data-level", state.level || "");
+    if (state.level === "red" && prevLevel !== null && prevLevel !== "red") {
+      ampelEl.classList.remove("slam");
+      void ampelEl.offsetWidth; // restart the one-shot animation
+      ampelEl.classList.add("slam");
+    }
+    prevLevel = state.level;
     var lvs = menuEl.querySelectorAll(".lv");
     for (var i = 0; i < lvs.length; i++) {
       lvs[i].classList.toggle("active", lvs[i].getAttribute("data-level") === state.level);
@@ -150,7 +159,8 @@
     if (from === "red") {
       return "Step down from Red (maximum)? The noise and timer clamps return from their " +
         "tightest setting to standard strength" +
-        (target === "green" ? ", and the clock, media-codec and math clamps turn off" : "") + ".";
+        (target === "green" ? ", the clock, media-codec and math clamps turn off" : "") +
+        ", and the window size unlocks.";
     }
     return "Step down to Green? The clock-precision, media-codec and math-rounding clamps " +
       "turn off; the coherent core stays protected.";
