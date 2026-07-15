@@ -2,6 +2,45 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0048 - 2026-07-15 - MF-zone width is tab-independent and steps in large/medium/small; the Red bunker is opt-in, not booted into (CD-31)
+
+*Decision.* The MF zone's width is a property of the **zone**, not the active
+tab — Tor, Log and Terminal share the same width (CD-30's terminal-only 2×
+doubling was the bug; the `mf_tab` IPC is retired, kept only as a no-op for
+stale pages). Panel/window sizing is **discrete** (large / medium / small —
+groß / mittel / klein), not fluid: the MF zone renders at the largest of its
+prefab steps (`mf_zone_large/medium/small` tokens: 640 / 480 / 320) that the
+window holds alongside the NOMINAL columns and the left rail, so it is stable —
+it changes only when the window shrinks/grows or the user's column layout
+changes, never on tab switches or content, and it steps down BEFORE columns
+would compress (at 1920 the zone takes medium and a single column keeps its
+full 1200). Fluid compression toward `slot_min_width` remains only as the
+below-small safety valve, and a Red viewport lock never moves the step (on
+displays where the large step eats the width, the lock ladder lands one
+standard size lower — still discrete, never squeezed).
+
+A persisted highest protection level (former *Strict*, or a saved *Red*) boots
+into **Yellow** (full ten-vector protection, no window-size lock, freely
+resizable); the Red bunker mode and its size lock are always a deliberate
+in-session choice, never a state the user launches into unexpectedly (freshly
+choosing Red still engages the lock + transition; `settings.rs boot_level` is
+the one-line flip if the bunker should persist across restarts). This
+supersedes the D-0047 note that persisted Strict boots into Red.
+
+*Verified code-first (per the ticket):* a GLOBAL large/medium/small step system
+does **not** exist yet — the only discrete sizing mechanisms are the slot
+width-units (1/2), the CD-29 screen ladder, and the left zone's Full/Rail; the
+settings/info cards still use fluid clamps. Rather than silently inventing a
+divergent framework, the MF steps are tokenized as the first conforming
+instance; generalizing the step principle to the remaining panels is left to a
+dedicated design ticket.
+
+*Why.* CD-30 tied MF width to the Terminal tab and compressed fluidly; both
+contradict the intended behavior (equal-width tabs, stepped sizing). Booting
+into a locked bunker from a stale saved level would surprise the user with an
+unresizable window they didn't choose this session; making Red always opt-in
+keeps the dramatic maximum mode a conscious act.
+
 ## D-0047 - 2026-07-15 - UI expansion: Ampel is the graded protection control; red is the maximum "bunker" mode; status is always truthful (CD-30)
 
 *Decision.* The traffic-light (**Ampel**) is the primary protection control,
