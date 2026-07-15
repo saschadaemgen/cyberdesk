@@ -1,7 +1,8 @@
 //! Fingerprinting-hardening configuration model (CD-25, D-0040; CD-29, D-0045).
 //!
 //! CD-16 (D-0039) ships the hardening MECHANICS (`src/hardening.js`); this module is
-//! the CONFIGURATION *over* them: the Off / Standard / Strict preset levels, the
+//! the CONFIGURATION *over* them: the graded Ampel levels (CD-30: Off / Green /
+//! Yellow / Red — Yellow and Red being the former Standard and Strict), the
 //! per-vector custom flags, resolution of an effective per-window config, and the
 //! weaken/strengthen classification the safety gate keys on. It never introduces a
 //! new spoofing vector — the config only ENABLES/DISABLES and tunes the existing
@@ -26,14 +27,21 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A hardening preset level. `Custom` carries per-vector flags; since CD-29 it is
-/// available per-window too (Task C: every vector settable global AND per-window),
-/// not just globally as in CD-25.
+/// A hardening preset level. CD-30 (Task C) turns the presets into the graded
+/// **Ampel** (traffic light): `Green` < `Yellow` < `Red` is a strict protection
+/// order — moving DOWN it is a weakening (gated), moving UP is immediate.
+/// `Yellow` is the former `Standard` (every vector, moderate buckets) and `Red`
+/// the former `Strict` (every vector, tight buckets — plus, at the shell level,
+/// the CD-30 window-size lock); `Green` is the new everyday floor (the coherent
+/// core without the aggressive clock/media/math clamps). The old names parse as
+/// aliases so persisted CD-25/CD-29 configs keep their exact protection.
+/// `Custom` carries per-vector flags; since CD-29 it is available per-window too.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Level {
     Off,
-    Standard,
-    Strict,
+    Green,
+    Yellow,
+    Red,
     Custom,
 }
 
@@ -41,8 +49,11 @@ impl Level {
     pub fn parse(s: &str) -> Option<Level> {
         match s {
             "off" => Some(Level::Off),
-            "standard" => Some(Level::Standard),
-            "strict" => Some(Level::Strict),
+            "green" => Some(Level::Green),
+            // Aliases (pre-CD-30 persisted values / older pages): the CONTENT is
+            // identical, only the product name changed — never a silent weakening.
+            "yellow" | "standard" => Some(Level::Yellow),
+            "red" | "strict" => Some(Level::Red),
             "custom" => Some(Level::Custom),
             _ => None,
         }
@@ -51,8 +62,9 @@ impl Level {
     pub fn as_str(self) -> &'static str {
         match self {
             Level::Off => "off",
-            Level::Standard => "standard",
-            Level::Strict => "strict",
+            Level::Green => "green",
+            Level::Yellow => "yellow",
+            Level::Red => "red",
             Level::Custom => "custom",
         }
     }
@@ -111,8 +123,10 @@ pub const VECTOR_KEYS: [&str; 10] = [
 ];
 
 impl Config {
-    /// Standard preset — all vectors, moderate buckets. This is the fail-safe
-    /// default everywhere.
+    /// The all-vectors, moderate-buckets config — the **Yellow** Ampel level
+    /// (CD-30; formerly the `Standard` preset, const name kept for the fail-safe
+    /// plumbing). This is the fail-safe default everywhere: an unconfigured
+    /// browser is always protected at least this much.
     pub const STANDARD: Config = Config {
         on: true,
         strict: false,
@@ -128,7 +142,20 @@ impl Config {
         math: true,
     };
 
-    /// Strict preset — all vectors plus the tighter entropy buckets.
+    /// The **Green** Ampel level (CD-30): the coherent everyday core — every
+    /// vector with no layout cost and minimal site breakage — WITHOUT the three
+    /// aggressive clamps (clock/timing precision, media/codec normalization,
+    /// math rounding) that can cause minor site quirks. Moderate buckets.
+    pub const GREEN: Config = Config {
+        timing: false,
+        media: false,
+        math: false,
+        ..Config::STANDARD
+    };
+
+    /// The all-vectors, tight-buckets config — the **Red** Ampel level (CD-30;
+    /// formerly the `Strict` preset). The CD-30 window-size lock rides on the
+    /// LEVEL at the shell layer, not on this config.
     pub const STRICT: Config = Config { strict: true, ..Config::STANDARD };
 
     /// Off — no injection at all.
@@ -224,10 +251,11 @@ pub const STANDARD_JSON: &str = "{\"on\":true,\"strict\":false,\"canvas\":true,\
 pub fn resolve(level: Level, custom: Config) -> Config {
     match level {
         Level::Off => Config::OFF,
-        Level::Standard => Config::STANDARD,
-        Level::Strict => Config::STRICT,
-        // Custom is Standard-strength (never `strict`) with the user's chosen vectors;
-        // `on` follows whether any vector survives.
+        Level::Green => Config::GREEN,
+        Level::Yellow => Config::STANDARD,
+        Level::Red => Config::STRICT,
+        // Custom is moderate-strength (never `strict`) with the user's chosen
+        // vectors; `on` follows whether any vector survives.
         Level::Custom => Config {
             on: custom.any_vector(),
             strict: false,
@@ -236,15 +264,20 @@ pub fn resolve(level: Level, custom: Config) -> Config {
     }
 }
 
-/// Is moving from `current` to `target` a WEAKENING (any vector protection removed,
-/// or hardening turned off)? This is what the safety gate keys on: a weakening needs
-/// the honest warning + two confirmations; strengthening (re-enabling a vector,
-/// moving toward Strict, turning protection on) is ungated.
-///
-/// Loosening `strict` -> non-strict is NOT a weakening: Standard is the safe floor,
-/// and Strict is *above* it, so relaxing to Standard stays safe.
+/// Is moving from `current` to `target` a WEAKENING? This is what the safety gate
+/// keys on: a weakening needs the honest warning + two confirmations;
+/// strengthening (re-enabling a vector, tightening buckets, turning protection
+/// on) is ungated. A weakening is any of:
+/// * turning protection off,
+/// * dropping any active vector (e.g. Yellow → Green drops timing/media/math), or
+/// * loosening the tight `strict` buckets (Red → Yellow). CD-30 revised this —
+///   the Ampel makes Green < Yellow < Red a strict protection ORDER, so every
+///   step down the ladder is gated, including leaving Red.
 pub fn is_weakening(current: &Config, target: &Config) -> bool {
     if current.on && !target.on {
+        return true;
+    }
+    if current.on && current.strict && !target.strict {
         return true;
     }
     current
@@ -260,12 +293,13 @@ mod tests {
 
     #[test]
     fn standard_resolve_matches_failsafe_literal() {
-        // The Standard preset must be byte-identical to the fail-safe literal, so
-        // an unconfigured browser and a Standard one behave identically.
+        // The Yellow (former Standard) config must be byte-identical to the
+        // fail-safe literal, so an unconfigured browser and a Yellow one behave
+        // identically.
         assert_eq!(Config::STANDARD.to_json(), STANDARD_JSON);
-        assert_eq!(resolve(Level::Standard, Config::OFF).to_json(), STANDARD_JSON);
-        assert!(resolve(Level::Standard, Config::OFF).on);
-        assert!(!resolve(Level::Standard, Config::OFF).strict);
+        assert_eq!(resolve(Level::Yellow, Config::OFF).to_json(), STANDARD_JSON);
+        assert!(resolve(Level::Yellow, Config::OFF).on);
+        assert!(!resolve(Level::Yellow, Config::OFF).strict);
     }
 
     #[test]
@@ -276,8 +310,54 @@ mod tests {
 
     #[test]
     fn strict_tightens_buckets() {
-        let s = resolve(Level::Strict, Config::OFF);
+        let s = resolve(Level::Red, Config::OFF);
         assert!(s.on && s.strict && s.any_vector());
+    }
+
+    #[test]
+    fn green_is_the_core_without_the_aggressive_clamps() {
+        // Green = everything except clock/timing, media/codec and math rounding,
+        // at moderate buckets (CD-30 Task C).
+        let g = resolve(Level::Green, Config::OFF);
+        assert!(g.on && !g.strict);
+        assert!(g.canvas && g.webgl && g.gpu && g.audio && g.metrics && g.nav && g.fonts);
+        assert!(!g.timing && !g.media && !g.math);
+    }
+
+    #[test]
+    fn pre_cd30_level_names_parse_as_the_same_protection() {
+        // A persisted "standard"/"strict" keeps its exact content under the new
+        // Ampel names — an upgrade never silently changes protection.
+        assert_eq!(Level::parse("standard"), Some(Level::Yellow));
+        assert_eq!(Level::parse("strict"), Some(Level::Red));
+        assert_eq!(Level::parse("green"), Some(Level::Green));
+        assert_eq!(Level::parse("yellow"), Some(Level::Yellow));
+        assert_eq!(Level::parse("red"), Some(Level::Red));
+        assert_eq!(Level::parse("off"), Some(Level::Off));
+        assert_eq!(Level::parse("custom"), Some(Level::Custom));
+        assert_eq!(Level::parse("bunker"), None);
+        // The canonical serialization uses the new names.
+        assert_eq!(Level::Yellow.as_str(), "yellow");
+        assert_eq!(Level::Red.as_str(), "red");
+    }
+
+    #[test]
+    fn every_step_down_the_ampel_ladder_is_a_weakening() {
+        let off = resolve(Level::Off, Config::OFF);
+        let green = resolve(Level::Green, Config::OFF);
+        let yellow = resolve(Level::Yellow, Config::OFF);
+        let red = resolve(Level::Red, Config::OFF);
+        // Down = gated…
+        assert!(is_weakening(&red, &yellow), "Red→Yellow loosens the tight buckets");
+        assert!(is_weakening(&yellow, &green), "Yellow→Green drops timing/media/math");
+        assert!(is_weakening(&green, &off), "Green→Off turns protection off");
+        assert!(is_weakening(&red, &green) && is_weakening(&red, &off));
+        assert!(is_weakening(&yellow, &off));
+        // …up = immediate.
+        assert!(!is_weakening(&off, &green));
+        assert!(!is_weakening(&green, &yellow));
+        assert!(!is_weakening(&yellow, &red));
+        assert!(!is_weakening(&off, &red) && !is_weakening(&green, &red));
     }
 
     #[test]
@@ -306,11 +386,16 @@ mod tests {
             assert!(is_weakening(&Config::STANDARD, &dropped), "{key} off must weaken");
             assert!(!is_weakening(&dropped, &Config::STANDARD), "{key} on must not weaken");
         }
-        // Standard -> Strict = strengthen; Strict -> Standard = NOT a weaken.
+        // Yellow -> Red = strengthen; Red -> Yellow = a weakening since CD-30
+        // (the Ampel ladder is a strict protection order — leaving Red is gated).
         assert!(!is_weakening(&Config::STANDARD, &Config::STRICT));
-        assert!(!is_weakening(&Config::STRICT, &Config::STANDARD));
-        // Off -> Standard = strengthen.
+        assert!(is_weakening(&Config::STRICT, &Config::STANDARD));
+        // Off -> Yellow = strengthen.
         assert!(!is_weakening(&Config::OFF, &Config::STANDARD));
+        // An OFF config's inert `strict` bit is irrelevant: coming from Off,
+        // nothing can be a weakening.
+        let off_strict = Config { strict: true, ..Config::OFF };
+        assert!(!is_weakening(&off_strict, &Config::STANDARD));
     }
 
     #[test]

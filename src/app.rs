@@ -497,11 +497,20 @@ impl Shell {
     fn mouse_target(&self) -> Option<(Role, (f32, f32))> {
         let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
         let (cx, cy) = (self.cursor_phys.x as f32, self.cursor_phys.y as f32);
+        // The HUD strip (CD-30) is interactive in EVERY overlay state — the Ampel
+        // must stay reachable. Its rect (the top margin strip above/right of the
+        // MF zone) overlaps neither the slots, the band columns, the launcher,
+        // nor the MF zone, so the check is order-independent; the shell-drawn
+        // gear / info glyphs consume their clicks before routing ever runs.
+        let hud = self.hud_rect();
+        let over_hud = self.point_in(hud);
         match self.overlay {
             Overlay::Settings | Overlay::Info => {
                 let (x, y, pw, ph) = self.internal_rect(w, h);
                 if cx >= x && cx <= x + pw && cy >= y && cy <= y + ph {
                     Some((Role::Internal, (x, y)))
+                } else if over_hud {
+                    Some((Role::Hud, (hud.0, hud.1)))
                 } else {
                     None
                 }
@@ -515,6 +524,8 @@ impl Shell {
                 let over_ensemble = self.engaged_band_rect().map(|r| self.point_in(r)).unwrap_or(false);
                 if over_ensemble || self.point_in(self.launcher_rect()) {
                     Some((Role::Internal, (0.0, 0.0)))
+                } else if over_hud {
+                    Some((Role::Hud, (hud.0, hud.1)))
                 } else if self.disp_right.contains(cx, cy) {
                     Some((Role::MfZone, (self.disp_right.x, self.disp_right.y)))
                 } else {
@@ -524,7 +535,9 @@ impl Shell {
             // The permanent MF-zone content view takes clicks over its rect (tab
             // switching / scrolling); otherwise the slot under the cursor (CD-18).
             Overlay::Closed => {
-                if self.disp_right.contains(cx, cy) {
+                if over_hud {
+                    Some((Role::Hud, (hud.0, hud.1)))
+                } else if self.disp_right.contains(cx, cy) {
                     Some((Role::MfZone, (self.disp_right.x, self.disp_right.y)))
                 } else {
                     self.slot_at_cursor().map(|(id, r)| (Role::Slot(id), (r.x, r.y)))
@@ -1090,21 +1103,24 @@ impl Shell {
         // (it is part of the sig, so an unchanged sig means an unchanged status), so
         // `about_to_wait` won't redundantly re-push for the same value.
         self.tor_status_pushed = tor_status;
-        // Per-slot hardening view (CD-25): the effective level code (0=off, 1=standard,
-        // 2=strict, 3=custom), whether it is INHERITED (vs a per-window override), and
-        // whether it is REDUCED below the safe Standard (off / a dropped vector). Used
-        // for both the change-sig and the payload so a level change re-pushes.
+        // Per-slot hardening view (CD-25; Ampel-graded CD-30): the effective level
+        // code (0=off, 1=green, 2=yellow, 3=red, 4=custom), whether it is INHERITED
+        // (vs a per-window override), and whether it is REDUCED below the safe
+        // Green floor (off / a dropped Green-core vector — Green itself is a
+        // first-class safe level, never a warning). Used for both the change-sig
+        // and the payload so a level change re-pushes.
         let hview = |id: usize| -> (u8, bool, bool) {
             let ov = browser::slot_hardening_override(id);
             let level = ov.map(|o| o.level).unwrap_or_else(crate::settings::hardening_level);
             let code = match level {
                 crate::harden::Level::Off => 0u8,
-                crate::harden::Level::Standard => 1,
-                crate::harden::Level::Strict => 2,
-                crate::harden::Level::Custom => 3,
+                crate::harden::Level::Green => 1,
+                crate::harden::Level::Yellow => 2,
+                crate::harden::Level::Red => 3,
+                crate::harden::Level::Custom => 4,
             };
             let reduced = crate::harden::is_weakening(
-                &crate::harden::Config::STANDARD,
+                &crate::harden::Config::GREEN,
                 &browser::slot_effective_config(id),
             );
             (code, ov.is_none(), reduced)
@@ -1167,7 +1183,9 @@ impl Shell {
         let cfg = crate::settings::hardening_global_config();
         let vec_on = cfg.vector_flags().iter().filter(|&&v| v).count();
         let vec_total = crate::harden::VECTOR_KEYS.len();
-        let reduced = crate::harden::is_weakening(&crate::harden::Config::STANDARD, &cfg);
+        // "Reduced" = below the Green floor (CD-30): Green is a first-class safe
+        // level, so only Off / a dropped Green-core vector reads as a warning.
+        let reduced = crate::harden::is_weakening(&crate::harden::Config::GREEN, &cfg);
         let active_pos = self.active_position() + 1;
         let active_tor = browser::slot_is_tor(self.active_slot);
         let rot_auto = crate::settings::rotate_auto();
@@ -2195,6 +2213,15 @@ impl ApplicationHandler for Shell {
             for id in respawn {
                 self.respawn_slot_preserving_url(id);
             }
+        }
+
+        // "Open settings" requested by the HUD Ampel's Custom… (CD-30): the
+        // per-vector view lives in the settings card.
+        if self.views_started
+            && browser::take_pending_open_settings()
+            && self.overlay != Overlay::Settings
+        {
+            self.toggle_settings();
         }
 
         // MF-zone wide-terminal relayout (CD-30 Task A): the Terminal tab toggled,

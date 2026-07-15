@@ -321,6 +321,14 @@ pub fn take_pending_mf_relayout() -> bool {
     MF_RELAYOUT.swap(false, Ordering::Relaxed)
 }
 
+/// "Open the settings card" requested by a page (CD-30: the HUD Ampel's
+/// "Custom…" points at the per-vector view, which lives in the settings card).
+/// Drained by the main thread, which owns the overlay state.
+static OPEN_SETTINGS: AtomicBool = AtomicBool::new(false);
+pub fn take_pending_open_settings() -> bool {
+    OPEN_SETTINGS.swap(false, Ordering::Relaxed)
+}
+
 // --- Process / lifecycle ----------------------------------------------------
 
 /// Must be the first thing `main` does. Binds the CEF API version and runs the
@@ -2078,6 +2086,12 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         // pull-then-push pattern as `get_frame`. The cached payload's countdown
         // fields are elapsed-based, so the page re-anchors them at receive time.
         "get_hud_state" => Ok(hud_state().lock().unwrap().clone()),
+        // Open the settings card (CD-30: the HUD Ampel's "Custom…" — the
+        // per-vector view lives there). Queued for the main thread.
+        "open_settings" => {
+            OPEN_SETTINGS.store(true, Ordering::Relaxed);
+            Ok(serde_json::json!({ "ok": true }).to_string())
+        }
         // The MF-zone viewer reports its active tab (CD-30 Task A): while the
         // Terminal tab is shown the MF zone renders 2× wide and the slot columns
         // reflow narrower; any other tab returns it to the permanent width. The

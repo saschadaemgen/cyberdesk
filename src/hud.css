@@ -78,3 +78,95 @@ html, body {
 .field.warn    { border-color: color-mix(in srgb, var(--warn) 55%, var(--panel-border)); }
 .field.warn .v { color: var(--warn); }
 .field.on .v   { color: color-mix(in srgb, var(--brand) 80%, var(--text)); }
+
+/* --- The global Ampel (CD-30 Task C) --------------------------------------- */
+.row2 { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+
+/* A horizontal three-lamp traffic light. The lamp matching the ACTIVE global
+   level lights and glows; Off leaves all lamps dark inside a warn ring; Custom
+   tints all three faintly brand. The Ampel is a status display first — its
+   light always equals the level actually applied (host-pushed). */
+.ampel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.ampel:hover { border-color: var(--brand); }
+.ampel .lamp {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-dim) 28%, transparent);
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+.ampel[data-level="green"] .lamp-g  { background: var(--ampel-green); box-shadow: 0 0 9px var(--ampel-green); }
+.ampel[data-level="yellow"] .lamp-y { background: var(--ampel-yellow); box-shadow: 0 0 9px var(--ampel-yellow); }
+.ampel[data-level="red"] .lamp-r    { background: var(--ampel-red); box-shadow: 0 0 9px var(--ampel-red); }
+.ampel[data-level="red"] {
+  border-color: color-mix(in srgb, var(--ampel-red) 70%, var(--panel-border));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--ampel-red) 35%, transparent);
+}
+.ampel[data-level="off"] {
+  border-color: color-mix(in srgb, var(--warn) 60%, var(--panel-border));
+}
+.ampel[data-level="custom"] .lamp { background: color-mix(in srgb, var(--brand) 50%, transparent); }
+
+/* The level menu replaces the fields row while open (compact chips; the strip
+   is narrow). Stepping up applies at once; stepping down opens the gate row. */
+.menu { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.menu[hidden] { display: none; }
+.lv {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.lv:hover { border-color: var(--brand); }
+.lv.active { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 18%, transparent); }
+.lv-green:hover  { border-color: var(--ampel-green); }
+.lv-yellow:hover { border-color: var(--ampel-yellow); }
+.lv-red:hover    { border-color: var(--ampel-red); }
+
+/* The inline two-confirmation gate (CD-25 semantics): honest plain-language
+   cost + two explicit confirms; the host re-validates regardless. */
+.gate {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.gate[hidden] { display: none; }
+.gate-text {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text);
+  text-align: right;
+  max-width: 460px;
+}
+.gbtn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gbtn.keep { background: color-mix(in srgb, var(--brand) 20%, transparent); color: var(--text); border-color: var(--brand); }
+.gbtn.weaken { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 60%, var(--panel-border)); }

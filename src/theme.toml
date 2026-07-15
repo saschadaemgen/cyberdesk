@@ -16,6 +16,9 @@ text         = "#DCE9F2"
 text_dim     = "#7C9CB4"
 accent       = "#009FE3"
 warn         = "#E8A23D"  # amber — insecure/plain-http hint
+ampel_green  = "#35D07F"  # the Ampel lamps (CD-30): graded protection control
+ampel_yellow = "#E8C542"
+ampel_red    = "#FF5D5D"
 
 [ring]
 radius          = 0.40   # fraction of min viewport dimension

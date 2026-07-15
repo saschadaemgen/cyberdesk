@@ -30,6 +30,13 @@
   var routeV = document.getElementById("route-v");
   var identityK = document.getElementById("identity-k");
   var identityV = document.getElementById("identity-v");
+  var ampelEl = document.getElementById("ampel");
+  var fieldsEl = document.getElementById("fields");
+  var menuEl = document.getElementById("menu");
+  var gateEl = document.getElementById("gate");
+  var gateText = document.getElementById("gate-text");
+  var gateKeep = document.getElementById("gate-keep");
+  var gateWeaken = document.getElementById("gate-weaken");
 
   var state = null;      // last pushed payload (parsed)
   var deadline = null;   // absolute ms (unix) of the next automatic rotation
@@ -92,11 +99,17 @@
   function paint() {
     if (!state) return;
     // Protection level — the Ampel state in text, with the honest tint rules:
-    // warn when genuinely reduced/off, accent when strict.
+    // warn when genuinely reduced/off, accent at Red (the strongest).
     var level = (state.level || "").toUpperCase() || "—";
     levelV.textContent = level;
     levelField.classList.toggle("warn", !!state.reduced || state.level === "off");
-    levelField.classList.toggle("good", state.level === "strict" && !state.reduced);
+    levelField.classList.toggle("good", state.level === "red" && !state.reduced);
+    // The Ampel lamps — lit strictly from the ACTIVE global level (rule 0.1).
+    ampelEl.setAttribute("data-level", state.level || "");
+    var lvs = menuEl.querySelectorAll(".lv");
+    for (var i = 0; i < lvs.length; i++) {
+      lvs[i].classList.toggle("active", lvs[i].getAttribute("data-level") === state.level);
+    }
     // Honest live vector count (N/N) — the global effective config.
     var on = state.vectors_on | 0;
     var total = state.vectors_total | 0;
@@ -109,6 +122,98 @@
     paintIdentity();
     paintClock();
   }
+
+  // --- The global Ampel control (CD-30 Task C) -----------------------------
+  // Click → the level menu (replaces the fields row). Stepping UP the ladder
+  // (Off < Green < Yellow < Red) applies immediately; stepping DOWN opens the
+  // inline two-confirmation gate with the honest cost. The host re-validates
+  // every weakening (set_hardening confirm), so this gate is UX, not the trust
+  // boundary. "Custom…" opens the settings card (the per-vector view lives there).
+  var RANK = { off: 0, green: 1, yellow: 2, red: 3 };
+  var gatePending = null, gateStep = 1;
+
+  function showMenu(open) {
+    menuEl.hidden = !open;
+    fieldsEl.hidden = open;
+    gateEl.hidden = true;
+    gatePending = null;
+    ampelEl.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  // Honest plain-language cost of the step down (mirrors the settings gate copy).
+  function gateCopy(target) {
+    var from = state && state.level;
+    if (target === "off") {
+      return "Turn protection OFF? Every site then gets a stable, distinctive fingerprint " +
+        "and can recognise you when you return — this makes you easier to track, not harder.";
+    }
+    if (from === "red") {
+      return "Step down from Red (maximum)? The noise and timer clamps return from their " +
+        "tightest setting to standard strength" +
+        (target === "green" ? ", and the clock, media-codec and math clamps turn off" : "") + ".";
+    }
+    return "Step down to Green? The clock-precision, media-codec and math-rounding clamps " +
+      "turn off; the coherent core stays protected.";
+  }
+
+  function applyLevel(level, confirm) {
+    return query({ cmd: "set_hardening", level: level, confirm: !!confirm });
+  }
+
+  function openGate(target) {
+    gatePending = target;
+    gateStep = 1;
+    gateText.textContent = gateCopy(target);
+    gateWeaken.textContent = "Weaken anyway";
+    menuEl.hidden = true;
+    fieldsEl.hidden = true;
+    gateEl.hidden = false;
+  }
+
+  function chooseLevel(target) {
+    if (target === "custom") {
+      // The per-vector Custom view lives in the settings card underneath.
+      query({ cmd: "open_settings" }).catch(function () {});
+      showMenu(false);
+      return;
+    }
+    var cur = state && RANK[state.level] != null ? RANK[state.level] : null;
+    var tgt = RANK[target];
+    var weaken = cur != null && tgt < cur;
+    if (weaken) { openGate(target); return; }
+    showMenu(false);
+    // Up / sideways: immediate. If the host still classifies it as a weakening
+    // (e.g. coming from Custom), it rejects — then run the gate honestly.
+    applyLevel(target, false).catch(function () { openGate(target); });
+  }
+
+  ampelEl.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    showMenu(menuEl.hidden);
+  });
+  Array.prototype.forEach.call(menuEl.querySelectorAll(".lv"), function (btn) {
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      chooseLevel(btn.getAttribute("data-level"));
+    });
+  });
+  gateKeep.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    showMenu(false);
+  });
+  gateWeaken.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    if (gateStep === 1) {
+      gateStep = 2;
+      gateText.textContent = "Lower your own protection? You can restore it here at any time.";
+      gateWeaken.textContent = "Yes, weaken";
+      return;
+    }
+    var target = gatePending;
+    showMenu(false);
+    if (target) { applyLevel(target, true).catch(function () {}); }
+  });
+  document.addEventListener("click", function () { if (!menuEl.hidden || !gateEl.hidden) showMenu(false); });
 
   // Host push entry point (on change, never per frame).
   window.cdHud = function (json) {

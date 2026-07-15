@@ -30,8 +30,10 @@ Transport: `window.cefQuery({ request, persistent: false, onSuccess, onFailure }
   - `search_engine` ∈ { `google`, `duckduckgo`, `bing`, `startpage`, `brave` }
     (CD-07; CD-27/D-0043 added `brave` and flipped the factory default to
     `duckduckgo`).
-  - `fp_preset` ∈ { `off`, `standard`, `strict`, `custom` } — the GLOBAL fingerprinting-
-    hardening preset a window inherits (CD-25, default `standard`).
+  - `fp_preset` ∈ { `off`, `green`, `yellow`, `red`, `custom` } — the GLOBAL
+    Ampel level a window inherits (CD-25; graded CD-30, factory default `green`).
+    `yellow`/`red` are the former `standard`/`strict` (identical content); the
+    old names still parse as aliases so persisted configs never silently change.
   - `fp_custom` — the per-vector flags used when `fp_preset` is `custom`, e.g.
     `{"on":<bool>,"strict":<bool>,"canvas":<bool>,"webgl":<bool>,"audio":<bool>,"metrics":<bool>,"nav":<bool>,"fonts":<bool>}`.
 - Failure: code 1 (malformed request JSON).
@@ -68,22 +70,26 @@ CD-05 (D-0012) renamed the background toggle `deep_field` -> `animated_backgroun
 `glow_intensity`; the store migrates the old key. Unknown commands are rejected
 with code 4. There is no passthrough channel.
 
-### `set_hardening` (view -> host, CD-25; vectors extended CD-29)
+### `set_hardening` (view -> host, CD-25; vectors extended CD-29; Ampel CD-30)
 
-The GLOBAL fingerprinting-hardening preset — its own command (not `set_setting`)
-because it carries a structured `vectors` object and a weakening `confirm` flag.
+The GLOBAL Ampel level — its own command (not `set_setting`) because it carries
+a structured `vectors` object and a weakening `confirm` flag. Sent by the
+settings card AND the floating HUD Ampel (CD-30).
 
-- Request: `{"cmd":"set_hardening","level":"<off|standard|strict|custom>"[,"vectors":{...}][,"confirm":<bool>]}`
+- Request: `{"cmd":"set_hardening","level":"<off|green|yellow|red|custom>"[,"vectors":{...}][,"confirm":<bool>]}`
+  (`standard`/`strict` accepted as aliases of `yellow`/`red`)
   - `vectors` (CD-29) keys are the ten vectors: `canvas`, `webgl` (readback), `gpu`
     (vendor/renderer identity), `audio`, `metrics`, `nav` (device profile), `fonts`,
     `timing` (clock), `media` (codecs/voices), `math`. Read only when `level` is
     `custom`; **absent flags default to `true`** (so an older/partial page never
     silently weakens a vector — and a CD-25 six-key object upgrades with the four new
     vectors ON).
-  - `confirm` — REQUIRED (`true`) to WEAKEN (drop a vector, or turn off). The host
-    re-validates the two-confirmation safety gate rather than trusting the page to
-    have run it; an unconfirmed weakening is rejected with code 3. Strengthening
-    (toward Strict / re-enabling a vector) never needs it.
+  - `confirm` — REQUIRED (`true`) to WEAKEN: any step DOWN the Ampel ladder
+    (Red→Yellow→Green→Off — CD-30 made leaving Red's tight buckets a weakening
+    too), or a dropped vector. The host re-validates the two-confirmation safety
+    gate rather than trusting the page to have run it; an unconfirmed weakening
+    is rejected with code 3. Strengthening (up the ladder / re-enabling a
+    vector) never needs it.
 - Effect: persists the preset (SQLite `hardening_level`; `hardening_custom` when
   custom) and RESPAWNS every window that INHERITS the global so it reloads under the
   new config (a live document can't be re-hardened).
@@ -95,7 +101,8 @@ because it carries a structured `vectors` object and a weakening `confirm` flag.
 A PER-WINDOW override. Since CD-29 (Task C) it accepts a full per-vector `custom`,
 not just presets — every vector is settable per-window as well as globally.
 
-- Request: `{"cmd":"set_slot_hardening","level":"<inherit|off|standard|strict|custom>"[,"vectors":{...}][,"confirm":<bool>][,"slot":<int>]}`
+- Request: `{"cmd":"set_slot_hardening","level":"<inherit|off|green|yellow|red|custom>"[,"vectors":{...}][,"confirm":<bool>][,"slot":<int>]}`
+  (`standard`/`strict` accepted as aliases of `yellow`/`red`)
   - `inherit` clears the override (the window follows the global again).
   - `custom` carries a `vectors` object (same ten keys as `set_hardening`); absent
     keys stay ON. When `vectors` is omitted the slot's existing custom is reused.
@@ -127,7 +134,7 @@ Read-only: the per-window Custom detail paints each vector's current state from 
 rather than the frame push (which stays compact).
 
 - Request: `{"cmd":"get_slot_hardening"[,"slot":<int>]}`
-- Success: `{"level":"<off|standard|strict|custom>","inherited":<bool>,"config":{"on":..,"strict":..,<ten vector flags>}}`
+- Success: `{"level":"<off|green|yellow|red|custom>","inherited":<bool>,"config":{"on":..,"strict":..,<ten vector flags>}}`
 
 ### `set_slot_screen` / `get_slot_screen` (view -> host, CD-29)
 
@@ -319,12 +326,14 @@ and glides via CSS (~220 ms).
     (the band's origin = the window origin), so the page places each ensemble above
     its column. `id` is the stable slot id (the same id the `slot` field carries back).
     `tor` — whether this column is on Tor (lights its anonymity icon).
-  - `fp` (CD-25) — this window's EFFECTIVE hardening level: 0 off / 1 standard /
-    2 strict / 3 custom, driving the per-window tracking-resistance orb.
+  - `fp` (CD-25; Ampel CD-30) — this window's EFFECTIVE Ampel level: 0 off /
+    1 green / 2 yellow / 3 red / 4 custom — the code IS the ladder rank for
+    0..3 — driving the per-window mini-Ampel.
   - `fp_inherited` (CD-25) — `true` if the window follows the global preset, `false`
-    if it has its own override (the orb shows a distinct override marker).
-  - `fp_reduced` (CD-25) — `true` when the effective config is below the safe Standard
-    (off, or any vector dropped); the orb reads as a warning (honesty rule).
+    if it has its own override (the mini-Ampel shows a distinct override marker).
+  - `fp_reduced` (CD-25; CD-30 floor = Green) — `true` when the effective config is
+    below the Green floor (off, or a dropped Green-core vector — Green itself is a
+    first-class safe level); the mini-Ampel reads as a warning (honesty rule).
   - `engaged` — the id of the column whose ensemble is revealed, or `null` (all hidden).
   - `autofocus` — focus + select the engaged capsule's input on this reveal (Ctrl+L).
     A **transient**: it is excluded from the host's change-signature, so a routine
@@ -483,10 +492,11 @@ and the countdown locally, off absolute anchors.
   - `tz_offset_min` — the OS timezone's UTC offset. The process runs under
     `TZ=UTC` (CD-16), so the clock derives local time from this, never from the
     clamped C-runtime timezone.
-  - `level` / `vectors_on` / `vectors_total` / `reduced` — the GLOBAL effective
-    hardening preset, its honest live vector count (`N/10`), and whether it sits
-    below the safe floor (drives the warn tint). Truthful by construction: read
-    from the same resolved config the render processes receive.
+  - `level` (`off|green|yellow|red|custom`) / `vectors_on` / `vectors_total` /
+    `reduced` — the GLOBAL Ampel level, its honest live vector count (`N/10`),
+    and whether it sits below the Green floor (drives the warn tint). Truthful
+    by construction: read from the same resolved config the render processes
+    receive. The HUD's Ampel lamps light strictly from `level`.
   - `route` — the ACTIVE window's route (`tor` bool; window is its 1-based
     display position). Real CD-15 state; there is no other route kind.
   - `rotate` — the CD-29 auto-rotation state driving the countdown field; when
@@ -500,6 +510,13 @@ and the countdown locally, off absolute anchors.
 
 - Request: `{"cmd":"get_hud_state"}` — pull-on-load; returns the cached `cdHud`
   payload (`{}` before the first push). Failure: code 1 (malformed request).
+
+### `open_settings` (view -> host, CD-30)
+
+- Request: `{"cmd":"open_settings"}` — the HUD Ampel's "Custom…" points the user
+  at the per-vector view, which lives in the settings card.
+- Effect: queues an "open the settings overlay" for the main thread (no-op if it
+  is already open). Success: `{"ok":true}`.
 
 ## Update-awareness IPC (CD-13 → CD-22, live)
 

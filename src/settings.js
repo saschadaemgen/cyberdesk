@@ -190,20 +190,26 @@
     })(screenOpts[si]);
   }
 
-  // --- Fingerprinting-hardening controls (CD-25) ---------------------------
-  // Global preset (Off/Standard/Strict/Custom) + a per-vector detail view, with a
-  // two-confirmation gate on any WEAKENING. The weaken classification mirrors
-  // harden.rs::is_weakening; the host re-validates it, so the gate here is UX, not
-  // the trust boundary.
+  // --- Fingerprinting-hardening controls (CD-25; Ampel-graded CD-30) -------
+  // Global Ampel level (Off/Green/Yellow/Red/Custom) + a per-vector detail view,
+  // with a two-confirmation gate on any WEAKENING (any step DOWN the ladder —
+  // Red→Yellow→Green→Off — or a dropped vector; stepping UP is immediate). The
+  // weaken classification mirrors harden.rs::is_weakening; the host re-validates
+  // it, so the gate here is UX, not the trust boundary.
   var fpSelect = document.getElementById("fp-select");
   var fpBtn = document.getElementById("fp-btn");
   var fpMenu = document.getElementById("fp-menu");
   var fpVal = document.getElementById("fp-val");
   var fpLevelPill = document.getElementById("fp-level");
   var fpDetail = document.getElementById("fp-detail");
-  var FP_LABELS = { off: "Off", standard: "Standard", strict: "Strict", custom: "Custom" };
+  var FP_LABELS = { off: "Off", green: "Green", yellow: "Yellow", red: "Red", custom: "Custom" };
+  // Pre-CD-30 names arriving from an old store snapshot map onto the Ampel.
+  function canonLevel(l) { return l === "standard" ? "yellow" : l === "strict" ? "red" : l; }
   // The full CD-29 vector list (canonical order matches harden.rs::VECTOR_KEYS).
   var VECTORS = ["canvas", "webgl", "gpu", "audio", "metrics", "nav", "fonts", "timing", "media", "math"];
+  // Green = the coherent everyday core: everything except the three aggressive
+  // clamps below (mirror harden.rs::Config::GREEN).
+  var GREEN_OFF = ["timing", "media", "math"];
   var VECTOR_LABELS = {
     canvas: "canvas", webgl: "WebGL readback", gpu: "GPU identity", audio: "audio",
     metrics: "layout & text metrics", nav: "device profile", fonts: "fonts",
@@ -214,25 +220,31 @@
     VECTORS.forEach(function (k) { o[k] = on; });
     return o;
   }
-  var ALL_ON = (function () { var o = allVectors(true); o.on = true; return o; })();
-  var fpState = { preset: "standard", vectors: allVectors(true) };
+  var fpState = { preset: "green", vectors: allVectors(true) };
 
-  // Resolve a (preset, vectors) into the effective per-vector config for the weaken
-  // classification (mirror harden.rs::resolve).
+  // Resolve a (preset, vectors) into the effective config for the weaken
+  // classification (mirror harden.rs::resolve, incl. the Red `strict` buckets).
   function fpEffective(preset, vectors) {
     if (preset === "off") {
-      var off = allVectors(false); off.on = false; return off;
+      var off = allVectors(false); off.on = false; off.strict = false; return off;
     }
     if (preset === "custom") {
       var eff = {}, any = false;
       VECTORS.forEach(function (k) { eff[k] = !!vectors[k]; if (vectors[k]) any = true; });
-      eff.on = any;
+      eff.on = any; eff.strict = false;
       return eff;
     }
-    var on = allVectors(true); on.on = true; return on; // standard / strict
+    var on = allVectors(true);
+    if (preset === "green") { GREEN_OFF.forEach(function (k) { on[k] = false; }); }
+    on.on = true;
+    on.strict = preset === "red";
+    return on;
   }
+  var GREEN_EFF = fpEffective("green", null);
   function isWeakening(cur, tgt) {
     if (cur.on && !tgt.on) return true;
+    // CD-30: leaving the tight Red buckets is a weakening (the ladder is ordered).
+    if (cur.on && cur.strict && !tgt.strict) return true;
     for (var i = 0; i < VECTORS.length; i++) {
       var k = VECTORS[i];
       if (cur[k] && !tgt[k]) return true;
@@ -241,17 +253,19 @@
   }
 
   function paintFp() {
-    var lvl = FP_LABELS[fpState.preset] ? fpState.preset : "standard";
+    var lvl = FP_LABELS[fpState.preset] ? fpState.preset : "green";
     fpVal.textContent = FP_LABELS[lvl];
     var opts = fpMenu.querySelectorAll("li");
     for (var i = 0; i < opts.length; i++) {
       opts[i].setAttribute("aria-selected", opts[i].dataset.value === lvl ? "true" : "false");
     }
     var eff = fpEffective(fpState.preset, fpState.vectors);
-    var reduced = !eff.on || isWeakening(ALL_ON, eff);
+    // Reduced = below the Green floor (Green itself is a first-class safe level).
+    var reduced = !eff.on || isWeakening(GREEN_EFF, eff);
     fpLevelPill.textContent = lvl;
-    // s2 = accent (strict, strongest), s1 = brand (standard), s3 = warn (off/reduced).
-    fpLevelPill.className = "tor-status s" + (lvl === "off" || reduced ? 3 : lvl === "strict" ? 2 : 1);
+    // s2 = accent (red, strongest), s1 = brand (green/yellow/custom), s3 = warn
+    // (off / below the Green floor) — the pill is a status display first.
+    fpLevelPill.className = "tor-status s" + (lvl === "off" || reduced ? 3 : lvl === "red" ? 2 : 1);
     fpDetail.hidden = fpState.preset !== "custom";
     VECTORS.forEach(function (k) {
       var el = document.querySelector('.switch[data-fp="' + k + '"]');
@@ -296,7 +310,9 @@
     var fn = gatePending; closeGate(); if (fn) fn();
   });
 
-  function presetGateCopy(level) {
+  // Honest, plain-language cost of each step DOWN the Ampel ladder (CD-30). The
+  // copy states exactly what disengages — never more, never less (rule 0.1).
+  function presetGateCopy(level, from) {
     if (level === "off") {
       return {
         title: "Turn off tracking protection?",
@@ -306,11 +322,28 @@
           "you when you return</strong>, even without cookies. This makes you easier to track, not harder."
       };
     }
+    if (level === "custom") {
+      return {
+        title: "Customise protection?",
+        body: "Custom mode lets you disable individual protections. A partial, unusual set can make " +
+          "you <strong>more</strong> identifiable, not less — an Ampel level (Green, Yellow or Red) " +
+          "hides you better. Only turn things off if you have a specific reason."
+      };
+    }
+    if (from === "red") {
+      return {
+        title: "Step down from Red?",
+        body: "Red is maximum protection. Stepping down returns the noise and timer clamps from " +
+          "their <strong>tightest</strong> setting to standard strength" +
+          (level === "green" ? ", and turns the clock-precision, media-codec and math-rounding clamps off" : "") +
+          ". Sites see slightly more detail than they do now."
+      };
+    }
     return {
-      title: "Customise protection?",
-      body: "Custom mode lets you disable individual protections. A partial, unusual set can make " +
-        "you <strong>more</strong> identifiable, not less — a preset (Standard or Strict) hides you " +
-        "better. Only turn things off if you have a specific reason."
+      title: "Step down to Green?",
+      body: "Green keeps the coherent core (canvas, GPU, audio, text metrics, fonts, device profile, " +
+        "screen) but turns the <strong>clock-precision, media-codec and math-rounding</strong> clamps " +
+        "off. Sites regain those three measurements; everything else stays protected."
     };
   }
 
@@ -321,12 +354,13 @@
     var weaken = isWeakening(cur, tgt);
     var enteringCustom = level === "custom" && fpState.preset !== "custom";
     function commit() {
+      var from = fpState.preset;
       fpState.preset = level;
       paintFp();
       applyFp(level, level === "custom" ? fpState.vectors : null, weaken)
-        .catch(function (err) { setStatus(String(err), true); });
+        .catch(function (err) { fpState.preset = from; paintFp(); setStatus(String(err), true); });
     }
-    if (weaken || enteringCustom) openGate(presetGateCopy(level), commit);
+    if (weaken || enteringCustom) openGate(presetGateCopy(level, fpState.preset), commit);
     else commit();
   }
 
@@ -398,7 +432,8 @@
       paintEngine(s.search_engine);
       paintScreen(s.screen_preset);
       paintRotInterval(s.rotate_interval_min);
-      fpState.preset = FP_LABELS[s.fp_preset] ? s.fp_preset : "standard";
+      var lvl = canonLevel(s.fp_preset || "");
+      fpState.preset = FP_LABELS[lvl] ? lvl : "green";
       if (s.fp_custom) {
         VECTORS.forEach(function (k) { fpState.vectors[k] = s.fp_custom[k] !== false; });
       }

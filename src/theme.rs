@@ -35,6 +35,12 @@ pub struct Colors {
     pub text_dim: String,
     pub accent: String,
     pub warn: String,
+    /// The Ampel lamp colors (CD-30): the graded protection control's
+    /// green/yellow/red — semantic traffic-light colors, tokenized like
+    /// everything else so a template can restyle them.
+    pub ampel_green: String,
+    pub ampel_yellow: String,
+    pub ampel_red: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -252,6 +258,9 @@ impl Theme {
              \x20 --text-dim: {text_dim};\n\
              \x20 --accent: {accent};\n\
              \x20 --warn: {warn};\n\
+             \x20 --ampel-green: {ampel_g};\n\
+             \x20 --ampel-yellow: {ampel_y};\n\
+             \x20 --ampel-red: {ampel_r};\n\
              \x20 --corner-radius: {radius}px;\n\
              \x20 --cmd-input-height: {cmd_input}px;\n\
              \x20 --cmd-row-height: {cmd_row}px;\n\
@@ -273,6 +282,9 @@ impl Theme {
             text_dim = self.colors.text_dim,
             accent = self.colors.accent,
             warn = self.colors.warn,
+            ampel_g = self.colors.ampel_green,
+            ampel_y = self.colors.ampel_yellow,
+            ampel_r = self.colors.ampel_red,
             radius = self.page.corner_radius,
             cmd_input = self.command.input_height,
             cmd_row = self.command.row_height,

@@ -39,9 +39,10 @@ const DEFAULT_ENGINE: u8 = 1;
 static TOR_ENABLED: AtomicBool = AtomicBool::new(true);
 /// Whether new windows open in Tor by default (CD-15). Off by default (clearnet).
 static TOR_DEFAULT: AtomicBool = AtomicBool::new(false);
-/// The GLOBAL fingerprinting-hardening preset a window inherits (CD-25): 0=off,
-/// 1=standard (default), 2=strict, 3=custom. A per-window override lives in
-/// browser.rs (`SLOT_HARDENING`); this is the default it falls back to.
+/// The GLOBAL fingerprinting-hardening Ampel level a window inherits (CD-25;
+/// graded CD-30): 0=off, 1=green (the factory default — the coherent everyday
+/// level), 2=yellow, 3=red, 4=custom. A per-window override lives in browser.rs
+/// (`SLOT_HARDENING`); this is the default it falls back to.
 static HARDENING_LEVEL: AtomicU8 = AtomicU8::new(1);
 /// The custom per-vector flags used only when the level is `custom`. Read at
 /// browser-create time and by the frame-state push (not per rendered frame), so a
@@ -143,17 +144,20 @@ pub fn search_engine() -> &'static str {
 fn level_code(l: harden::Level) -> u8 {
     match l {
         harden::Level::Off => 0,
-        harden::Level::Standard => 1,
-        harden::Level::Strict => 2,
-        harden::Level::Custom => 3,
+        harden::Level::Green => 1,
+        harden::Level::Yellow => 2,
+        harden::Level::Red => 3,
+        harden::Level::Custom => 4,
     }
 }
 fn level_from_code(c: u8) -> harden::Level {
     match c {
         0 => harden::Level::Off,
-        2 => harden::Level::Strict,
-        3 => harden::Level::Custom,
-        _ => harden::Level::Standard,
+        2 => harden::Level::Yellow,
+        3 => harden::Level::Red,
+        4 => harden::Level::Custom,
+        // The factory default AND the fallback for any out-of-range code.
+        _ => harden::Level::Green,
     }
 }
 
@@ -338,10 +342,13 @@ pub fn init() {
     SEARCH_ENGINE.store(engine, Ordering::Relaxed);
     TOR_ENABLED.store(s.get_bool(KEY_TOR_ENABLED, true), Ordering::Relaxed);
     TOR_DEFAULT.store(s.get_bool(KEY_TOR_DEFAULT, false), Ordering::Relaxed);
+    // CD-30: the factory default is GREEN (the coherent everyday level). A
+    // persisted pre-CD-30 "standard"/"strict" parses to Yellow/Red — identical
+    // content, so an explicit choice never silently weakens on upgrade.
     let level = s
         .get(KEY_HARDENING_LEVEL)
         .and_then(|v| harden::Level::parse(&v))
-        .unwrap_or(harden::Level::Standard);
+        .unwrap_or(harden::Level::Green);
     HARDENING_LEVEL.store(level_code(level), Ordering::Relaxed);
     if let Some(j) = s.get(KEY_HARDENING_CUSTOM) {
         *HARDENING_CUSTOM.lock().unwrap() = harden::Config::from_json(&j);

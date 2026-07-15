@@ -140,10 +140,11 @@ html, body {
   box-shadow: 0 0 10px color-mix(in srgb, var(--warn) 30%, transparent);
 }
 
-/* Per-window tracking-resistance orb (CD-25): an orb-sized fingerprint glyph. The
-   Standard default reads NEUTRAL (like a nav orb) to avoid always-lit clutter on
-   every window; Strict is accent-lit; Off / reduced is warn-tinted (honesty: a
-   reduced state must LOOK reduced); a per-window override adds a small dot marker. */
+/* Per-window mini-Ampel (CD-25 orb → CD-30 graded traffic light): a vertical
+   three-lamp light in an orb. The lamp matching the window's EFFECTIVE level is
+   lit + glows (a status display first — it can only show a level that is
+   actually active); Off leaves every lamp dark; Custom tints all three faintly
+   brand; reduced is warn-ringed; an override adds the small dot marker. */
 .fp-orb {
   flex: none;
   width: var(--cmd-orb-size);
@@ -151,25 +152,36 @@ html, body {
   border-radius: 50%;
   border: 1px solid var(--panel-border);
   background: color-mix(in srgb, var(--panel) 80%, transparent);
-  color: var(--text-dim);
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   cursor: pointer;
   position: relative;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
-.fp-orb:hover { color: var(--text); border-color: var(--brand); }
-.fp-orb.strict {
-  color: color-mix(in srgb, var(--accent) 85%, var(--text));
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+.fp-orb:hover { border-color: var(--brand); }
+.fp-orb .lamp {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-dim) 30%, transparent);
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+.fp-orb[data-level="green"] .lamp-g { background: var(--ampel-green); box-shadow: 0 0 6px var(--ampel-green); }
+.fp-orb[data-level="yellow"] .lamp-y { background: var(--ampel-yellow); box-shadow: 0 0 6px var(--ampel-yellow); }
+.fp-orb[data-level="red"] .lamp-r { background: var(--ampel-red); box-shadow: 0 0 6px var(--ampel-red); }
+.fp-orb[data-level="red"] {
+  border-color: color-mix(in srgb, var(--ampel-red) 65%, var(--panel-border));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ampel-red) 30%, transparent);
+}
+.fp-orb[data-level="custom"] .lamp {
+  background: color-mix(in srgb, var(--brand) 55%, transparent);
 }
 .fp-orb.reduced {
-  color: var(--warn);
   border-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--warn) 26%, transparent);
 }
 /* Override marker: a small dot telling this window differs from the global default. */

@@ -64,7 +64,9 @@
           '<input class="url" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="Search or enter address">' +
           '<button class="star" title="Favorite (Ctrl+D)" aria-label="Favorite" aria-pressed="false">' + SVG.star + '</button>' +
         '</div>' +
-        '<button class="fp-orb" title="Tracking resistance for this window" aria-label="Tracking resistance for this window" aria-haspopup="menu">' + SVG.fp + '</button>' +
+        '<button class="fp-orb" title="Protection level for this window" aria-label="Protection level for this window" aria-haspopup="menu">' +
+          '<span class="lamp lamp-r"></span><span class="lamp lamp-y"></span><span class="lamp lamp-g"></span>' +
+        '</button>' +
         '<button class="tor-orb" title="Route this window through Tor" aria-label="Toggle Tor for this window" aria-pressed="false">' + SVG.tor + '</button>' +
         '<button class="close-btn" title="Close this window (Ctrl+W)" aria-label="Close this window">' + SVG.close + '</button>' +
       '</div>' +
@@ -97,18 +99,20 @@
     e.star.setAttribute("aria-pressed", fav ? "true" : "false");
   }
 
-  // Paint the per-window hardening orb (CD-25) from the frame-state fields. Standard
-  // (the safe default) reads neutral to avoid always-lit clutter; Strict is accent-
-  // lit; Off / reduced is warn-tinted (honesty: a reduced state must LOOK reduced);
-  // a per-window override carries a small marker distinguishing it from inherited.
-  var FP_LEVEL_NAMES = ["off", "standard", "strict", "custom"];
+  // Paint the per-window mini-Ampel (CD-25 orb → CD-30 graded traffic light)
+  // from the frame-state fields. The lamp matching the EFFECTIVE level lights
+  // (green/yellow/red); Off leaves all lamps dark; Custom reads as a distinct
+  // brand tint. Off / reduced is warn-tinted (honesty: a reduced state must LOOK
+  // reduced); a per-window override carries a small marker.
+  var FP_LEVEL_NAMES = ["off", "green", "yellow", "red", "custom"];
   function paintFpOrb(e, d) {
     if (!e.fp) return;
-    e.fp.classList.toggle("strict", d.fp === 2 && !d.reduced);
+    var lvl = FP_LEVEL_NAMES[d.fp] || "green";
+    e.fp.setAttribute("data-level", lvl);
     e.fp.classList.toggle("reduced", d.reduced || d.fp === 0);
     e.fp.classList.toggle("override", !d.inherited);
-    var lvl = d.fp === 0 ? "off" : d.reduced ? "reduced" : FP_LEVEL_NAMES[d.fp] || "standard";
-    e.fp.title = "Tracking resistance: " + lvl +
+    var shown = d.fp === 0 ? "off" : d.reduced ? "reduced (" + lvl + ")" : lvl;
+    e.fp.title = "Protection level: " + shown +
       (d.inherited ? " (global default)" : " (window override)");
   }
 
@@ -314,8 +318,9 @@
 
   var FP_OPTS = [
     { level: "inherit", label: "Use global default" },
-    { level: "standard", label: "Standard" },
-    { level: "strict", label: "Strict" },
+    { level: "green", label: "Green — everyday" },
+    { level: "yellow", label: "Yellow — elevated" },
+    { level: "red", label: "Red — maximum" },
     { level: "custom", label: "Custom…" },
     { level: "off", label: "Off" }
   ];
@@ -341,12 +346,17 @@
   function chooseLevel(e, level) {
     // "Custom…" opens the per-vector detail (fetched from the host), not a preset.
     if (level === "custom") { openFpCustom(e); return; }
-    // Among the per-window presets, only Off drops below the Standard safe floor:
-    // Standard and Strict both keep every vector on, so neither is a weakening —
-    // matching the authoritative host classifier harden::is_weakening (which ignores
-    // the `strict` bucket flag). An Inherit that resolves weaker than the current
-    // window is caught by the host and gated on the rejection (see applySlotFp).
-    var weaken = level === "off";
+    // CD-30: the Ampel ladder Off < Green < Yellow < Red is a strict protection
+    // order — any step DOWN it is a weakening and opens the two-step gate. The
+    // frame's `fp` code IS the ladder rank for 0..3 (4 = custom, rank unknown).
+    // Anything the client can't rank (from Custom, or an Inherit that resolves
+    // weaker) is caught by the authoritative host classifier and gated on the
+    // rejection (see applySlotFp).
+    var RANK = { off: 0, green: 1, yellow: 2, red: 3 };
+    var d = e.fpData || { fp: 1 };
+    var curRank = d.fp >= 0 && d.fp <= 3 ? d.fp : null;
+    var tgtRank = RANK[level] != null ? RANK[level] : null;
+    var weaken = curRank != null && tgtRank != null && tgtRank < curRank;
     function commitConfirmed() { applySlotFp(e.id, level, true, null); }
     if (weaken) {
       fpGate(level, commitConfirmed);
@@ -460,7 +470,7 @@
     fpPop.appendChild(title);
     var sub = document.createElement("div");
     sub.className = "fp-pop-sub";
-    var now = d.fp === 0 ? "off" : d.reduced ? "reduced" : FP_LEVEL_NAMES[d.fp] || "standard";
+    var now = d.fp === 0 ? "off" : d.reduced ? "reduced" : FP_LEVEL_NAMES[d.fp] || "green";
     sub.textContent = (d.inherited ? "Following the global default" : "Overriding the global") + " · now: " + now;
     fpPop.appendChild(sub);
 

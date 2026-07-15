@@ -151,6 +151,10 @@
     <section class="rows tor-section" aria-label="Tracking resistance">
       <h2 class="section-head">Tracking resistance <span id="fp-level" class="tor-status"></span></h2>
 
+      <!-- The Ampel levels (CD-30 Task C): Green < Yellow < Red is a strict
+           protection order. Stepping UP is immediate; stepping DOWN goes through
+           the two-confirmation gate. The floating Ampel (top-right) drives the
+           same setting — this dropdown is the settings-card view of it. -->
       <div class="row">
         <div class="label">
           <span class="name">Protection level</span>
@@ -159,15 +163,16 @@
         <div class="select" id="fp-select">
           <button class="select-btn" id="fp-btn" type="button"
                   aria-haspopup="listbox" aria-expanded="false">
-            <span class="select-val" id="fp-val">Standard</span>
+            <span class="select-val" id="fp-val">Green</span>
             <svg class="select-chev" viewBox="0 0 24 24" width="16" height="16"><path
               d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <ul class="select-menu" id="fp-menu" role="listbox" hidden>
+            <li role="option" data-value="green">Green — everyday</li>
+            <li role="option" data-value="yellow">Yellow — elevated</li>
+            <li role="option" data-value="red">Red — maximum</li>
             <li role="option" data-value="off">Off</li>
-            <li role="option" data-value="standard">Standard</li>
-            <li role="option" data-value="strict">Strict</li>
             <li role="option" data-value="custom">Custom…</li>
           </ul>
         </div>
