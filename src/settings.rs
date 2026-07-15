@@ -166,6 +166,20 @@ pub fn hardening_level() -> harden::Level {
     level_from_code(HARDENING_LEVEL.load(Ordering::Relaxed))
 }
 
+/// The level a PERSISTED value boots as (CD-31, D-0048): the Red bunker mode —
+/// with its window-size lock — is always a deliberate in-session choice, never
+/// a state the user launches into unexpectedly. A persisted highest level
+/// (an old "strict" or a saved "red") comes up as Yellow: the full ten-vector
+/// protection at standard buckets, freely resizable. Freshly choosing Red
+/// in-session still fully engages the lock and the transition; this only
+/// shapes the boot. Pure, so the rule is unit-testable.
+fn boot_level(persisted: harden::Level) -> harden::Level {
+    match persisted {
+        harden::Level::Red => harden::Level::Yellow,
+        l => l,
+    }
+}
+
 /// The stored custom per-vector flags (meaningful only when the level is Custom).
 pub fn hardening_custom() -> harden::Config {
     *HARDENING_CUSTOM.lock().unwrap()
@@ -343,11 +357,14 @@ pub fn init() {
     TOR_ENABLED.store(s.get_bool(KEY_TOR_ENABLED, true), Ordering::Relaxed);
     TOR_DEFAULT.store(s.get_bool(KEY_TOR_DEFAULT, false), Ordering::Relaxed);
     // CD-30: the factory default is GREEN (the coherent everyday level). A
-    // persisted pre-CD-30 "standard"/"strict" parses to Yellow/Red — identical
-    // content, so an explicit choice never silently weakens on upgrade.
+    // persisted pre-CD-30 "standard" parses to Yellow — identical content, so
+    // an explicit choice never silently weakens on upgrade. CD-31 (D-0048): a
+    // persisted highest level ("strict"/"red") boots as YELLOW via boot_level —
+    // the Red bunker + size lock is opt-in per session, never a boot surprise.
     let level = s
         .get(KEY_HARDENING_LEVEL)
         .and_then(|v| harden::Level::parse(&v))
+        .map(boot_level)
         .unwrap_or(harden::Level::Green);
     HARDENING_LEVEL.store(level_code(level), Ordering::Relaxed);
     if let Some(j) = s.get(KEY_HARDENING_CUSTOM) {
@@ -473,7 +490,24 @@ pub fn set_search_engine(value: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_ENGINE, engine_id, engine_name};
+    use super::{DEFAULT_ENGINE, boot_level, engine_id, engine_name};
+    use crate::harden::Level;
+
+    /// CD-31 (D-0048): the Red bunker (window-size lock) is an in-session
+    /// choice — any persisted highest level boots as Yellow (full ten-vector
+    /// protection, resizable); every other level boots exactly as saved. The
+    /// old "strict" name parses to Red first, so it is covered by the same rule.
+    #[test]
+    fn persisted_red_or_strict_boots_as_yellow_never_the_locked_bunker() {
+        assert_eq!(boot_level(Level::Red), Level::Yellow);
+        assert_eq!(boot_level(Level::parse("strict").unwrap()), Level::Yellow);
+        assert_eq!(boot_level(Level::parse("red").unwrap()), Level::Yellow);
+        // Everything below the bunker boots unchanged.
+        assert_eq!(boot_level(Level::Yellow), Level::Yellow);
+        assert_eq!(boot_level(Level::Green), Level::Green);
+        assert_eq!(boot_level(Level::Custom), Level::Custom);
+        assert_eq!(boot_level(Level::Off), Level::Off);
+    }
 
     /// Every allowlisted engine round-trips id <-> name; anything else is
     /// rejected by the id side, and the name side resolves the factory default
