@@ -49,8 +49,14 @@
       t.setAttribute("aria-selected", on ? "true" : "false");
     });
     Object.keys(panes).forEach(function (k) { panes[k].classList.toggle("active", k === name); });
+    // Report the active tab to the host (CD-30 Task A): the Terminal tab renders
+    // the MF zone 2× wide and the slot columns reflow; other tabs return it.
+    query({ cmd: "mf_tab", tab: name }).catch(function () {});
     render();
   }
+  // Sync the host to this page's initial tab (a reloaded view starts back on
+  // Tor — the host's wide-terminal state must follow, CD-30).
+  query({ cmd: "mf_tab", tab: active }).catch(function () {});
 
   // --- Streams ------------------------------------------------------------
   var torStream = document.getElementById("tor-stream");

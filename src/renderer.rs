@@ -2268,7 +2268,7 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
         vec![1u32; n]
     };
     let units = if units.is_empty() { vec![1u32] } else { units };
-    let frame = crate::slots::frame_layout(width, height, &units, 1.0, &theme.slots);
+    let frame = crate::slots::frame_layout(width, height, &units, 1.0, &theme.slots, false);
     let rects = frame.slots.clone();
     let n = rects.len();
     // Zone shadow under the slots AND both side zones.

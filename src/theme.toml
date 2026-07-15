@@ -165,20 +165,26 @@ tile_gap      = 12.0   # gap between launcher tiles
 
 # Slot engine (CD-09, D-0017) — fixed-width content columns instead of a single
 # proportional surf zone. A slot is `width` logical px wide, as tall as the surf
-# zone (`height_frac` of the window, vertically centered), with `gutter` between
-# slots. CD-11 (D-0020) framed the group with side zones; the REVISED law (D-0022)
-# makes the frame ASYMMETRIC — the RIGHT is the permanent Multifunctional (MF)
-# zone (never rails), the LEFT (future Spine) is the flexible one (full ↔ rail per
-# the CD-11 reflow), and the slot maximum drops to THREE. The whole frame (left
-# zone + gutters + slot group + right MF zone) is centered in the window. `gutter`
-# rose 40 → 56 ("more space between the screens"); the budget holds — three 1200px
-# slots + both zones full + all four gutters at 5120: 320 + 56 + (3·1200 + 2·56) +
-# 56 + 320 = 4464 ≤ 5120 (656 px margin). All sizes are logical px (scaled by DPI).
+# zone (the window minus the explicit `zone_top`/`zone_bottom` margins — CD-30
+# Task A retired the old centered `height_frac`, whose 15%+15% dead space was
+# wasted), with `gutter` between slots. CD-11 (D-0020) framed the group with side
+# zones; the REVISED law (D-0022) makes the frame ASYMMETRIC — the RIGHT is the
+# permanent Multifunctional (MF) zone (never rails; 2× wide while its Terminal
+# tab is active, CD-30), the LEFT (future Spine) is the flexible one (full ↔ rail
+# per the CD-11 reflow), and the slot maximum drops to THREE. The whole frame
+# (left zone + gutters + slot group + right MF zone) is centered in the window;
+# when the frame would overflow (the wide terminal), slot columns COMPRESS toward
+# `slot_min_width` instead of closing (CD-30). `gutter` rose 40 → 56 ("more space
+# between the screens"); the budget holds — three 1200px slots + both zones full
+# + all four gutters at 5120: 320 + 56 + (3·1200 + 2·56) + 56 + 320 = 4464 ≤ 5120
+# (656 px margin). All sizes are logical px (scaled by DPI).
 [slots]
 width            = 1200.0  # fixed content-column width
 gutter           = 56.0    # gap between slots AND between the group and each zone (D-0022: 40 → 56)
 min_margin       = 48.0    # legacy edge margin (still used by max_slots; the frame centers in the window)
-height_frac      = 0.70    # slot / zone height as a fraction of window height (centered)
+zone_top         = 118.0   # top margin above the slots — the gear row + floating info strip (CD-30)
+zone_bottom      = 44.0    # bottom margin below the slots — a slim glow gutter (CD-30)
+slot_min_width   = 480.0   # compression floor per column when the frame must squeeze (CD-30)
 max_count        = 4       # legacy max_slots cap (the product cap is slot_max below)
 slot_max         = 3       # D-0022: product slot maximum (must be <= slots::MAX_SLOTS)
 active_line      = 2.0     # active-slot bottom accent line thickness

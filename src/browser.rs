@@ -299,6 +299,24 @@ pub fn bar_typing() -> bool {
     BAR_TYPING.load(Ordering::Relaxed)
 }
 
+// --- MF-zone wide-terminal state (CD-30 Task A) ------------------------------
+/// True while the MF-zone viewer shows its Terminal tab: the zone renders 2× wide
+/// and the slot columns reflow narrower (`slots::frame_layout`). Reported by the
+/// page over the `mf_tab` IPC; read by the shell's layout every frame.
+static MF_WIDE: AtomicBool = AtomicBool::new(false);
+/// One-shot "the MF width changed" flag: the main thread re-pushes view geometry
+/// (the MF texture doubles / halves) and the frame state when it fires.
+static MF_RELAYOUT: AtomicBool = AtomicBool::new(false);
+
+/// Is the MF zone in its 2×-wide Terminal state?
+pub fn mf_wide() -> bool {
+    MF_WIDE.load(Ordering::Relaxed)
+}
+/// Drain the MF relayout flag (main thread).
+pub fn take_pending_mf_relayout() -> bool {
+    MF_RELAYOUT.swap(false, Ordering::Relaxed)
+}
+
 // --- Process / lifecycle ----------------------------------------------------
 
 /// Must be the first thing `main` does. Binds the CEF API version and runs the
@@ -1961,6 +1979,18 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         // an optional {filter:{target_prefix,level_min}, since_seq}. Pull-based +
         // incremental — the page sends back the highest seq it has seen.
         "get_log_lines" => Ok(crate::logging::log_snapshot_json(&v)),
+        // The MF-zone viewer reports its active tab (CD-30 Task A): while the
+        // Terminal tab is shown the MF zone renders 2× wide and the slot columns
+        // reflow narrower; any other tab returns it to the permanent width. The
+        // main thread drains the relayout flag (view geometry is main-thread work).
+        "mf_tab" => {
+            let tab = v.get("tab").and_then(|t| t.as_str()).unwrap_or("");
+            let wide = tab == "term";
+            if MF_WIDE.swap(wide, Ordering::Relaxed) != wide {
+                MF_RELAYOUT.store(true, Ordering::Relaxed);
+            }
+            Ok(serde_json::json!({ "ok": true }).to_string())
+        }
         other => Err((4, format!("unknown cmd: {other}"))),
     }
 }

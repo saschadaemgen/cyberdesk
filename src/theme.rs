@@ -180,7 +180,14 @@ pub struct Slots {
     pub width: f32,
     pub gutter: f32,
     pub min_margin: f32,
-    pub height_frac: f32,
+    /// Explicit vertical margins around the surf zone (CD-30 Task A): the slots
+    /// span `zone_top .. window_height - zone_bottom`. Replaces the old centered
+    /// `height_frac` (whose symmetric 15% margins were dead space).
+    pub zone_top: f32,
+    pub zone_bottom: f32,
+    /// The per-column compression floor (CD-30): when the frame would overflow
+    /// (e.g. the 2×-wide terminal), columns squeeze down to this — never close.
+    pub slot_min_width: f32,
     pub max_count: u32,
     pub active_line: f32,
     pub placeholder_fill: f32,

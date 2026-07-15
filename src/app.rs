@@ -285,10 +285,25 @@ impl Shell {
         self.order.iter().map(|&id| self.width_units[id]).collect()
     }
 
+    /// The full target frame layout for a given surface size (CD-30: one source
+    /// of truth — includes the wide-terminal MF state and column compression).
+    fn frame_target(&self, w: u32, h: u32) -> slots::FrameLayout {
+        slots::frame_layout(
+            w,
+            h,
+            &self.units_in_order(),
+            self.scale,
+            &self.theme.slots,
+            browser::mf_wide(),
+        )
+    }
+
     /// The current slot rectangles (device px, one per live column in display
-    /// order) for a given surface size, honoring each slot's width units.
+    /// order) for a given surface size, honoring each slot's width units. Since
+    /// CD-30 these are the FRAME rects (zone-shifted, possibly compressed), so
+    /// the band/ensemble math and the displayed columns can never disagree.
     fn slot_rects_wh(&self, w: u32, h: u32) -> Vec<slots::Rect> {
-        slots::slot_rects_units(w, h, &self.units_in_order(), self.scale, &self.theme.slots)
+        self.frame_target(w, h).slots
     }
 
     /// The display position (index into `order`) of the active slot.
@@ -354,8 +369,7 @@ impl Shell {
         let Some((w, h)) = self.renderer.as_ref().map(|r| r.size()) else {
             return;
         };
-        let units = self.units_in_order();
-        let target = slots::frame_layout(w, h, &units, self.scale, &self.theme.slots);
+        let target = self.frame_target(w, h);
         let g = self.theme.slots.gutter * self.scale;
 
         if !self.frame_inited {
@@ -1319,10 +1333,11 @@ impl Shell {
             }
             let (_, _, iw, ih) = self.internal_rect(w, h);
             browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
-            // MF-zone view (CD-18): its texture is a constant size (mf_zone_width x
-            // slot height); only its X animates during reflow (carried by the render
-            // NDC rect), so geometry is set here on resize, not per frame.
-            let mf = slots::frame_layout(w, h, &self.units_in_order(), self.scale, &self.theme.slots).right;
+            // MF-zone view (CD-18): its texture is sized to the zone (mf width ×
+            // slot height — 2× wide while the Terminal tab shows, CD-30); only its
+            // X animates during reflow (carried by the render NDC rect), so
+            // geometry is set here on resize / relayout, not per frame.
+            let mf = self.frame_target(w, h).right;
             browser::set_view_geometry(Role::MfZone, mf.w as u32, mf.h as u32, self.scale);
         }
     }
@@ -2052,6 +2067,16 @@ impl ApplicationHandler for Shell {
             for id in respawn {
                 self.respawn_slot_preserving_url(id);
             }
+        }
+
+        // MF-zone wide-terminal relayout (CD-30 Task A): the Terminal tab toggled,
+        // so the MF texture doubles / halves and every column's width target moved
+        // (compression). Re-push view geometry + notify; the animated frame glides
+        // to the new targets on its own.
+        if self.views_started && browser::take_pending_mf_relayout() {
+            self.push_geometry();
+            self.notify_all_resized();
+            self.push_frame(false);
         }
 
         // Per-window closes queued by the ensemble's close icon (CD-18). The
