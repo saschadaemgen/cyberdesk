@@ -2,6 +2,74 @@
 
 Newest decision on top. Format: D number - date - decision - reasoning.
 
+## D-0050 - 2026-07-16 - Anti-forensic in-memory browsing (phase 1): browsing content is RAM-only; Tor state and session layout persist by design (CD-33)
+
+*Decision.* Browsing content (cache, cookies, history, decoded content) **never
+persists**. Every view is created under a request context **we create** (empty
+`cache_path` = in-memory storage), never the global one - identically for clearnet
+and Tor slots - so nothing browsed is recoverable by a Tier-1 attacker after close
+(never-written, plus the OS zeroing freed pages before another process can read
+them). The app's **own** history moves to RAM with it: `state.db`'s `history` table
+is dropped (purging what prior builds recorded) and re-created per session as a
+SQLite TEMP table under `temp_store = MEMORY`. DNS resolves through the tunnel for
+Tor slots; clearnet keeps the deterministic OS resolver (D-0041), never a
+third-party DoH provider. Session restore persists only non-sensitive layout / mode
+/ URL metadata under "Quit & Save" (login state does **not** survive - the honest
+ephemeral behaviour); Tor guard state is **kept** (rotating guards every session is
+worse for anonymity - it is Tor's own security state, not browsing content).
+Honest residuals, internal only (`docs/cyberdesk-security.md`): Chromium's C++ heap
+is not force-wiped on free, and the Tier-2 kernel/physical live-machine attacker is
+not closable from userspace. Process isolation is a separate epic.
+
+*Why.* The tenet was recorded but unbuilt, and the leak was real - but **not for the
+documented reason**, which is the finding that shaped this ticket.
+`CefSettings.cache_path` was *already* empty, which CEF documents as "browsers will
+be created in incognito mode where in-memory caches are used for storage and no
+profile-specific data is persisted to disk". CEF 149's Chrome runtime **does not
+honour that for the GLOBAL context**: it resolves to the on-disk primary Profile
+under `root_cache_path`. Measured on the real machine before the fix: 21 URLs / 254
+visits across 8 hosts in `Default/History` (53 of them the day before the audit - live,
+not stale), 36 persistent cookies, and 79 MB of HTTP cache. So the config had *looked*
+correct for as long as it had existed while writing every visit to disk.
+
+*How it was settled.* Empirically, because the documentation had already proved
+unreliable once - a second "the docs say this works" config would have been the same
+mistake. `src/fsprobe.rs` (env-gated, `CYBERDESK_FS_PROBE=<url>`) drives the **real**
+`init_cef` + browser-creation path off-screen against a fresh profile dir, so what is
+verified is what ships. One page load, measured per candidate:
+
+| configuration | History rows | occurrences of the visited host under `root_cache_path` |
+|---|---|---|
+| global context (as shipped) | 1 (URL + title) | 7 files (incl. `Preferences`, `Network Persistent State`, `ukm_db`) |
+| `--incognito` switch | 1 | 7 - **rejected**, the Chrome runtime ignores it for `CreateBrowser` |
+| created context, empty `cache_path` | **0** | **0** |
+
+Re-verified against a real cookie-setting, JS-heavy site (the product's default
+engine): 0 history rows, 0 cookies, 0 occurrences.
+
+*Consequences worth recording.* **Tor slots were already clean** - CD-15 gives them
+created contexts, so their browsing content has been RAM-only since then; the leak
+was the clearnet side, which sat on the global context. **One shared** ephemeral
+context (not one per slot) preserves today's clearnet semantics exactly - slots share
+a cookie jar, so a login in one window stays valid in another; only its persistence
+to disk goes away. Per-window isolation is a *separate feature*, not an ephemerality
+change (Sascha's call, 2026-07-16). The de-Google preferences (D-0041/D-0042) are
+per-context, so they are applied to the ephemeral context too - moving clearnet off
+the global context would otherwise have silently un-covered that work; the global
+context keeps them because Chromium still instantiates the primary profile and runs
+its keyed services. **Fail-closed**: if the ephemeral context is unavailable no
+browser is created, because the fallback (`None` = the global context) is precisely
+the leak. This supersedes the persistence half of **D-0014**: palette suggestions no
+longer carry across restarts. `favorites` stays on disk deliberately - an explicit
+Ctrl+D is a user act, not a trace of where you have been (the bookmark/history split
+every ephemeral browser makes).
+
+*Not claimed.* The profile directory itself still exists under `root_cache_path`
+(CEF persists installation-specific data there by design) - it is empty scaffolding,
+carrying zero browsing content, which is what the acceptance criterion is about. The
+fix does not retroactively delete the residue prior builds already wrote; that is a
+one-time purge, flagged separately.
+
 ## D-0049 - 2026-07-15 - Window size: below Red report-only (coherent cluster, honest residual); Red snaps and outranks the MF zone (CD-32)
 
 *Decision.* Window/viewport size normalization is **level-keyed**. Below Red

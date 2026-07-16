@@ -30,9 +30,15 @@ component updater, variations/Finch seed fetch, connectivity/captive-portal
 probes, network prediction, search suggest, domain reliability/NEL, translate,
 enhanced spell check, autofill + password leak-check, navigation-error
 link-doctor, optimization hints, GCM/push - is disabled via CEF command-line
-switches and preferences, applied to **clearnet and Tor slots alike**. Secure DNS
+switches and preferences, applied to **clearnet and Tor slots alike** — since CD-33
+(D-0050) that means the shared ephemeral context and every per-slot Tor context, as
+the preferences are per-context and clearnet no longer uses the global one. Secure DNS
 (DoH) is pinned `off` so clearnet uses the OS resolver deterministically; Tor
-slots resolve DNS remotely through the tunnel (CD-15). Switch/preference names are
+slots resolve DNS remotely through the tunnel (CD-15) — the proxy is a
+`socks5://` server, the Chromium proxy scheme that hands the **hostname** to the
+proxy rather than resolving it locally, so a Tor slot's visited domains never enter
+the OS DNS cache. `dns_over_https.mode` lives in local state, not the profile, so the
+CD-33 context change does not touch it. Switch/preference names are
 verified against the pinned Chromium `149.0.7827.201` source (the enforcement
 table is `src/degoogle.rs`).
 
@@ -123,6 +129,65 @@ implementation boundaries recorded for engineering, not product limitations.
   own axis (self-referential — the same answer for real and reported); `ch`/`ex` and
   `calc()` thresholds are left unshifted, a vanishingly rare incoherence recorded
   rather than guessed at.
+
+## CD-33 anti-forensic residuals (internal engineering scope, D-0050)
+
+**Never surface in product UI, marketing, or demos** (D-0044). What CyberDesk may
+accurately say is that it **leaves no browsing trace on disk** — that is now
+substantively true for the realistic (Tier-1) attacker and is verified, not asserted.
+What follows is what it must **not** claim.
+
+The tiered model this ticket was built against:
+
+- **Tier 1 — the realistic attacker**: someone who later uses the machine, or a
+  user-level forensic tool; no kernel or physical tricks. **Defeated**, by two
+  independent properties: browsing content is never written to disk, and the OS zeroes
+  freed physical pages before any other process can read them. This is the tier that
+  matters and the one CD-33 targets.
+- **Tier 2 — kernel-privileged or physical live-machine attacker** (kernel driver, raw
+  physical-RAM read, cold-boot, DMA): **not closable by any userspace application**,
+  ours included. Stated honestly, never oversold — and note the same attacker reads
+  live memory *during* use anyway, so this is not a gap CD-33 could have closed. The
+  process-isolated security core (separate epic) shrinks the window; it does not
+  remove it.
+
+Residuals, precisely:
+
+- **Chromium's C++ heap is not force-wiped on free.** We do not control Chromium's
+  allocator, so decoded images and page DOM can persist in freed heap memory for the
+  process's lifetime. Covered in practice by the three properties that *do* hold: the
+  residue never reaches disk (the whole of Task A), the OS zeroes freed pages before
+  reuse (which is what defeats Tier 1), and the future process-kill shrinks the Tier-2
+  window. Zeroize applies to *our* memory, not Chromium's.
+- **The profile directory still exists** under `root_cache_path`. CEF persists
+  installation-specific data there by design and Chromium instantiates its primary
+  profile regardless of what our views use. Post-fix it is **empty scaffolding**: a
+  `History` file with zero rows, a `Cookies` file with zero rows, and no occurrence of
+  any visited host anywhere beneath it (measured). It is not browsing content, but it
+  is not *nothing* — a scan will still show Chromium-shaped filenames.
+- **Pre-existing residue is not retroactively purged.** The fix stops the writing; it
+  does not delete what earlier builds already wrote (on the development machine that
+  was 79 MB of cache, 21 URLs / 254 visits, and 36 cookies). `state.db`'s history *is*
+  purged by the v7 migration, but the CEF profile residue needs a one-time wipe.
+- **The pagefile is addressed by keeping secrets out of it, not by disk encryption.**
+  Disk encryption is transparent on a running, unlocked machine and is therefore *not*
+  the control against a running-system attacker; the control is that sensitive data
+  never reaches the disk in the first place. See the note below on what secrets
+  currently exist.
+- **Tor state persists by design** (`%LOCALAPPDATA%\CyberDesk\tor\state`). Entry-guard
+  persistence is an anonymity *feature* — rotating guards every session raises exposure
+  to a malicious guard. It is Tor's own security state, deliberately distinct from
+  browsing content, and is not a forensic defect. It does, however, evidence *that* Tor
+  was used (not where you went).
+- **Session restore is opt-in and honest.** "Quit & Save" persists layout, per-slot
+  mode, and URLs — never cookies, cache, or content — so a restored session brings back
+  the tabs but **not** the login state; you come back logged out. Plain Quit persists
+  nothing. Storing this metadata encrypted-at-rest is open (it is currently plaintext
+  `state.db`), and it is the one place a visited URL can reach disk — by explicit user
+  action.
+- **`favorites` is on disk by intent**, and a favorite is a URL. It records what the
+  user chose to keep, not where they have been; this is the bookmark/history split every
+  ephemeral browser makes. Worth knowing it is there.
 
 ## Supply chain
 

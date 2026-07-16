@@ -743,7 +743,7 @@ mod tests {
                  last_visit INTEGER NOT NULL, visit_count INTEGER NOT NULL DEFAULT 1
              );
              INSERT INTO history (url, title, last_visit, visit_count)
-                 VALUES ('https://old.example/secret-page', 'Old', 1, 3);
+                 VALUES ('https://old.example/visited-page', 'Old', 1, 3);
              PRAGMA user_version = 6;",
         )
         .unwrap();
