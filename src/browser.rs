@@ -441,13 +441,26 @@ pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
         Role::Slot(i) => harden_extra_info(i),
         Role::Internal | Role::MfZone | Role::Hud => None,
     };
+    // CD-33 (D-0050): create under the ONE ephemeral clearnet context, NEVER the
+    // global one (`None` here would select the global context = the on-disk profile,
+    // which is exactly the leak this ticket closes). FAIL-CLOSED, like the Tor path:
+    // if the ephemeral context is missing we do NOT fall back to the global context —
+    // that fallback would silently write browsing content to disk, the one thing
+    // CyberDesk promises it never does. No browser is better than a leaking one.
+    let Some(mut ctx) = ephemeral_context() else {
+        tracing::error!(
+            role = role.idx(),
+            "ephemeral request context unavailable; browser NOT created (fail-closed)"
+        );
+        return;
+    };
     let created = browser_host_create_browser(
         Some(&window_info),
         Some(&mut client),
         Some(&url),
         Some(&browser_settings),
         extra.as_mut(),
-        None,
+        Some(&mut ctx),
     );
     assert_eq!(created, 1, "CefBrowserHost::CreateBrowser failed");
 }
@@ -628,6 +641,81 @@ wrap_request_context_handler! {
             }
         }
     }
+}
+
+// --- Ephemeral (in-memory) browsing (CD-33, D-0050) -------------------------
+// Browsing content NEVER reaches the disk. The lever is the request context, and
+// the distinction is not what CEF's own docs suggest:
+//
+//   CefSettings.cache_path is documented as "if empty ... browsers will be created
+//   in incognito mode where in-memory caches are used for storage and no
+//   profile-specific data is persisted to disk". We already ran with cache_path
+//   empty — and CEF 149's Chrome runtime does NOT honour that for the GLOBAL
+//   context, which resolves to the on-disk primary Profile under root_cache_path.
+//   Measured (headless probe, one load of a single page): the URL and title landed
+//   in Default/History, plus Cache_Data, Top Sites, Network Action Predictor and
+//   Session Storage entries.
+//
+// A context obtained from CefRequestContext::CreateContext with an empty cache_path
+// DOES honour it: the same probe recorded ZERO History rows and zero occurrences of
+// the visited host anywhere under root_cache_path. That is why every view is created
+// under a context we create — Tor slots have had their own since CD-15 (so their
+// browsing content was already RAM-only); this closes the clearnet side, which was
+// the one on the global context.
+//
+// ONE shared context (not one per slot) keeps today's clearnet semantics exactly:
+// all clearnet slots share a cookie jar, so a login in one window is still valid in
+// another — only its persistence to disk goes away. Per-window isolation is a
+// separate feature, not an ephemerality change.
+//
+// Threading (verified against the pinned crate + CEF headers, not assumed):
+// `CefRequestContext` methods (SetPreference, RegisterSchemeHandlerFactory) are
+// UI-thread-only, so the context is built and configured in `on_context_initialized`
+// (browser-process UI thread) before CONTEXT_READY gates any browser creation. The
+// async `CefBrowserHost::CreateBrowser` "can be called on any browser process thread"
+// (cef_browser.h — the UI-thread-only restriction is on CreateBrowserSync), and the
+// crate declares `RefGuard` Send + Sync, so handing the stored context to the shell's
+// main thread is sound.
+static EPHEMERAL_CTX: OnceLock<RequestContext> = OnceLock::new();
+
+/// The shared in-memory context every non-Tor view is created under. `None` only
+/// before `on_context_initialized` has run or if CEF refused to create it — callers
+/// must fail closed rather than fall back to the global (on-disk) context.
+fn ephemeral_context() -> Option<RequestContext> {
+    EPHEMERAL_CTX.get().cloned()
+}
+
+/// Build + configure the shared ephemeral context. UI thread only (pref and
+/// scheme-factory calls); called once from `on_context_initialized`.
+fn init_ephemeral_context() {
+    // Empty cache_path = in-memory storage for this context (the measured behaviour
+    // above). Everything else stays default.
+    let settings = RequestContextSettings::default();
+    let Some(ctx) = request_context_create_context(Some(&settings), None) else {
+        tracing::error!("ephemeral request context creation FAILED; no view can be created");
+        return;
+    };
+
+    // A created context does NOT inherit the global context's scheme-handler factory,
+    // so register the in-process cyberdesk:// factory here too — otherwise every
+    // internal page (start, settings, HUD, MF zone) returns ERR_UNKNOWN_URL_SCHEME.
+    // Same lesson the Tor context learned in CD-21 Task A.
+    let mut factory = InternalSchemeFactory::new();
+    ctx.register_scheme_handler_factory(
+        Some(&CefString::from(SCHEME)),
+        Some(&CefString::from("")),
+        Some(&mut factory),
+    );
+
+    // CD-17 (D-0041) / CD-26 (D-0042): the phone-home preferences are per-context, so
+    // they must be applied HERE — clearnet browsing moved off the global context, and
+    // the de-Google work would silently stop covering it otherwise.
+    apply_degoogle_context_prefs(&ctx);
+
+    if EPHEMERAL_CTX.set(ctx).is_err() {
+        tracing::warn!("ephemeral context already initialized");
+    }
+    tracing::info!("ephemeral (in-memory) request context ready; browsing content is RAM-only");
 }
 
 /// Build a Tor request context: a fresh context whose `proxy` + WebRTC leak prefs
@@ -2242,16 +2330,25 @@ wrap_browser_process_handler! {
             router.add_handler(Arc::new(SettingsQueryHandler) as Arc<dyn BrowserSideHandler>, false);
             let _ = BROWSER_ROUTER.set(router);
 
-            // CD-17 (D-0041): silence Chromium's phone-home PREFERENCES on the
-            // GLOBAL (clearnet) request context. Per-slot Tor contexts get the same
-            // set in TorContextHandler::on_request_context_initialized, so clearnet
-            // and Tor are de-Googled alike. This callback is on the browser-process
+            // CD-33 (D-0050): build the shared in-memory context BEFORE CONTEXT_READY
+            // gates browser creation, so no view can ever race onto the global
+            // (on-disk) context. Must be on this thread — its pref/scheme calls are
+            // UI-thread-only.
+            init_ephemeral_context();
+
+            // CD-17 (D-0041): silence Chromium's phone-home PREFERENCES. The views'
+            // own prefs are applied on the ephemeral context (init_ephemeral_context)
+            // and on each per-slot Tor context (TorContextHandler), so clearnet and
+            // Tor are de-Googled alike. The global context keeps getting them too:
+            // nothing browses on it any more, but Chromium still instantiates the
+            // primary profile and runs its keyed services (the CD-26 vectors), so
+            // silencing it stays worth doing. This callback is on the browser-process
             // UI thread — required for SetPreference.
             log_degoogle_manifest();
             if let Some(ctx) = request_context_get_global_context() {
                 apply_degoogle_context_prefs(&ctx);
             } else {
-                tracing::error!("global request context unavailable; clearnet de-Google prefs NOT applied");
+                tracing::error!("global request context unavailable; its de-Google prefs NOT applied");
             }
             // Local-state prefs (secure-DNS mode) live in global preferences, not
             // the profile — set them through the global preference manager.

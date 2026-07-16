@@ -12,6 +12,7 @@
 mod app;
 mod browser;
 mod degoogle;
+mod fsprobe;
 mod harden;
 mod logging;
 mod memory;
@@ -107,6 +108,14 @@ fn main() -> ExitCode {
             .unwrap_or((1600u32, 900u32));
         renderer::capture(&path, cw, ch, &theme::Theme::load());
         println!("wrote {path}");
+        return ExitCode::SUCCESS;
+    }
+
+    // Headless forensic probe (CD-33): env-gated verification harness, never part
+    // of a normal run. Drives the real CEF path off-screen so a filesystem scan can
+    // prove what browsing leaves behind. Must precede the update worker (no network
+    // beyond the probe's own page) and app::run (no window).
+    if fsprobe::run_if_requested() {
         return ExitCode::SUCCESS;
     }
 
