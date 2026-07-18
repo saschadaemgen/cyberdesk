@@ -12,6 +12,7 @@
 mod app;
 mod browser;
 mod degoogle;
+mod forensic;
 mod fsprobe;
 mod harden;
 mod logging;

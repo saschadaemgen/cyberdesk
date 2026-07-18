@@ -332,9 +332,11 @@ pub fn run_subprocess_if_needed() {
 pub fn init_cef() {
     let mut app = CyberApp::new();
 
-    let cache_path = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("cyberdesk-cache")))
+    // The root_cache_path is derived in ONE place (CD-34): the anti-forensic launch
+    // purge must target exactly what CEF writes to, so both read the same function —
+    // they can never drift. Note browsing content itself is RAM-only (CD-33); this
+    // directory holds only the CEF profile scaffolding the purge wipes each launch.
+    let cache_path = crate::forensic::browsing_cache_root()
         .map(|p| CefString::from(p.to_string_lossy().as_ref()))
         .unwrap_or_default();
 
@@ -1869,6 +1871,10 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
     match v.get("cmd").and_then(|c| c.as_str()).unwrap_or("") {
         // Settings (CD-03).
         "get_settings" => Ok(crate::settings::snapshot_json()),
+        // Anti-forensic on-disk footprint readout (CD-34, D-0051): the live browsing-
+        // cache size + what the last launch purge did. Read-only, truthful by
+        // construction (both numbers are measured, not asserted).
+        "get_residue_footprint" => Ok(crate::forensic::footprint_json()),
         "set_setting" => {
             let key = v
                 .get("key")
@@ -1907,6 +1913,20 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
                     .or_else(|| value.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
                     .ok_or((2, "'value' must be numeric for rotate_interval_min".to_string()))?;
                 crate::settings::set_rotate_interval(n).map_err(|e| (3, e))
+            } else if key == crate::settings::KEY_PURGE_RESIDUE {
+                // CD-34 (D-0051): disabling the on-launch browsing-residue purge is a
+                // WEAKENING of the anti-forensic guarantee (residue would accumulate),
+                // so it requires confirmation — the host RE-VALIDATES the D-0040 gate
+                // rather than trusting the page to have shown it. Turning it back on is
+                // immediate (no gate on strengthening).
+                let b = value
+                    .as_bool()
+                    .ok_or((2, "'value' must be boolean for purge_residue".to_string()))?;
+                let confirm = v.get("confirm").and_then(|c| c.as_bool()).unwrap_or(false);
+                if !b && !confirm {
+                    return Err((3, "disabling browsing-residue purge requires confirmation".to_string()));
+                }
+                crate::settings::set(crate::settings::KEY_PURGE_RESIDUE, b).map_err(|e| (3, e))
             } else {
                 let b = value
                     .as_bool()

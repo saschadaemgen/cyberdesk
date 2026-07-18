@@ -22,6 +22,10 @@ fn store() -> &'static Mutex<Store> {
 static FEATHER_EDGES: AtomicBool = AtomicBool::new(true);
 static ANIMATED_BACKGROUND: AtomicBool = AtomicBool::new(true);
 static STAY_FOREGROUND: AtomicBool = AtomicBool::new(true);
+/// Purge any browsing cache/content residue from disk on every launch (CD-34,
+/// D-0051). Default ON — it is the anti-forensic guarantee; disabling it lets
+/// residue accumulate, so turning it off routes through the weakening gate (D-0040).
+static PURGE_RESIDUE: AtomicBool = AtomicBool::new(true);
 /// Glow intensity as a whole percent (50..=220). The authoritative default is
 /// the `background.glow_default` token, applied in [`init`]; this literal is
 /// only a pre-init placeholder.
@@ -82,6 +86,8 @@ pub const KEY_FEATHER_EDGES: &str = "feather_edges";
 /// Deep Field), not the Deep Field specifically. The store migrates the old key.
 pub const KEY_ANIMATED_BACKGROUND: &str = "animated_background";
 pub const KEY_STAY_FOREGROUND: &str = "stay_foreground";
+/// The on-launch browsing-residue purge toggle (CD-34, D-0051).
+pub const KEY_PURGE_RESIDUE: &str = "purge_residue";
 pub const KEY_GLOW_INTENSITY: &str = "glow_intensity";
 /// The command-bar search-engine choice (CD-07). One of the ids below.
 pub const KEY_SEARCH_ENGINE: &str = "search_engine";
@@ -343,6 +349,9 @@ pub fn init() {
     FEATHER_EDGES.store(s.get_bool(KEY_FEATHER_EDGES, true), Ordering::Relaxed);
     ANIMATED_BACKGROUND.store(s.get_bool(KEY_ANIMATED_BACKGROUND, true), Ordering::Relaxed);
     STAY_FOREGROUND.store(s.get_bool(KEY_STAY_FOREGROUND, true), Ordering::Relaxed);
+    // CD-34: default ON — the anti-forensic guarantee is the safe default. Read before
+    // the launch purge (app::run / fsprobe) consults it.
+    PURGE_RESIDUE.store(s.get_bool(KEY_PURGE_RESIDUE, true), Ordering::Relaxed);
     let glow = s
         .get(KEY_GLOW_INTENSITY)
         .and_then(|v| v.parse::<u32>().ok())
@@ -409,6 +418,12 @@ pub fn stay_foreground() -> bool {
     STAY_FOREGROUND.load(Ordering::Relaxed)
 }
 
+/// Purge browsing residue from disk on launch? (CD-34, D-0051.) Read by
+/// [`crate::forensic::purge_on_launch`] before CEF starts.
+pub fn purge_residue() -> bool {
+    PURGE_RESIDUE.load(Ordering::Relaxed)
+}
+
 /// Glow intensity as a whole percent (50..=220).
 pub fn glow_intensity_percent() -> u32 {
     GLOW_INTENSITY.load(Ordering::Relaxed)
@@ -423,10 +438,11 @@ pub fn glow_intensity() -> f32 {
 pub fn snapshot_json() -> String {
     // `fp_custom` is injected raw (it is already a JSON object, not a string).
     format!(
-        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"glow_intensity\":{},\"search_engine\":\"{}\",\"tor_enabled\":{},\"tor_default\":{},\"fp_preset\":\"{}\",\"fp_custom\":{},\"screen_preset\":\"{}\",\"rotate_on_restart\":{},\"rotate_auto\":{},\"rotate_new_circuit\":{},\"rotate_interval_min\":{}}}",
+        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"purge_residue\":{},\"glow_intensity\":{},\"search_engine\":\"{}\",\"tor_enabled\":{},\"tor_default\":{},\"fp_preset\":\"{}\",\"fp_custom\":{},\"screen_preset\":\"{}\",\"rotate_on_restart\":{},\"rotate_auto\":{},\"rotate_new_circuit\":{},\"rotate_interval_min\":{}}}",
         feather_edges(),
         animated_background(),
         stay_foreground(),
+        purge_residue(),
         glow_intensity_percent(),
         search_engine(),
         TOR_ENABLED.load(Ordering::Relaxed),
@@ -449,6 +465,7 @@ pub fn set(key: &str, value: bool) -> Result<String, String> {
         KEY_FEATHER_EDGES => &FEATHER_EDGES,
         KEY_ANIMATED_BACKGROUND => &ANIMATED_BACKGROUND,
         KEY_STAY_FOREGROUND => &STAY_FOREGROUND,
+        KEY_PURGE_RESIDUE => &PURGE_RESIDUE,
         KEY_TOR_ENABLED => &TOR_ENABLED,
         KEY_TOR_DEFAULT => &TOR_DEFAULT,
         KEY_ROTATE_ON_RESTART => &ROTATE_ON_RESTART,

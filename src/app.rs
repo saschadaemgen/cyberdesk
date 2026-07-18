@@ -128,6 +128,11 @@ pub fn run(windowed: bool) {
     // Opens and takes ownership of the app-state store (state.db) and loads the
     // persisted toggles; the settings IPC writes through it live.
     settings::init();
+    // Anti-forensic browsing-residue purge (CD-34, D-0051): wipe the CEF
+    // browsing-cache/profile dir BEFORE init_cef (below) — the only moment CEF does
+    // not yet hold its files open. Reads the `purge_residue` toggle just loaded by
+    // settings::init; never touches the Tor state, session, or config (a disjoint tree).
+    crate::forensic::purge_on_launch();
     // Initialize the global identity seed (CD-29): fresh each launch, or the
     // persisted seed when "new identity on restart" is off. Must follow settings::init.
     browser::init_identity_seed();

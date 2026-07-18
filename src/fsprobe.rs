@@ -36,6 +36,9 @@ pub fn run_if_requested() -> bool {
 
     println!("[fsprobe] init_cef");
     crate::settings::init();
+    // Mirror the real launch (CD-34): purge browsing residue before CEF opens the
+    // profile, so the probe exercises the actual on-launch behaviour end-to-end.
+    crate::forensic::purge_on_launch();
     browser::init_identity_seed();
     browser::init_cef();
 
