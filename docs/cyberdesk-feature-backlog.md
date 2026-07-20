@@ -72,8 +72,7 @@ Nothing on the app path is throwaway work.
 
 ## Crypto + authorization (Season 6)
 
-- **Vault Stage 1 — IN FLIGHT (CD-40, D-0058/D-0059), sub-stages 1a+1b+1c
-  SHIPPED**: 1a crypto core (`src/vault.rs`) — envelope key management (one
+- **Vault Stage 1 — IN FLIGHT (CD-40, D-0058/D-0059), sub-stages 1a+1b+1c SHIPPED, 1d VERIFIED+DEFERRED**: 1a crypto core (`src/vault.rs`) — envelope key management (one
   random VMK; Argon2id passphrase envelope; mandatory displayed-once recovery
   key; passkey-PRF as the final sub-stage), structural 1/2-required unlock
   policy, never-brick invariant, escrow-based re-wrap from an unlocked
@@ -86,8 +85,13 @@ Nothing on the app path is throwaway work.
   bypass. 1c config + tile surface —
   enrolled methods, 1/2-required policy (host-gated lowering), Argon2id cost
   re-tune (verified before re-derive), change-passphrase, regenerate-recovery,
-  HUD Vault field. Remaining CD-40 sub-stage: 1d passkey via WebAuthn PRF
-  (verify-first). Auto-lock via the event engine is Stage 2
+  HUD Vault field. 1d passkey via WebAuthn PRF — source-verified and HONESTLY
+  DEFERRED (D-0061): security-key CTAP2 hmac-secret is buildable via the
+  in-tree Win32 API (windows-sys 0.61.2, v7); Windows Hello PRF needs the
+  Feb-2026 KB5077181 + API v8 (not pinned) and the native call needs a live
+  run — so the determination + the proven envelope seam (enroll_passkey,
+  unit-tested) + an honest "coming" UI ship; the bounded native wiring lands
+  once PRF is confirmed on the device. Auto-lock via the event engine is Stage 2
   (event-engine dependency).
 - File vault (quantum-resistant): encrypted file store integrated into the Files zone, format-agnostic (any file type and size, including large media). Per-file keys (DEK) wrapped by an Argon2id-derived master key (KEK), content in chunked AEAD (XChaCha20-Poly1305 or AES-256-GCM), filenames and metadata encrypted, auto-lock via the Event Engine (DND, away, timeout, security alert), Zeroize plus memory locking. Chunked AEAD enables streaming decryption with random access: media zones (music, video, photos) and the office unit read and write directly through the vault API - plaintext never touches disk, seeking decrypts only the needed chunks. Thumbnail/cover cache is encrypted inside the vault as well (a plaintext preview cache would leak content). Post-quantum stance: the symmetric core is already PQ-safe; hybrid X25519+ML-KEM-768 (FIPS 203) for any future cross-device key exchange, ML-DSA (FIPS 204) for signatures (also covers signed updates). Drag-and-drop onto the vault zone IS the encrypt action (sealing animation). No hidden-volume deniability features (complexity not justified). Note: sensitive files should be created inside the vault from the start - secure deletion of plaintext originals on SSDs is unreliable by design (wear leveling).
 

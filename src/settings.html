@@ -166,6 +166,17 @@
           </div>
           <button class="btn" id="vault-regen" type="button">Regenerate</button>
         </div>
+        <!-- Passkey enrollment (CD-40 1d) — honest state per the tile doctrine.
+             The envelope layer already accepts a passkey as a device-bound
+             method; the WebAuthn-PRF plumbing lands once PRF is confirmed on
+             this device (see docs/cyberdesk-security.md). No dead button. -->
+        <div class="row muted">
+          <div class="label">
+            <span class="name">Passkey (security key or Windows Hello)</span>
+            <span class="hint">A device-bound envelope via WebAuthn PRF. Enrolled from this unlocked session once PRF is confirmed on your device.</span>
+          </div>
+          <span class="soon">Coming</span>
+        </div>
       </div>
 
       <div id="vault-capture" class="vault-capture" hidden>

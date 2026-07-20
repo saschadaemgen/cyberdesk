@@ -1,6 +1,6 @@
 # CyberDesk - Wire Format
 
-Project CARVILON CyberDesk - living document - Status: 2026-07-21 (through CD-40 Stage 1c / D-0060)
+Project CARVILON CyberDesk - living document - Status: 2026-07-21 (through CD-40 Stage 1 / D-0061)
 Maintained by Claude Code (CC), updated in the same commit-set as the code it describes (D-0053).
 
 Rule: every interface change is documented here in the same commit-set as the

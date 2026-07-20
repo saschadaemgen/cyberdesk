@@ -5,6 +5,58 @@ Living document - maintained by Claude Code (CC), updated in the same
 commit-set as the change it records (D-0053). Append-only: historical entries
 are never rewritten; a superseded decision gets a new D-number forward.
 
+## D-0061 - 2026-07-21 - Vault Stage 1d: passkey via WebAuthn PRF — verified and HONESTLY DEFERRED on the target (CD-40)
+
+*Decision.* The passkey sub-stage is the "verify first, ship last" step, and
+the verification determines an **honest, flagged deferral** — the outcome
+acceptance #3 explicitly sanctions ("or is honestly deferred if PRF isn't
+available on the target — flagged"). Source-verified facts:
+
+- The Win32 `webauthn.dll` client API (`WebAuthNAuthenticatorMakeCredential`
+  / `…GetAssertion`, `WEBAUTHN_HMAC_SECRET_SALT`,
+  `WEBAUTHN_AUTHENTICATOR_HMAC_SECRET_VALUES_FLAG`) is fully present in
+  `windows-sys` 0.61.2 — **already in our tree** (pulled by cef + arti),
+  behind the `Win32_Networking_WindowsWebServices` feature. The binding is at
+  **API version 7**; the raw hmac-secret salt path exists at v7.
+- **Security keys via CTAP2 `hmac-secret` (e.g. YubiKey): reliably
+  supported** through that v7 path — buildable today.
+- **Windows Hello platform-authenticator PRF is in flux:** it landed only in
+  the **Feb-2026 cumulative update KB5077181 (Win 25H2 build 26200.7840+)**,
+  and the "PRF eval" convenience needs **API version 8**, which our pinned
+  `windows-sys` 0.61.2 (v7) does not expose. The target reports build 26200,
+  but the KB state is a live-machine fact (Sascha's check).
+- The native call needs a real HWND + a physical authenticator + a
+  user-presence gesture, so it has **no headless/unit verification path** —
+  its only test is a live run, which is Sascha's (acceptance #7).
+
+Because PRF is not *dependably* available on the target as a blanket
+guarantee, and because pushing a native FFI integration I cannot exercise
+even once and calling it "done" would violate faithful-reporting, 1d ships as
+the flagged deferral rather than unverified code. What is proven READY and
+NOT deferred: the envelope layer already accepts a passkey as an opaque
+32-byte method secret (`enroll_passkey` + `Factor::MethodSecret`, unit-tested
+in 1a — enrolls from an unlocked session, unlocks independently at
+1-required, preserves the non-hardware never-brick pair at 2-required). The
+config surface shows an honest "Passkey — coming, pending device PRF" row
+(tile doctrine: the state is real, not a dead button).
+
+*Go-live gate (bounded remaining work).* (1) Sascha confirms the target's
+`WebAuthNGetApiVersionNumber()` and KB state (≥ 8 for Windows Hello PRF; a
+security key works at the current v7). (2) Enable `windows-sys`'s
+`Win32_Networking_WindowsWebServices` feature (no new crate download) or add
+`webauthn-authenticator-rs` (license-check first, D-0005). (3) Derive the
+PRF-input salt per the W3C spec (`SHA-256("WebAuthn PRF" || 0x00 || salt)`
+where the eval path is unavailable), persist a per-vault random salt in
+`vault.json` (serde-default so existing vaults upgrade), turn the 32-byte PRF
+output into the method secret, and wire it into the existing `enroll_passkey`
+seam. (4) Sascha runs the live enroll/unlock (acceptance #3/#7).
+
+*Why.* The verification IS the deliverable of a "verify-first" sub-stage, and
+the honest result is that the target cannot guarantee PRF today. Shipping the
+determination + the proven-ready seam + an honest UI, rather than an
+untestable native blob, keeps the record faithful and leaves the follow-up
+bounded and unambiguous.
+
 ## D-0060 - 2026-07-21 - Vault Stage 1c: config + tile surface — every knob visible, weakening host-gated, change-passphrase is VMK-authorized (CD-40)
 
 *Decision.* The settings vault section exposes, honestly and settably:
