@@ -4,16 +4,18 @@ CyberDesk is the desktop frontend of the CARVILON platform — a single
 fullscreen application in the style of a serious "cyber operating system". A
 memory-safe Rust host renders the shell (fixed zone layout, one color world,
 heavily animated) and embeds web content through the Chromium Embedded
-Framework (CEF). Season 1 delivers the runnable foundation: the shell, CEF
-inside the Rust host via off-screen rendering, a living procedural background,
-feathered compositing, and an isolated in-shell settings surface.
+Framework (CEF). On that foundation it is a privacy-first browsing
+environment: per-window Tor with onion support, always-on coherent
+fingerprinting hardening graded by an Ampel (traffic-light) control, an
+engine proven silent by net-log measurement, and browsing content that lives
+in RAM only — no disk trace.
 
 > Proprietary — Copyright (c) 2026 Sascha Daemgen IT and More Systems.
 > All rights reserved. See `LICENSE`.
 
 ---
 
-## State after CD-11 (Season 1 extended)
+## State after CD-35
 
 * **Shell:** Borderless fullscreen on the primary monitor, dark background
   (`#04070A`), vsync. The shell background is the Pulse Grid alone — the CARVILON
@@ -156,28 +158,56 @@ feathered compositing, and an isolated in-shell settings surface.
   **fresh identity each launch** is the default. Honest by design: the manual button and
   on-restart are the immediate cross-session-linkage breakers, and the automatic
   countdown re-seeds what you open next while giving the shell its showpiece.
-* **Own start page, no Google, no saved websites (CD-14, D-0025):** every empty/new
+* **De-Googled — proven silent by measurement (CD-17, D-0041; CD-26, D-0042):** the
+  Chromium engine's every phone-home vector — Safe Browsing, component updater,
+  variations/Finch, connectivity probes, prediction, search suggest, domain
+  reliability/NEL, translate, spell check, autofill/leak-check, link-doctor,
+  optimization hints, GCM/push, plus the deep idle vectors CD-26 closed (GAIA
+  ListAccounts pinned to a dead loopback origin, AI-mode eligibility off, the
+  Reporting/NEL store unloaded) — is disabled at the switch/preference level,
+  applied to clearnet and Tor windows alike. The claim is bounded and **measured,
+  not asserted**: a net-log capture on idle shows **zero** unsolicited
+  Google/telemetry connections (the recipe is `docs/cyberdesk-degoogle-audit.md`).
+  Secure DNS (DoH) is pinned off — clearnet resolves via the OS deterministically,
+  Tor windows resolve remotely through the tunnel.
+* **Browsing lives in RAM — and the disk is swept every launch (CD-33, D-0050;
+  CD-34, D-0051):** browsing content — history rows, cookies, cache — is never
+  written to disk: every window, clearnet and Tor, runs on in-memory request
+  contexts, and the in-app history/suggestion store is a RAM-only table that ends
+  with the session. A **standing on-launch purge** (default on, settable, with a
+  live on-disk footprint + last-purge readout in settings) additionally wipes the
+  CEF scaffolding directory before the engine starts — clearing legacy residue and
+  acting as a regression backstop, allowlisted to exactly that one directory (Tor
+  state, favorites, and settings live in a disjoint tree and are never touched).
+* **Own start page, no Google (CD-14, D-0025):** every empty/new
   slot opens to an **own start page** served from the binary at `cyberdesk://start/`
   (same isolation as settings, **zero network**) — Google is gone. It is a black
   canvas with a faint micro-lattice, the glowing **Energy Core** (the reserved CD-06
   motif — a bright hollow core inside concentric rotating brand-cyan arcs, motion
   respecting `prefers-reduced-motion`), a search/address capsule (same host-side
   URL-vs-search classifier + chosen engine), and round favorite tiles that open in
-  the slot. And **websites are not saved**: a restart always comes back to a single
-  start-page slot — never restored open URLs (the privacy reversal of CD-10's
-  session persistence; the `session_slots` table is dropped, purging any prior data).
-  History and favorites are untouched.
-* **Update awareness — the info area (CD-13, D-0023/D-0024):** a small status light
-  top-right, beside the gear. Idle it is a faint ring; when an update is available
-  it fills with the brand color, a subtle pulse, and a count. Click it for a
-  **floating panel** listing what is out of date — CyberDesk itself, its CEF core,
-  and the embedded Tor (arti) engine — with release-notes links (open in a column)
-  and a Dismiss (it re-appears only if
-  a newer version ships). The panel is honest and calm when you are current. This is
-  the host's **one and only** outbound connection: a single pinned CARVILON update
-  manifest over HTTPS (the NetGuard exception, D-0023) — it queries nobody else, a
-  missing feed is silent, and it **informs only** (no downloads, no installs; that
-  is the signed-pipeline future). It is the seed of the later notification rail.
+  the slot. History and favorites are local SQLite; history is **RAM-only** since
+  CD-33 (suggestions work all session, nothing lands on disk).
+* **Session lifecycle — fresh by default, restore by choice (CD-21, D-0035):** a
+  normal quit saves nothing; the next launch is the default layout — a clearnet
+  window plus a Tor window (when the engine is enabled and the display fits two).
+  **Quit & Save** (in the MF zone, beside plain Quit) persists the layout: slot
+  order, widths, each window's clearnet/Tor mode, and — for clearnet windows
+  only — the URL. A Tor window's URL is **never** written to disk; it returns as
+  a real Tor window on the start page. No cookies, cache, or content are saved
+  either way, so a restored session comes back logged out — restore brings back
+  your tabs, not your sessions.
+* **Update awareness — the info area (CD-13, D-0023/D-0024; client-side since
+  CD-22, D-0036):** a small status light top-right, beside the gear. Click it for a
+  **floating panel** listing the shipped components — CyberDesk itself, its CEF
+  core, and the embedded Tor (arti) engine — each with its exact pinned version and
+  an honest status (current / **held back** with the reason, e.g. the arti 0.44
+  bootstrap regression, D-0034). Since CD-22 this surface is **entirely
+  client-side**: the earlier live manifest fetch was retired, so the host opens
+  **no HTTP client of its own** — its only sanctioned outbound path is per-window
+  Tor browsing (D-0027/D-0052). The self-update feed returns with the signed
+  (ML-DSA) update pipeline, and this panel is where its Install action will live.
+  It is the seed of the later notification rail.
 * **Floating command elements — the bar dies (CD-12, D-0021):** the single top bar
   is retired. **Every column carries its own floating command set** — back/forward/
   reload orbs and an address capsule — that reveals above *that* column and drives
@@ -187,9 +217,10 @@ feathered compositing, and an isolated in-shell settings surface.
   become **round tiles** in one shared launcher row. **Drag a favorite tile into a
   control gutter and it opens there as a new column** — the shell draws a ghost on
   the cursor and lights the gutters as drop zones, dropping into the nearest (at full
-  capacity it navigates the column under the ghost instead; `ESC` cancels). Each
-  column also gets a **floating close orb** (a ring + cross) at its top-outer corner,
-  revealed on hover — a click closes that column.
+  capacity it navigates the column under the ghost instead; `ESC` cancels). The
+  CD-12 shell-drawn corner close orb was consolidated in CD-18 into the explicit
+  per-window **close icon** beside each address capsule (see per-window icons
+  below).
 * **The main frame — asymmetric zones + reflow (CD-11 D-0020, revised D-0022):** the
   slot group does not own the full width; a zone flanks it on each side. The **right**
   is the permanent **Multifunctional (MF) zone** (status / files / FTP / music tabs
@@ -220,9 +251,10 @@ feathered compositing, and an isolated in-shell settings surface.
   staying centered and pixel-aligned; no-op if it won't fit). A **real click on a
   `target=_blank` link, or a `Ctrl`/middle-click on any link, opens the target in a
   new column beside the source** (which becomes active), or in place when the grid is
-  already full; ad/script popups stay suppressed. The workspace no longer **persists
-  open websites** across restarts (CD-14, D-0025): every launch starts fresh at a
-  single start-page slot — the earlier session-URL restore is reversed for privacy.
+  already full; ad/script popups stay suppressed. Websites are not auto-persisted
+  across restarts: a plain quit starts the next launch fresh, and only the explicit
+  **Quit & Save** restores the layout (clearnet URLs only — CD-21, D-0035; the
+  earlier always-on session restore was reversed for privacy in CD-14, D-0025).
 * **Surf columns (CEF, off-screen rendering):** each column's CEF browser renders
   off-screen (`on_paint`); CyberDesk uploads each frame into that slot's wgpu
   texture and composites it at the slot's rectangle (70 % tall, centered). Column
@@ -256,14 +288,18 @@ feathered compositing, and an isolated in-shell settings surface.
 * **Settings:** a gear button (top-right) opens an in-shell settings card — a
   **second, web-isolated OSR view** locked to an internal `cyberdesk://` custom
   scheme (D-0010), served entirely in-process from embedded assets. It can never
-  reach the web (its navigation is confined to `cyberdesk://`). A **search-engine**
-  select (DuckDuckGo — the factory default, D-0043 — / Brave / Startpage / Bing /
-  Google; a token-styled custom dropdown, D-0015; the host routes every
-  address-bar query to the SELECTED engine), a **glow-intensity** slider
-  (50–220 %), and three toggles (animated
-  background, feathered edges, and stay-in-foreground) are wired over a CEF
-  message-router IPC bridge (`get_settings` / `set_setting`), applied live and
-  persisted to SQLite.
+  reach the web (its navigation is confined to `cyberdesk://`). It now carries the
+  full control surface, wired over the message-router IPC bridge, applied live and
+  persisted to SQLite: a **search-engine** select (DuckDuckGo — the factory
+  default, D-0043 — / Brave / Startpage / Bing / Google; the host routes every
+  address-bar query to the SELECTED engine), the **glow-intensity** slider and
+  appearance toggles (animated background, feathered edges, stay-in-foreground),
+  the **Tor section** (engine switch, Tor-for-new-windows default, live status
+  with the failure reason, new circuit / new identity, the pinned arti version),
+  the **protection section** (the global Ampel preset, the per-vector Custom
+  detail, the reported-screen preset), **identity rotation** (fresh identity each
+  launch, the automatic rotation timer), and **on-disk privacy** (the on-launch
+  residue purge with its live footprint + last-purge readout, CD-34).
 * **One token source:** every style value — colors, radii, periods, amplitudes —
   comes from an embedded theme (`src/theme.toml`), resolved both into wgpu shader
   uniforms and into the settings/command pages' CSS custom properties. App state
@@ -417,7 +453,7 @@ its own floating command set (CD-12).
 | --- | --- |
 | `Ctrl+T` | Add a column to the right (up to what fits the width); it becomes active and opens to the start page — search or type an address there |
 | `Ctrl+W` | Close the active column (the last one can't be closed); the rest recenter and a neighbor becomes active |
-| Click a column's **close orb** (hover its top-outer corner) | Close that column (the last one can't be closed) |
+| Click a column's **close icon** (beside its address capsule, CD-18) | Close that column (the last one can't be closed) |
 | `Ctrl+1` … `Ctrl+3` | Focus the 1st … 3rd column |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle the active column forward / backward |
 | `Ctrl+Shift+←` / `Ctrl+Shift+→` | Swap the active column with its left / right neighbor |
@@ -437,19 +473,18 @@ its own floating command set (CD-12).
 | `F5` / `Ctrl+R` | Reload (active column) |
 | `Ctrl+Shift+R` | Hard reload, ignore cache (active column) |
 | Click the **info glyph** (top-right, beside the gear) | Open / close the update-awareness panel; it fills + pulses when an update is available |
-| Click the **Tor shield** (in a column's command set) | Route that window through Tor (or back to clearnet); the shield lights on Tor and pulses while the engine connects |
+| Click the **anonymity/Tor icon** (beside a column's address capsule, CD-18) | Route that window through Tor (or back to clearnet); it shows the live state and pulses while the engine connects |
+| Click the **mini-Ampel icon** (beside a column's address capsule, CD-25/30) | Open that window's protection chooser: its Ampel level, New identity now, per-vector Custom, screen-size cycler |
+| Click the **HUD Ampel** (top-right strip, CD-30) | Change the global protection level; stepping down routes through the two-confirmation gate |
 | `ESC` | Cancel a favorite drag, else hide the command set / info panel, else close the settings card, else quit |
 
 An amber glyph in the address capsule marks a page served over plain `http://`
 (e.g. `neverssl.com`, which stays http by design); `https` and internal pages
-show no warning. The **gear** (top-right) opens the settings card with a live,
-persisted **search-engine** select (DuckDuckGo — the factory default, D-0043 — /
-Brave / Startpage / Bing / Google; the not-a-URL search fallback routes to the
-selected engine), a **glow-intensity** slider (50–220 %,
-brightness of the animated background), and three toggles: **animated background**
-(the Pulse Grid, or whichever background the template selects), **feathered
-edges**, and **stay in foreground** (keep the fullscreen shell above other
-windows; always off in `--windowed` dev mode).
+show no warning. The **gear** (top-right) opens the settings card (see the
+Settings bullet above for the full surface: search engine, appearance, Tor,
+protection/Ampel, identity rotation, on-disk privacy) — every control applies
+live and persists across restarts. **Stay in foreground** is always off in
+`--windowed` dev mode.
 
 ---
 
@@ -459,40 +494,50 @@ windows; always off in `--windowed` dev mode).
 cyberdesk/
 ├─ src/
 │  ├─ main.rs        # entry point, CLI, process model
-│  ├─ app.rs         # winit event loop, window, slot layout, per-slot input routing, nav keys, foreground guard
+│  ├─ app.rs         # winit event loop, window, slot layout, per-slot input routing, nav keys, foreground guard, HUD/frame push
 │  ├─ renderer.rs    # wgpu renderer: shell + per-slot page/placeholder/line compositing, capture
-│  ├─ browser.rs     # CEF OSR (N slot views + 1 internal), custom scheme, isolation, settings/nav/command-set IPC
-│  ├─ slots.rs       # slot layout engine (frame_layout/frame_capacity, asymmetric zones) + order mgmt, pure + unit-tested
-│  ├─ theme.rs       # theme tokens -> shader uniforms + settings/command CSS vars
+│  ├─ browser.rs     # CEF OSR (slot/internal/MF-zone/HUD views), custom scheme, isolation, IPC allowlist, onion guard (CD-35)
+│  ├─ slots.rs       # slot layout engine (frame_layout/frame_capacity, asymmetric zones, Red lock) — pure + unit-tested
+│  ├─ theme.rs       # theme tokens -> shader uniforms + internal pages' CSS vars
 │  ├─ theme.toml     # the embedded "cyber" token set (single style source; [slots] section)
-│  ├─ store.rs       # schema-versioned SQLite store (settings, history, favorites)
-│  ├─ settings.rs    # live settings state (search engine, glow, toggles) over the shared store
+│  ├─ store.rs       # schema-versioned SQLite store (settings, favorites; RAM-only history since CD-33)
+│  ├─ settings.rs    # live settings state (search engine, Tor, hardening presets, rotation, purge) over the shared store
 │  ├─ memory.rs      # history + favorites domain layer (frecency suggestions) over the store
-│  ├─ updates.rs     # update awareness (CD-13): pinned-manifest fetch/parse/compare, info items, background worker
-│  ├─ tor.rs         # embedded Tor engine (CD-15): arti-client + per-slot local SOCKS5 relay, isolated circuits, off-thread bootstrap
+│  ├─ harden.rs      # fingerprinting-hardening config model: Ampel levels, per-vector flags, weakening gate (CD-25/29/30)
+│  ├─ hardening.js   # document-start injection: coherent farbling + clamps, config-gated per vector (CD-16/29)
+│  ├─ degoogle.rs    # engine phone-home kill switches/prefs, per-context (CD-17/26)
+│  ├─ forensic.rs    # anti-forensic on-launch residue purge, allowlisted + footprint readout (CD-34)
+│  ├─ fsprobe.rs     # filesystem measurement probe used to verify ephemerality (CD-33)
+│  ├─ logging.rs     # rolling file log + in-memory ring buffer for the MF-zone viewer (CD-15/18)
+│  ├─ updates.rs     # component update status, client-side vs pinned versions (CD-13; client-only since CD-22)
+│  ├─ tor.rs         # embedded Tor engine (CD-15/35): arti-client + per-slot SOCKS5 relay, isolated circuits, onion-capable
 │  ├─ pulsegrid.rs   # Pulse Grid background: seeded generator + life simulation
 │  ├─ settings.html/.css/.js   # embedded internal settings page assets
 │  ├─ command.html/.css/.js    # embedded floating command-set page assets (CD-12)
-│  ├─ info.html/.css/.js        # embedded update-awareness info panel assets (CD-13)
-│  ├─ start.html/.css/.js       # embedded own start page: Energy Core + search + favorites (CD-14)
+│  ├─ info.html/.css/.js       # embedded component-status info panel assets (CD-13/22)
+│  ├─ start.html/.css/.js      # embedded own start page: Energy Core + search + favorites (CD-14)
+│  ├─ mfzone.html/.css/.js     # embedded MF-zone viewer: Tor/Log/Terminal tabs (CD-18)
+│  ├─ hud.html/.css/.js        # embedded HUD strip: clock, Ampel, route, vectors, identity (CD-30)
+│  ├─ onion.html/.css/.js      # embedded onion refusal page for clearnet windows (CD-35)
 │  ├─ ring.wgsl      # CARVILON ring — dormant since CD-06 (Season-2 motif)
 │  ├─ pulsegrid_*.wgsl  # Pulse Grid: lattice (3 depth weaves) · sprite (SDF prims/pulses) · composite
 │  ├─ deepfield.wgsl # Deep Field ("Calm" variant) background  ·  blit.wgsl (upscale)
-│  ├─ page.wgsl      # per-slot page / settings panel compositing (feathering)
+│  ├─ page.wgsl      # per-slot page / overlay compositing (feathering)
 │  ├─ slot_placeholder.wgsl  # lazy-slot placeholder (fill + 7-segment index glyph)
 │  ├─ slot_lines.wgsl        # per-slot loading line (top) + active accent (bottom)
-│  ├─ drag.wgsl      # topmost command overlay: favorite-drag ghost/zones + close orbs (CD-12)
-│  ├─ info_glyph.wgsl # update-awareness info glyph (idle ring / active disc + pulse + count, CD-13)
+│  ├─ drag.wgsl      # topmost command overlay: favorite-drag ghost + drop zones (CD-12)
+│  ├─ info_glyph.wgsl # info glyph (idle ring / active disc + pulse + count, CD-13)
 │  └─ gear.wgsl      # settings gear button
 ├─ scripts/
-│  └─ fetch-cef.ps1  # downloads the pinned CEF version into vendor/cef/
-├─ docs/                          # living project documents (English)
+│  ├─ fetch-cef.ps1  # downloads the pinned CEF version into vendor/cef/
+│  └─ harden-selftest.mjs  # headless Node-vm checks of the hardening JS (CD-29)
+├─ docs/                          # living project documents (English; owned by CC, D-0053)
 │  ├─ cyberdesk-architecture.md
-│  ├─ cyberdesk-decisions.md      # D-0001 … D-0016
+│  ├─ cyberdesk-decisions.md      # D-0001 … (newest on top, append-only)
 │  ├─ cyberdesk-security.md
-│  ├─ cyberdesk-wire-format.md    # settings + navigation + top-bar IPC schema
-│  ├─ cyberdesk-feature-backlog.md
-│  └─ cyberdesk-roadmap.txt
+│  ├─ cyberdesk-wire-format.md    # the full IPC allowlist schema
+│  ├─ cyberdesk-feature-backlog.md  # incl. principles + season orientation (CD-36)
+│  └─ cyberdesk-degoogle-audit.md   # net-log verification recipe (CD-17/26)
 ├─ .cargo/config.toml
 └─ vendor/cef/        # (git-ignored) CEF binaries
 ```
@@ -512,6 +557,9 @@ cyberdesk/
   issue; under CD-02's off-screen rendering the GPU process is healthy and the
   message no longer appears (see `docs/cyberdesk-decisions.md`, D-0009). If it
   does show, CEF falls back to SwiftShader and the page still renders.
-* **CEF profile/cache:** kept isolated under `target/<profile>/cyberdesk-cache/`
-  (git-ignored) — the surf zone deliberately shares no state with a separately
-  installed Chrome.
+* **CEF profile/cache:** kept isolated under `cyberdesk-cache/` beside the exe
+  (`target/<profile>/` in a dev build, git-ignored) — the surf zone deliberately
+  shares no state with a separately installed Chrome. Since CD-33/34 it holds
+  **no browsing content** (browsing runs on in-memory contexts) and the whole
+  directory is purged on every launch by default; what exists mid-session is
+  regenerable Chromium scaffolding, measured and reported in settings.
