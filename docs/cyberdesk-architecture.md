@@ -2,7 +2,7 @@
 
 Project CARVILON CyberDesk - living document - Status: 2026-07-20 (through CD-38 / D-0054)
 Maintained by Claude Code (CC), updated in the same commit-set as the code it describes (D-0053).
-Proprietary - Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
+Copyright (c) 2026 Sascha Daemgen IT and More Systems. Open core under AGPL-3.0 (see LICENSE); a separate commercial Professional edition is licensed apart (D-0056).
 
 ## What CyberDesk is
 

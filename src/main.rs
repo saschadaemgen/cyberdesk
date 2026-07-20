@@ -1,6 +1,7 @@
 //! CARVILON CyberDesk — desktop shell entry point.
 //!
-//! Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
+//! Copyright (c) 2026 Sascha Daemgen IT and More Systems.
+//! SPDX-License-Identifier: AGPL-3.0-only (open core; commercial Pro edition licensed apart)
 
 // Release builds are GUI apps (no console window); debug keeps a console for
 // logs. CEF sub-processes reuse this same executable.

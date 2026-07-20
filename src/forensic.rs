@@ -39,7 +39,8 @@
 //! the on-disk profile only ever holds regenerable scaffolding until the next launch
 //! clears it.
 //!
-//! Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
+//! Copyright (c) 2026 Sascha Daemgen IT and More Systems.
+//! SPDX-License-Identifier: AGPL-3.0-only (open core; commercial Pro edition licensed apart)
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};

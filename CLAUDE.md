@@ -1,8 +1,9 @@
 # CLAUDE.md — working rules for this repo
 
-This repo is part of the proprietary CARVILON platform (Copyright (c) 2026
-Sascha Daemgen IT and More Systems). It is developed jointly by Sascha and
-Claude Code. The following rules are binding.
+This repo (Cyb3rD3sk) is the **AGPL-3.0 open-core** component of the CARVILON
+platform (Copyright (c) 2026 Sascha Daemgen IT and More Systems; see `LICENSE`,
+plus a separate commercial Professional edition — D-0056). It is developed
+jointly by Sascha and Claude Code. The following rules are binding.
 
 ## Language
 

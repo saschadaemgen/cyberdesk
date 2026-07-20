@@ -7,7 +7,8 @@
 //! `--help`. It deliberately calls `browser::init_cef` / `browser::create_browser_url`
 //! rather than re-implementing them — what it verifies is exactly what ships.
 //!
-//! Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
+//! Copyright (c) 2026 Sascha Daemgen IT and More Systems.
+//! SPDX-License-Identifier: AGPL-3.0-only (open core; commercial Pro edition licensed apart)
 
 use crate::browser::{self, Role};
 use std::time::{Duration, Instant};

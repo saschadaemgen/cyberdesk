@@ -1,7 +1,10 @@
-CARVILON CyberDesk
-Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
+CARVILON CyberDesk (Cyb3rD3sk)
+Copyright (c) 2026 Sascha Daemgen IT and More Systems.
 
-This product is proprietary software. See the LICENSE file for the full terms.
+This program is free software: the open-core base is licensed under the GNU
+Affero General Public License, version 3.0. See the LICENSE file for the full
+terms. A separate commercial Professional edition is licensed apart from the
+AGPL core.
 
 ------------------------------------------------------------------------------
 Third-party components
@@ -18,5 +21,6 @@ fetched at build time and are NOT distributed within this repository:
     its own license (predominantly MIT OR Apache-2.0).
 
 All third-party components remain the property of their respective owners and
-are used under their respective licenses. This NOTICE does not grant any
-rights to the proprietary CyberDesk software itself.
+are used under their respective licenses. This NOTICE describes third-party
+attribution only; the license for CyberDesk itself is the AGPL-3.0 LICENSE
+file (open core) plus the separate commercial Professional edition.

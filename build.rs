@@ -9,7 +9,8 @@
 //! `env!("ARTI_CLIENT_VERSION")` (D-0029). If the lockfile is absent or the package
 //! isn't found, we emit `unknown` — this NEVER fails the build.
 //!
-//! Copyright (c) 2026 Sascha Daemgen IT and More Systems. All rights reserved.
+//! Copyright (c) 2026 Sascha Daemgen IT and More Systems.
+//! SPDX-License-Identifier: AGPL-3.0-only (open core; commercial Pro edition licensed apart)
 
 use std::{env, fs, path::Path};
 
