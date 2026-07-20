@@ -282,11 +282,16 @@ impl Store {
         // CD-15: the Tor engine is available by default; new windows are clearnet.
         self.set_if_absent("tor_enabled", "true");
         self.set_if_absent("tor_default", "false");
-        // CD-25: the global fingerprinting-hardening preset, default Standard (the
-        // recommended coherent default). Per-window overrides are session-ephemeral
-        // and are not persisted here; the custom per-vector blob (hardening_custom)
-        // is written only when the user enters custom mode.
-        self.set_if_absent("hardening_level", "standard");
+        // The global fingerprinting-hardening Ampel level is deliberately NOT seeded
+        // here. Its factory default — GREEN, the coherent everyday level (CD-30,
+        // D-0047) — lives solely in settings::init's `.unwrap_or(Green)` fallback,
+        // which governs precisely while the key is ABSENT. Seeding a value would
+        // (1) re-pin a default that goes stale exactly as the old CD-25 "standard"
+        // seed did (it booted fresh installs at Yellow, not Green), and (2) forge
+        // an explicit user choice, defeating the "absent key = no choice, follow the
+        // evolving default" upgrade semantics the graded Ampel depends on. The key
+        // is written only when the user picks a level (settings::set_hardening); the
+        // per-vector custom blob (hardening_custom) only in custom mode.
         // glow_intensity is seeded lazily from the background.glow_default token
         // in settings::init (kept out of the store until the user changes it).
     }

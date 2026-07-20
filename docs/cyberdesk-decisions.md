@@ -5,6 +5,36 @@ Living document - maintained by Claude Code (CC), updated in the same
 commit-set as the change it records (D-0053). Append-only: historical entries
 are never rewritten; a superseded decision gets a new D-number forward.
 
+## D-0057 - 2026-07-20 - Fresh installs now actually boot the hardening Ampel at Green: the stale CD-25 store seed is removed, not reseeded
+
+*Decision.* A fresh install was booting the fingerprinting-hardening Ampel at
+**Yellow**, not the designed **Green** factory default (D-0047). Root cause: a
+stale CD-25 line in `store.rs seed_defaults` — `set_if_absent("hardening_level",
+"standard")` — wrote the key on every fresh store. `"standard"` is a Yellow
+alias (`harden::Level::parse`), so `settings::init`'s intended
+`.unwrap_or(Level::Green)` fallback (which only fires when the key is ABSENT) was
+dead for fresh installs. Back in CD-25 the factory default genuinely was Standard,
+so the seed was correct then; CD-30 (D-0047) moved the default to Green and left
+the seed behind — it silently overrode the new default.
+
+*Fix (the seed is removed, not reseeded to "green").* The `hardening_level` seed
+line and its stale comment are deleted; the factory default now lives in exactly
+one place — `settings::init`'s `.unwrap_or(Green)`. Reseeding `"green"` was
+rejected: the graded Ampel's whole upgrade contract (D-0047/D-0048) distinguishes
+"user never chose → follow the evolving factory default" (key absent) from "user
+explicitly chose X → never silently changed" (key present). Seeding any value on
+a fresh install forges an explicit choice and re-pins a default that can go stale
+exactly as this bug did. The resolution is extracted into a pure, unit-testable
+helper `resolve_hardening_boot_level(&Store)`, guarded by a new test
+(`fresh_install_boots_hardening_at_green_not_yellow`) asserting a fresh store has
+no `hardening_level` key and resolves to Green, that an explicit choice still
+governs, and that a persisted highest level still boots as resizable Yellow
+(D-0048). 119 tests pass.
+
+*Scope.* This is a code behavior change, deliberately out of the docs-only CD-39
+(D-0056) — its own commit-set. The wire-format doc already stated "factory
+default `green`"; that claim is now true in code rather than only aspirational.
+
 ## D-0056 - 2026-07-20 - README is product-facing, not a changelog; badge row; AGPL-3.0 open core (CD-39)
 
 *Decision.* The README is a polished, product-facing document (intro, features

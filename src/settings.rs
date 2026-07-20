@@ -186,6 +186,21 @@ fn boot_level(persisted: harden::Level) -> harden::Level {
     }
 }
 
+/// Resolve the hardening level a store boots at. A PERSISTED value governs,
+/// shaped by [`boot_level`] (a persisted highest level comes up as Yellow — the
+/// Red bunker is opt-in per session, CD-31/D-0048; a pre-CD-30 "standard" parses
+/// to Yellow — identical content, so an explicit choice never silently weakens
+/// on upgrade). When the key is ABSENT — a fresh install — the factory default
+/// is GREEN (the coherent everyday level, CD-30/D-0047). Extracted from [`init`]
+/// so the fresh-install default is unit-testable: the store must NOT seed this
+/// key, or the Green fallback is dead and fresh installs silently boot at Yellow.
+fn resolve_hardening_boot_level(s: &Store) -> harden::Level {
+    s.get(KEY_HARDENING_LEVEL)
+        .and_then(|v| harden::Level::parse(&v))
+        .map(boot_level)
+        .unwrap_or(harden::Level::Green)
+}
+
 /// The stored custom per-vector flags (meaningful only when the level is Custom).
 pub fn hardening_custom() -> harden::Config {
     *HARDENING_CUSTOM.lock().unwrap()
@@ -365,16 +380,7 @@ pub fn init() {
     SEARCH_ENGINE.store(engine, Ordering::Relaxed);
     TOR_ENABLED.store(s.get_bool(KEY_TOR_ENABLED, true), Ordering::Relaxed);
     TOR_DEFAULT.store(s.get_bool(KEY_TOR_DEFAULT, false), Ordering::Relaxed);
-    // CD-30: the factory default is GREEN (the coherent everyday level). A
-    // persisted pre-CD-30 "standard" parses to Yellow — identical content, so
-    // an explicit choice never silently weakens on upgrade. CD-31 (D-0048): a
-    // persisted highest level ("strict"/"red") boots as YELLOW via boot_level —
-    // the Red bunker + size lock is opt-in per session, never a boot surprise.
-    let level = s
-        .get(KEY_HARDENING_LEVEL)
-        .and_then(|v| harden::Level::parse(&v))
-        .map(boot_level)
-        .unwrap_or(harden::Level::Green);
+    let level = resolve_hardening_boot_level(&s);
     HARDENING_LEVEL.store(level_code(level), Ordering::Relaxed);
     if let Some(j) = s.get(KEY_HARDENING_CUSTOM) {
         *HARDENING_CUSTOM.lock().unwrap() = harden::Config::from_json(&j);
@@ -507,8 +513,37 @@ pub fn set_search_engine(value: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_ENGINE, boot_level, engine_id, engine_name};
+    use super::{
+        DEFAULT_ENGINE, KEY_HARDENING_LEVEL, boot_level, engine_id, engine_name,
+        resolve_hardening_boot_level,
+    };
     use crate::harden::Level;
+    use crate::store::Store;
+
+    /// A fresh install must boot the hardening Ampel at GREEN — the coherent
+    /// everyday factory default (CD-30, D-0047). Regression guard for the stale
+    /// CD-25 store seed (`hardening_level` = "standard"), which pre-seeded the
+    /// key so the Green `.unwrap_or` fallback was dead and fresh installs
+    /// silently came up at Yellow (Green + the timing/media/math clamps). The
+    /// key must stay ABSENT on a fresh store; a later explicit choice still
+    /// governs, and a persisted highest level still boots as Yellow.
+    #[test]
+    fn fresh_install_boots_hardening_at_green_not_yellow() {
+        let s = Store::open_in_memory();
+        // The seed is gone: the key is absent, so the Green default governs.
+        assert_eq!(s.get(KEY_HARDENING_LEVEL), None);
+        assert_eq!(resolve_hardening_boot_level(&s), Level::Green);
+        // An explicit persisted choice is still honored (never overridden by Green).
+        s.set(KEY_HARDENING_LEVEL, "yellow");
+        assert_eq!(resolve_hardening_boot_level(&s), Level::Yellow);
+        s.set(KEY_HARDENING_LEVEL, "off");
+        assert_eq!(resolve_hardening_boot_level(&s), Level::Off);
+        // A persisted highest level still boots as the resizable Yellow, not the bunker.
+        s.set(KEY_HARDENING_LEVEL, "red");
+        assert_eq!(resolve_hardening_boot_level(&s), Level::Yellow);
+        s.set(KEY_HARDENING_LEVEL, "strict");
+        assert_eq!(resolve_hardening_boot_level(&s), Level::Yellow);
+    }
 
     /// CD-31 (D-0048): the Red bunker (window-size lock) is an in-session
     /// choice — any persisted highest level boots as Yellow (full ten-vector
