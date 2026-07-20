@@ -5,7 +5,40 @@ Maintained by Claude Code (CC), updated in the same commit-set as the code it de
 
 Soft season mapping - chat fill level and reality decide the actual cuts. Completed items move into the respective season protocol.
 
-## Foundation (Season 1, running)
+## Principles & season orientation
+
+(Folded in from the retired `cyberdesk-roadmap.txt`, CD-36 / D-0053 — one
+source of truth for the season→feature mapping.)
+
+Principles:
+
+- Risk first: the unproven moves to the front.
+- Security before integration: no door control before authorization stands.
+- D-0006: The better, harder path beats the compromise. Governs the quality of
+  the path, not all-at-once scope.
+- Season end: season protocol (including failures and dead ends) + chat
+  handover + update of the living docs. Stored in `seasons/` AND in the chat
+  project. (Doc updates themselves are continuous per D-0053 — every change in
+  the same commit-set; the season-end pass is the review, not the catch-up.)
+
+Season orientation (terse; numbers are orientation, not a contract):
+
+| Season | Theme | Anchor |
+| --- | --- | --- |
+| S1 | Foundation + risk proof | CD-01 shell+CEF, CD-02 OSR texture, CD-03 feathering — **shipped** |
+| S2 | Design law | color world, motion language, shaders, drag-and-drop language (CD reference binding) — running; privacy/Tor/hardening arc CD-14..CD-35 shipped within it |
+| S3 | Zone engine | grid, S/M/L reflow, tab rail, Edit Mode |
+| S4 | Modes + Event Engine | Standard/Admin/DND, priority x mode, simulated events |
+| S5 | Browser becomes CARVILON | favorites/history (SQLite — shipped CD-07), downloads, context menu, request filter |
+| S6 | Crypto + authorization | Argon2id, Zeroize, encrypted state, start authorization |
+| S7 | CARVILON integration | cameras, doors, status, time clock (NetGuard rules Edge/VPS) |
+| S8+ | Tools | terminal, editor, explorer, FTP, logic analyzer, NetGuard monitor |
+| S9+ | Everyday | music, SimpleX, email, calls, calendar/day planner, office unit |
+
+Long-term goal: CARVILON OS (Debian 13 Trixie) - CyberDesk boots as the shell.
+Nothing on the app path is throwaway work.
+
+## Foundation (Season 1 — shipped)
 
 - CD-01 shell skeleton (winit/wgpu, fullscreen, rotating ring, ESC, --windowed) + CEF windowed with google.com [with CC]
 - CD-02 OSR PoC: web page as GPU texture inside our own frame
