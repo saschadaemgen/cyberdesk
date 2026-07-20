@@ -123,10 +123,13 @@
     var on = state.vectors_on | 0;
     var total = state.vectors_total | 0;
     vectorsV.textContent = total ? on + "/" + total + " active" : "—";
-    // The ACTIVE window's route (CD-15 state, surfaced as text).
+    // The ACTIVE window's route (CD-15 state, surfaced as text). "Onion" is
+    // shown only while the window is actually on an onion service (CD-35 Task
+    // C): the host derives it from the live URL + Tor mode — connected to an
+    // onion service, resolved inside Tor, nothing more claimed.
     var r = state.route || {};
     routeK.textContent = "Route W" + (r.window || 1);
-    routeV.textContent = r.tor ? "Tor" : "Clearnet";
+    routeV.textContent = r.tor ? (r.onion ? "Tor · Onion" : "Tor") : "Clearnet";
     routeV.parentElement.classList.toggle("on", !!r.tor);
     paintIdentity();
     paintClock();
