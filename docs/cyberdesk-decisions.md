@@ -5,6 +5,48 @@ Living document - maintained by Claude Code (CC), updated in the same
 commit-set as the change it records (D-0053). Append-only: historical entries
 are never rewritten; a superseded decision gets a new D-number forward.
 
+## D-0054 - 2026-07-20 - CD-35 regression fixed forward: onion-refusal guard no longer stalls the UI (CD-38)
+
+*Decision.* The CD-35 request-intercept layers (address-bar reroute, per-slot
+`on_before_browse`, context-level IO-thread resource guard) caused the UI
+thread to hang on browser interaction (onion loads forever; clearnet freezes
+on any interaction, Task-Manager-kill only). Root cause: a **same-thread
+mutex re-entry deadlock on the CEF UI thread**, verified in the pinned crate
+source — the message router's `on_process_message_received`
+(cef `wrapper/message_router.rs`) **holds its `browser_query_info_map` mutex
+across the synchronous on_query dispatch**; a `navigate`/`reload`/`go_back`
+IPC therefore runs `load_url` on that stack, Chromium starts the
+browser-initiated navigation synchronously inside `LoadURL` (the navigation
+throttles run before it returns), and CD-35's new
+`SlotRequestHandler::on_before_browse` then called `router.on_before_browse`
+→ `cancel_pending_for` → a second `browser_query_info_map.lock()` on the same
+thread — a permanent deadlock of the CEF UI thread (every OSR view freezes,
+input dies, quit blocks in CEF shutdown → Task Manager). It fired on any
+band/start-page navigation in ANY slot; the `.onion` reroute rode the same
+path. The other two suspected shapes were ruled out at code level: the
+reroute cannot loop (the refusal URL is not an onion URL — unit-pinned) and
+every guard path returns `RV_CONTINUE` explicitly.
+
+Fixed forward (no revert): the slot handler's **router forwards are removed**
+— `SlotRequestHandler` now does exactly its onion job (cancel + refusal
+queue, lock-free on the allow path) and never touches the router. Router
+bookkeeping for slots is what it was through CD-34: `on_before_close`
+forwards on browser destruction (pre-existing), and the renderer side cancels
+its queries on context destruction. `InternalRequestHandler` keeps its
+forward — internal-view `load_url`s always originate on the main thread,
+never inside a router dispatch — with the constraint documented at both
+handlers, and a source-assertion tripwire test pins the regression shape
+(the threading property itself is not headlessly testable). The deferred
+alternative (posting the router forward via `post_task`) was rejected as
+complexity without user benefit. CD-35's clearnet `.onion` leak defense is
+untouched: all three layers (reroute, navigation cancel, context guard)
+still hold — a responsive UI and the no-leak guarantee both.
+
+*Why.* A guard on the hot path of every request must never block the UI
+thread or loop; the fix restructures it to be safe on the hot path — by
+removing the one call that could re-enter a held lock — without weakening
+the onion-leak protection.
+
 ## D-0053 - 2026-07-20 - Documentation governance: CC owns the living docs and the factual season protocol; docs update in-lockstep with code; roadmap folded into feature-backlog (CD-36)
 
 *Decision.* CC owns and maintains the living technical docs (architecture,

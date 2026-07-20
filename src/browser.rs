@@ -2937,6 +2937,15 @@ wrap_request_handler! {
     struct InternalRequestHandler;
 
     impl RequestHandler {
+        // Threading constraint (CD-38, D-0054): this handler may forward to
+        // BROWSER_ROUTER *only because* every internal-view load_url originates
+        // on the shell's main thread (gear/info clicks, main-thread drains) —
+        // never inside a router query dispatch. A load_url issued FROM a router
+        // handler starts its navigation synchronously on the dispatch stack,
+        // where the router's map mutex is still held, and a router re-entry
+        // deadlocks the CEF UI thread (the CD-35 slot-handler regression). If
+        // an internal view ever gains an IPC-triggered synchronous load_url,
+        // this forward must go the way of SlotRequestHandler's (removed).
         fn on_before_browse(
             &self,
             browser: Option<&mut Browser>,
@@ -2988,9 +2997,24 @@ wrap_request_handler! {
     }
 
     impl RequestHandler {
+        // DEADLOCK HAZARD (CD-38, D-0054) — this handler must NEVER call back
+        // into BROWSER_ROUTER. A `navigate`/`reload`/`go_back` IPC runs inside
+        // the router's on_process_message_received dispatch, which HOLDS the
+        // router's browser_query_info_map mutex while our on_query handler
+        // executes (crate message_router.rs); a load_url on that stack starts
+        // the browser-initiated navigation synchronously (Chromium runs the
+        // navigation throttles inside LoadURL), so on_before_browse fires ON
+        // THE SAME UI-THREAD STACK — router.on_before_browse would then re-lock
+        // the held, non-reentrant mutex and deadlock the CEF UI thread
+        // permanently (the CD-35→CD-38 app freeze). Slot router bookkeeping is
+        // covered elsewhere: on_before_close forwards on browser destruction
+        // (CyberLifeSpanHandler, pre-CD-35), and the renderer side cancels its
+        // queries on context destruction. The internal-view handler MAY forward
+        // (see InternalRequestHandler) only because internal load_urls always
+        // originate on the main thread, never inside a router dispatch.
         fn on_before_browse(
             &self,
-            browser: Option<&mut Browser>,
+            _browser: Option<&mut Browser>,
             frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             _user_gesture: c_int,
@@ -3003,7 +3027,11 @@ wrap_request_handler! {
             // with the Tor offer; a subframe is just canceled (an embedded
             // iframe must not hijack the whole window). The address-bar path
             // never reaches this (it reroutes in the `navigate` IPC), and the
-            // context-level OnionGuard below is the IO-thread backstop.
+            // context-level OnionGuard below is the IO-thread backstop. This
+            // path runs inside the synchronous LoadURL navigation start (see
+            // the hazard note above), so it stays lock-free for ordinary URLs;
+            // the refusal queue's mutex is touched only for a `.onion` and is
+            // never held across any CEF or router call by its other users.
             if !self.tor {
                 let url = request
                     .as_ref()
@@ -3021,25 +3049,7 @@ wrap_request_handler! {
                     return 1; // cancel — the name never reaches a resolver
                 }
             }
-            // Allowed navigation: let the message router drop stale queries (the
-            // slot's own start page uses the router; CD-35 wires the required
-            // OnBeforeBrowse forwarding that slots previously lacked).
-            if let Some(router) = BROWSER_ROUTER.get() {
-                router.on_before_browse(browser.map(|b| b.clone()), frame.map(|f| f.clone()));
-            }
-            0 // proceed
-        }
-
-        fn on_render_process_terminated(
-            &self,
-            browser: Option<&mut Browser>,
-            _status: TerminationStatus,
-            _error_code: c_int,
-            _error_string: Option<&CefString>,
-        ) {
-            if let Some(router) = BROWSER_ROUTER.get() {
-                router.on_render_process_terminated(browser.map(|b| b.clone()));
-            }
+            0 // proceed — and never touch the router here (deadlock, see above)
         }
     }
 }
@@ -3658,6 +3668,32 @@ mod tests {
         assert_eq!(
             url,
             "cyberdesk://onion/?s=1&u=http%3A%2F%2Fexample.onion%2Fp%3Fa%3D1%26b%3D%2B2"
+        );
+    }
+
+    /// CD-38 regression tripwire (D-0054): the slot request handler must never
+    /// call back into the message router. Its `on_before_browse` runs on the
+    /// synchronous LoadURL navigation stack of a `navigate`/`reload`/`go_back`
+    /// IPC — a stack on which the router's `on_process_message_received` still
+    /// HOLDS its query-map mutex — so a router re-entry there deadlocks the CEF
+    /// UI thread permanently (the CD-35 freeze). The threading property itself
+    /// is not unit-testable headlessly; this source assertion is the tripwire
+    /// for the exact regression shape instead.
+    #[test]
+    fn slot_request_handler_never_touches_the_router() {
+        let src = include_str!("browser.rs");
+        let start = src
+            .find("struct SlotRequestHandler")
+            .expect("SlotRequestHandler must exist");
+        let end = start
+            + src[start..]
+                .find("wrap_resource_request_handler!")
+                .expect("the onion guard follows the slot handler");
+        let block = &src[start..end];
+        assert!(
+            !block.contains("BROWSER_ROUTER.get"),
+            "SlotRequestHandler must not call into the message router — its \
+             callbacks run on the router's own dispatch stack (D-0054 deadlock)"
         );
     }
 
