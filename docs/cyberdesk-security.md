@@ -1,6 +1,6 @@
 # CyberDesk - Security
 
-Project CARVILON CyberDesk - living document - Status: 2026-07-21 (through CD-40 Stage 1a / D-0058)
+Project CARVILON CyberDesk - living document - Status: 2026-07-21 (through CD-40 Stage 1b / D-0059)
 Maintained by Claude Code (CC), updated in the same commit-set as the code it describes (D-0053).
 
 ## Iron law
@@ -23,10 +23,18 @@ The surf zone (CEF) has no path to CARVILON functions (doors, cameras, time cloc
 
 ## Vault: keys and authorization (Season 6 crypto, CD-40, D-0058)
 
-Stage 1 crypto core is shipped (`src/vault.rs`); the start-authorization
-gate, the config/tile surface, and the passkey-PRF layer land in the CD-40
-sub-stages that follow. The standing laws are unchanged: **no key material in
-memory before authentication; no key material in the WebView, ever.**
+Stage 1 crypto core (1a) and the start-authorization gate (1b, D-0059) are
+shipped (`src/vault.rs`, `app.rs` gate, `cyberdesk://lock/`); the config/tile
+surface and the passkey-PRF layer land in the CD-40 sub-stages that follow.
+The standing laws hold **by construction**: no key material in memory before
+authentication (the app boots into a lock view — no slots, no MF zone, no HUD
+— and the workspace is created only after the VMK exists), and no key material
+in the WebView, ever — while a secret is being entered, the HOST consumes the
+keyboard directly into locked memory and the page renders dots from a pushed
+character count; a renderer process never holds a keystroke of a vault secret.
+(One deliberate, documented exception: the one-time recovery display at setup
+— user-facing by definition, shown once in the local settings page, zeroized
+host-side on ack.)
 
 The model, precisely:
 
@@ -87,6 +95,20 @@ The model, precisely:
   in flux. The passkey sub-stage ships only after PRF is verified dependable
   on the target — the foundation (passphrase + recovery + gate) never waits
   on it.
+- **The gate, precisely (1b, D-0059).** Locked boot creates ONLY the lock
+  view; unlock/setup derivations run on worker threads; "Lock now" wipes key
+  material and relaunches the process cold (provable teardown of every
+  renderer — no in-process CEF lifecycle edge cases). A vault file that fails
+  validation keeps the gate CLOSED with an honest message: corruption or
+  tampering must never bypass authorization. Every deliberate exit path wipes
+  key material explicitly. The identity seed (fingerprint linkage material)
+  is the sealed store's first tenant: with a vault present it exists only
+  inside `vault.seal`, migrated out of plaintext at setup, and is never
+  readable — with no plaintext fallback — before unlock.
+- **Dev bypass honesty.** `CYBERDESK_VAULT_BYPASS=1` exists only under
+  `cfg(debug_assertions)` — a release artifact contains no bypass code path.
+  It skips the gate for the dev loop; it cannot produce the VMK, so sealed
+  state stays sealed even under the bypass.
 
 ## NetGuard
 

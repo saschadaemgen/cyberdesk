@@ -11,6 +11,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{CursorIcon, Fullscreen, Window, WindowId, WindowLevel};
 
+use zeroize::Zeroize;
+
 use crate::browser::{self, Role};
 use crate::renderer::{self, InfoGlyph, SlotView, SurfaceRenderer};
 use crate::settings;
@@ -110,6 +112,49 @@ fn local_utc_offset_minutes() -> i32 {
     0
 }
 
+/// Read the clipboard as text — the host-side paste path for vault secret
+/// capture (CD-40): Ctrl+V during a capture appends clipboard text to the
+/// locked input buffer without the renderer ever seeing it. Same direct-extern
+/// style as the timezone read above; user32/kernel32 are in the link set.
+#[cfg(windows)]
+fn clipboard_text() -> Option<String> {
+    use core::ffi::c_void;
+    unsafe extern "system" {
+        fn OpenClipboard(hwnd: *mut c_void) -> i32;
+        fn CloseClipboard() -> i32;
+        fn GetClipboardData(format: u32) -> *mut c_void;
+        fn GlobalLock(h: *mut c_void) -> *mut c_void;
+        fn GlobalUnlock(h: *mut c_void) -> i32;
+    }
+    const CF_UNICODETEXT: u32 = 13;
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return None;
+        }
+        let mut out = None;
+        let handle = GetClipboardData(CF_UNICODETEXT);
+        if !handle.is_null() {
+            let p = GlobalLock(handle).cast::<u16>();
+            if !p.is_null() {
+                // CF_UNICODETEXT is NUL-terminated by contract.
+                let mut len = 0usize;
+                while *p.add(len) != 0 {
+                    len += 1;
+                }
+                out = Some(String::from_utf16_lossy(std::slice::from_raw_parts(p, len)));
+                GlobalUnlock(handle);
+            }
+        }
+        CloseClipboard();
+        out
+    }
+}
+
+#[cfg(not(windows))]
+fn clipboard_text() -> Option<String> {
+    None
+}
+
 /// Which internal overlay (if any) is currently shown. `Command` is the CD-12
 /// floating command band; `Settings` is the gear card; `Info` is the CD-13
 /// update-awareness panel. All mutually exclusive — one shared internal OSR view.
@@ -119,6 +164,11 @@ enum Overlay {
     Settings,
     Command,
     Info,
+    /// The start-authorization gate (CD-40, D-0058): the internal view shows
+    /// `cyberdesk://lock/` and nothing else exists — no slots, no MF zone, no
+    /// HUD. Every keystroke is captured by the HOST (never the page) while
+    /// this overlay is up; leaving it is only possible by unlocking (or quit).
+    Lock,
 }
 
 pub fn run(windowed: bool) {
@@ -128,6 +178,12 @@ pub fn run(windowed: bool) {
     // Opens and takes ownership of the app-state store (state.db) and loads the
     // persisted toggles; the settings IPC writes through it live.
     settings::init();
+    // Load the vault state (CD-40, D-0058): with a vault present the shell boots
+    // LOCKED — only the lock page exists until the start-authorization gate opens.
+    // Must follow settings::init (shares the app-data dir) and precede everything
+    // that might touch sealed state.
+    crate::vault::init();
+    let locked = crate::vault::is_locked();
     // Anti-forensic browsing-residue purge (CD-34, D-0051): wipe the CEF
     // browsing-cache/profile dir BEFORE init_cef (below) — the only moment CEF does
     // not yet hold its files open. Reads the `purge_residue` toggle just loaded by
@@ -135,10 +191,15 @@ pub fn run(windowed: bool) {
     crate::forensic::purge_on_launch();
     // Initialize the global identity seed (CD-29): fresh each launch, or the
     // persisted seed when "new identity on restart" is off. Must follow settings::init.
-    browser::init_identity_seed();
+    // While the vault gate is closed this is DEFERRED to the unlock transition —
+    // the persisted seed is a sealed tenant and unreadable before the VMK exists.
+    if !locked {
+        browser::init_identity_seed();
+    }
 
     let mut app = Shell {
         windowed,
+        locked,
         window: None,
         renderer: None,
         theme: Theme::load(),
@@ -147,6 +208,7 @@ pub fn run(windowed: bool) {
         rot_flash_until: None,
         red_flash_until: None,
         red_slots: 0,
+        lock_view_started: false,
         cef_inited: false,
         views_started: false,
         scale: 1.0,
@@ -185,11 +247,22 @@ pub fn run(windowed: bool) {
     };
     event_loop.run_app(&mut app).expect("event loop error");
 
+    // Belt-and-braces (CD-40 acceptance: zeroized on exit): statics never drop
+    // on process exit, so the vault wipes its key material explicitly on every
+    // deliberate shutdown path.
+    crate::vault::wipe_for_exit();
     browser::shutdown_cef();
 }
 
 struct Shell {
     windowed: bool,
+    /// The start-authorization gate is closed (CD-40, D-0058): a vault exists
+    /// and the VMK is not in memory. While true, only the lock view boots; the
+    /// workspace follows after the unlock outcome arrives.
+    locked: bool,
+    /// The lock view has been created (one-shot, the locked sibling of
+    /// `views_started`).
+    lock_view_started: bool,
     window: Option<Arc<Window>>,
     renderer: Option<SurfaceRenderer>,
     theme: Theme,
@@ -596,6 +669,16 @@ impl Shell {
                     Some((Role::Internal, (x, y)))
                 } else if over_hud {
                     Some((Role::Hud, (hud.0, hud.1)))
+                } else {
+                    None
+                }
+            }
+            // The lock gate (CD-40): only the lock card is interactive — no HUD,
+            // no MF zone, no slots exist while the gate is closed.
+            Overlay::Lock => {
+                let (x, y, pw, ph) = self.internal_rect(w, h);
+                if cx >= x && cx <= x + pw && cy >= y && cy <= y + ph {
+                    Some((Role::Internal, (x, y)))
                 } else {
                     None
                 }
@@ -1485,6 +1568,8 @@ impl Shell {
             return;
         }
         match self.overlay {
+            // The gate has no band — no slot exists to engage (CD-40).
+            Overlay::Lock => {}
             Overlay::Closed => {
                 if let Some(s) = self.band_hot_slot() {
                     self.engage(s, false);
@@ -1551,6 +1636,13 @@ impl Shell {
     /// command band (CD-12) is driven by engage/disengage, not this path.
     fn toggle_settings(&mut self) {
         if self.overlay == Overlay::Settings {
+            // Closing the card aborts any vault capture begun from it (CD-40)
+            // — the host must not keep swallowing the keyboard for an entry
+            // field that is no longer visible.
+            if crate::vault::capture_active() {
+                crate::vault::cancel_capture();
+                browser::push_vault_state();
+            }
             self.overlay = Overlay::Closed;
             browser::set_focus(Role::Internal, false);
             browser::set_focus(Role::Slot(self.active_slot), true);
@@ -1740,6 +1832,14 @@ impl Shell {
     /// slot, not the overlay, holds keyboard focus after startup — matching the
     /// pre-CD-21 order). `create_browser` needs geometry set first, hence the split.
     fn restore_session(&mut self, window: &Window) {
+        self.restore_session_views(window, true);
+    }
+
+    /// [`Shell::restore_session`], parameterized for the vault gate (CD-40):
+    /// after an unlock the internal view ALREADY exists (it carried the lock
+    /// page and was just navigated back to settings), so only the MF zone, the
+    /// HUD and the slots are created then.
+    fn restore_session_views(&mut self, window: &Window, create_internal: bool) {
         let hwnd = window_hwnd(window);
 
         let plan = match crate::store::shared().lock().unwrap().take_saved_session() {
@@ -1748,7 +1848,9 @@ impl Shell {
         };
 
         self.push_geometry();
-        browser::create_browser(Role::Internal, hwnd);
+        if create_internal {
+            browser::create_browser(Role::Internal, hwnd);
+        }
         browser::create_browser(Role::MfZone, hwnd); // → cyberdesk://mfzone/ (permanent)
         browser::create_browser(Role::Hud, hwnd); // → cyberdesk://hud/ (permanent, CD-30)
         for p in &plan {
@@ -1950,7 +2052,10 @@ impl ApplicationHandler for Shell {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                crate::vault::wipe_for_exit();
+                event_loop.exit();
+            }
 
             WindowEvent::Focused(focused) => {
                 browser::set_focus(self.active_role(), focused);
@@ -2029,14 +2134,19 @@ impl ApplicationHandler for Shell {
                     return;
                 }
                 // The gear button toggles the settings view; the click is not
-                // forwarded to any page.
+                // forwarded to any page. Inert while the vault gate is closed
+                // (CD-40): nothing but the lock card is reachable.
                 if button == MouseButton::Left && down && self.gear_hit() {
-                    self.toggle_settings();
+                    if self.overlay != Overlay::Lock {
+                        self.toggle_settings();
+                    }
                     return;
                 }
                 // The info glyph toggles the update-awareness panel (CD-13).
                 if button == MouseButton::Left && down && self.info_hit() {
-                    self.toggle_info();
+                    if self.overlay != Overlay::Lock {
+                        self.toggle_info();
+                    }
                     return;
                 }
                 // (CD-18: the shell-drawn corner close orb was retired — a window is
@@ -2105,6 +2215,38 @@ impl ApplicationHandler for Shell {
                     PhysicalKey::Code(code) => keycode_to_vk(code),
                     _ => 0,
                 };
+                // Vault secret capture (CD-40, D-0058) — the iron law's teeth:
+                // while the lock screen is up, or a setup flow begun from the
+                // settings page is capturing, the HOST consumes every key event
+                // here and NO page receives a keystroke. The typed secret goes
+                // straight into locked memory (vault::SecretInput); the page
+                // renders dots from the pushed character count. Ctrl+V pastes
+                // via the host clipboard read (never through the renderer).
+                if self.overlay == Overlay::Lock || crate::vault::capture_active() {
+                    if event.state == ElementState::Pressed && crate::vault::capture_active() {
+                        let ctrl = self.mods.control_key();
+                        match vk {
+                            0x08 => crate::vault::key_backspace(), // Backspace
+                            0x0D => crate::vault::key_submit(),    // Enter
+                            0x1B => crate::vault::cancel_capture(), // Esc
+                            _ if ctrl
+                                && event.physical_key == PhysicalKey::Code(KeyCode::KeyV) =>
+                            {
+                                if let Some(mut text) = clipboard_text() {
+                                    crate::vault::key_text(&text);
+                                    text.zeroize();
+                                }
+                            }
+                            _ => {
+                                if !ctrl && let Some(text) = event.text.as_ref() {
+                                    crate::vault::key_text(text.as_str());
+                                }
+                            }
+                        }
+                    }
+                    browser::push_vault_state();
+                    return;
+                }
                 // ESC cancels an in-progress favorite drag before anything else.
                 if self.drag.is_some() {
                     if vk == 0x1B && event.state == ElementState::Pressed {
@@ -2193,7 +2335,13 @@ impl ApplicationHandler for Shell {
                         Overlay::Command => self.disengage(),
                         Overlay::Settings => self.close_settings(),
                         Overlay::Info => self.close_info(),
-                        Overlay::Closed => event_loop.exit(),
+                        Overlay::Closed => {
+                            crate::vault::wipe_for_exit();
+                            event_loop.exit();
+                        }
+                        // Unreachable (the capture block above swallows every
+                        // key while locked); the gate never ESC-closes.
+                        Overlay::Lock => {}
                     }
                     return;
                 }
@@ -2258,22 +2406,32 @@ impl ApplicationHandler for Shell {
                     // Rects come from the ANIMATED frame (CD-11) — the same
                     // geometry input routing reads, so the reflow can never desync.
                     let disp = self.disp_slots();
-                    let slot_views: Vec<SlotView> = self
-                        .order
-                        .iter()
-                        .enumerate()
-                        .map(|(p, &id)| SlotView {
-                            rect: (disp[p].x, disp[p].y, disp[p].w, disp[p].h),
-                            loading: self.loading[id],
-                            active: id == self.active_slot,
-                            index: id,
-                            pending: None,
-                        })
-                        .collect();
-                    let sides = [
-                        (self.disp_left.x, self.disp_left.y, self.disp_left.w, self.disp_left.h),
-                        (self.disp_right.x, self.disp_right.y, self.disp_right.w, self.disp_right.h),
-                    ];
+                    // While the vault gate is closed (CD-40) no slot and no side
+                    // zone exists — the frame is the Pulse Grid and the lock card,
+                    // nothing else (an honest empty shell, not placeholders).
+                    let slot_views: Vec<SlotView> = if self.overlay == Overlay::Lock {
+                        Vec::new()
+                    } else {
+                        self.order
+                            .iter()
+                            .enumerate()
+                            .map(|(p, &id)| SlotView {
+                                rect: (disp[p].x, disp[p].y, disp[p].w, disp[p].h),
+                                loading: self.loading[id],
+                                active: id == self.active_slot,
+                                index: id,
+                                pending: None,
+                            })
+                            .collect()
+                    };
+                    let sides = if self.overlay == Overlay::Lock {
+                        [(0.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0)]
+                    } else {
+                        [
+                            (self.disp_left.x, self.disp_left.y, self.disp_left.w, self.disp_left.h),
+                            (self.disp_right.x, self.disp_right.y, self.disp_right.w, self.disp_right.h),
+                        ]
+                    };
                     // The topmost overlay pass carries the favorite-drag visuals
                     // while a drag is live (CD-12). The per-slot close orbs were
                     // retired in CD-18 (in-page close icon), so the pass is
@@ -2331,10 +2489,78 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // The start-authorization gate (CD-40, D-0058): with a vault present the
+        // shell boots LOCKED — only the internal view exists, showing the lock
+        // page, with the host already capturing the passphrase. Nothing else is
+        // created and no sealed state is readable until the gate opens below.
+        if self.locked
+            && !self.lock_view_started
+            && browser::context_ready()
+            && let Some(window) = self.window.clone()
+        {
+            self.overlay = Overlay::Lock;
+            let hwnd = window_hwnd(&window);
+            if let Some(r) = self.renderer.as_ref() {
+                let (w, h) = r.size();
+                let (_, _, iw, ih) = self.internal_rect(w, h);
+                browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
+                self.applied_internal = (iw as u32, ih as u32);
+            }
+            browser::create_browser_url(Role::Internal, hwnd, browser::LOCK_URL);
+            browser::set_focus(Role::Internal, true);
+            let _ = crate::vault::begin_capture("unlock_pass");
+            browser::push_vault_state();
+            self.lock_view_started = true;
+        }
+
+        // The gate opens: an unlock (or setup) outcome arrived from a vault
+        // worker. On unlock the deferred boot runs — sealed identity seed first
+        // (it feeds browser creation), then the workspace; the internal view
+        // leaves the lock page for its normal settings document.
+        if let Some(outcome) = crate::vault::take_outcome() {
+            match outcome {
+                crate::vault::Outcome::Unlocked if self.locked => {
+                    self.locked = false;
+                    self.overlay = Overlay::Closed;
+                    browser::init_identity_seed();
+                    browser::show_internal_settings();
+                    if let Some(window) = self.window.clone() {
+                        self.restore_session_views(&window, false);
+                        self.views_started = true;
+                    }
+                }
+                // Setup finished (from the settings page): the session is now
+                // unlocked-with-vault; the page shows the one-time recovery
+                // display from the state push. Failures just re-push state.
+                _ => {}
+            }
+            browser::push_vault_state();
+        }
+
+        // "Lock now" (CD-40, D-0059): relaunch the shell cold. The exec image
+        // restarts with every CEF child gone, and the next boot IS the gate —
+        // the same teardown a quit does, plus a fresh start. Secrets are wiped
+        // explicitly first (statics never drop on exit).
+        if crate::vault::take_relaunch() {
+            crate::vault::wipe_for_exit();
+            if let Ok(exe) = std::env::current_exe() {
+                let mut cmd = std::process::Command::new(exe);
+                if self.windowed {
+                    cmd.arg("--windowed");
+                }
+                if let Err(e) = cmd.spawn() {
+                    tracing::error!("lock relaunch failed to spawn: {e}");
+                }
+            }
+            event_loop.exit();
+            return;
+        }
+
         // Boot the workspace once the CEF context is initialised (CD-21, D-0035): the
         // default two-slot layout (clearnet + Tor at the own start page), or an opt-in
-        // "Quit & Save" session restored exactly once.
-        if !self.views_started
+        // "Quit & Save" session restored exactly once. Gated on the vault above.
+        if !self.locked
+            && !self.views_started
             && browser::context_ready()
             && let Some(window) = self.window.clone()
         {
@@ -2464,12 +2690,13 @@ impl ApplicationHandler for Shell {
         // exactly next launch; plain "Quit" writes nothing (default layout next
         // launch, since take_saved_session found no flag). Either way we exit the
         // loop; browser::shutdown_cef() runs after run_app returns (app.rs run()).
-        if self.views_started
+        if (self.views_started || self.lock_view_started)
             && let Some(save) = browser::take_pending_quit()
         {
-            if save {
+            if save && self.views_started {
                 self.save_session();
             }
+            crate::vault::wipe_for_exit();
             event_loop.exit();
             return;
         }

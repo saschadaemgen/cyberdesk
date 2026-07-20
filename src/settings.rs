@@ -299,24 +299,43 @@ pub fn set_rotate_interval(minutes: i64) -> Result<String, String> {
     ))
 }
 
-/// The persisted global identity seed, if any (for the stable cross-launch identity).
+/// The persisted global identity seed, if any (for the stable cross-launch
+/// identity). Since CD-40 (D-0058) the seed is a sealed-vault tenant when a
+/// vault exists: it keys the fingerprint farbling, so it is linkage material.
+/// With a vault present the plaintext row NEVER answers (fail-closed — a
+/// locked/bypassed vault yields None and the caller mints a fresh seed).
 pub fn persisted_identity_seed() -> Option<String> {
+    if crate::vault::has_vault() {
+        return crate::vault::sealed_get(KEY_IDENTITY_SEED);
+    }
     store().lock().unwrap().get(KEY_IDENTITY_SEED)
 }
 /// Persist the global identity seed (for the stable cross-launch identity).
+/// Routed into the sealed vault state when a vault exists (no-op while it is
+/// not unlocked — never a plaintext fallback).
 pub fn store_identity_seed(seed: &str) {
+    if crate::vault::has_vault() {
+        crate::vault::sealed_set(KEY_IDENTITY_SEED, seed);
+        return;
+    }
     store().lock().unwrap().set(KEY_IDENTITY_SEED, seed);
 }
-/// The persisted seed's mint time (unix epoch ms), if any (CD-30).
+/// The persisted seed's mint time (unix epoch ms), if any (CD-30). Sealed
+/// alongside the seed when a vault exists (see [`persisted_identity_seed`]).
 pub fn persisted_identity_born() -> Option<u64> {
-    store()
-        .lock()
-        .unwrap()
-        .get(KEY_IDENTITY_SEED_BORN)
-        .and_then(|v| v.parse::<u64>().ok())
+    let raw = if crate::vault::has_vault() {
+        crate::vault::sealed_get(KEY_IDENTITY_SEED_BORN)
+    } else {
+        store().lock().unwrap().get(KEY_IDENTITY_SEED_BORN)
+    };
+    raw.and_then(|v| v.parse::<u64>().ok())
 }
 /// Persist the seed's mint time alongside the seed (CD-30).
 pub fn store_identity_born(ms: u64) {
+    if crate::vault::has_vault() {
+        crate::vault::sealed_set(KEY_IDENTITY_SEED_BORN, &ms.to_string());
+        return;
+    }
     store()
         .lock()
         .unwrap()

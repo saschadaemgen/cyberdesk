@@ -5,6 +5,61 @@ Living document - maintained by Claude Code (CC), updated in the same
 commit-set as the change it records (D-0053). Append-only: historical entries
 are never rewritten; a superseded decision gets a new D-number forward.
 
+## D-0059 - 2026-07-21 - Vault Stage 1b: the gate is host-captured, lock is a cold relaunch, the identity seed is the first sealed tenant (CD-40)
+
+*Decision.* Three implementation choices shaping the start-authorization gate:
+
+1. **Host-captured secret entry (the iron law's teeth).** The whole shell UI is
+CEF pages, so a naive lock screen would type the passphrase into a renderer.
+Instead, while a capture is active the HOST consumes every winit key event
+directly into a page-locked `SecretInput` buffer and pushes only a masked
+character COUNT to the page (`cdVault` push); Ctrl+V paste is read from the
+clipboard by the host too. No renderer process ever holds a keystroke of a
+vault secret — "no key material in the WebView" holds by construction, not by
+trust. The single deliberate exception is the one-time recovery display after
+setup: it is user-facing by definition (it exists to leave the machine on
+paper), it transits the local `cyberdesk://` settings page exactly once, and
+it is zeroized host-side on ack. Renderer-heap residue of that one display is
+covered by the CD-33 tier model (freed pages are OS-zeroed before reuse; a
+kernel-level attacker reads live memory anyway).
+
+2. **"Lock now" is a cold relaunch, not an in-process teardown.** Locking
+wipes the vault secrets and relaunches the executable (same args), exiting the
+old process. Rationale: an in-process teardown of every CEF view back to a
+lock state re-treads exactly the async browser-lifecycle edges that produced
+the CD-25 ghost-respawn and the CD-38 UI-thread deadlock, for zero security
+gain — while a process exit provably ends every renderer, compositor and
+worker, and the next boot IS the gate (one code path, no special cases).
+Closing the windows is design-consistent: websites are not saved (D-0025).
+Auto-lock (Stage 2, event engine) can revisit.
+
+3. **The persisted identity seed is the sealed store's first tenant.** It keys
+the fingerprint farbling — linkage material, exactly what "sensitive app
+state" means — so with a vault present it lives ONLY in `vault.seal` (sealed
+under the VMK), migrated out of plaintext `state.db` at setup, unreadable
+before unlock (`settings::persisted_identity_seed` never falls back to
+plaintext when a vault exists; the boot-time seed init is deferred to the
+unlock transition). Session/layout metadata stays in `state.db` per the
+ticket: do not seal what does not need sealing.
+
+Also fixed in place: the gate boots the lock view only (no slots, no MF zone,
+no HUD — nothing to leak on a locked screen), a broken/tampered `vault.json`
+keeps the gate closed with an honest message (fail-closed — corruption must
+not bypass authorization), unlock/setup derivations run on worker threads
+(the render loop never stalls on Argon2id), quitting from the lock screen
+stays possible, and every deliberate exit path wipes key material explicitly
+(statics never drop on process exit). The dev bypass is `cfg(debug_assertions)`
++ `CYBERDESK_VAULT_BYPASS=1`: it skips the gate for the dev loop but cannot
+produce the VMK — sealed state stays sealed; the code path does not exist in a
+release artifact.
+
+*Why.* The gate is only as honest as its input path — capturing in the host is
+the difference between "the passphrase never enters the web surface" as an
+architectural fact vs. as a promise. The relaunch lock buys provable teardown
+with the code we already trust. And a vault that ships before any tenant uses
+it is scaffolding — the identity seed is real sensitive state, sealed on day
+one.
+
 ## D-0058 - 2026-07-21 - Vault Stage 1: envelope key management (VMK wrapped by passphrase / recovery key / passkey-PRF), structural unlock policy, start-authorization gate, memory hygiene (CD-40)
 
 *Decision.* The vault uses an **envelope model**: one random 256-bit Vault

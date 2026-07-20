@@ -1,6 +1,6 @@
 # CyberDesk - Wire Format
 
-Project CARVILON CyberDesk - living document - Status: 2026-07-20
+Project CARVILON CyberDesk - living document - Status: 2026-07-21 (through CD-40 Stage 1b / D-0059)
 Maintained by Claude Code (CC), updated in the same commit-set as the code it describes (D-0053).
 
 Rule: every interface change is documented here in the same commit-set as the
@@ -573,6 +573,82 @@ and the countdown locally, off absolute anchors.
   at the per-vector view, which lives in the settings card.
 - Effect: queues an "open the settings overlay" for the main thread (no-op if it
   is already open). Success: `{"ok":true}`.
+
+## Vault IPC (CD-40, D-0058, live)
+
+The start-authorization gate + envelope key management. **Iron law on the
+wire: no secret ever rides this IPC in either direction.** While a capture is
+active the HOST consumes the window's key events straight into locked memory
+(`vault::SecretInput`); the page renders dots from a pushed character COUNT.
+The single deliberate exception is the one-time recovery display after setup
+(user-facing by definition — it exists to leave the machine on paper), pushed
+until acked, then dropped. The lock page is `cyberdesk://lock/` (the only view
+that exists while the gate is closed).
+
+### `cdVault(json)` (host -> view, push)
+
+Pushed to the internal view on every vault-state change (keystrokes included —
+the count changes). Payload:
+
+```json
+{
+  "vault": "none | locked | unlocked | bypassed",
+  "capture": "unlock_pass | unlock_recovery | setup_pass | setup_confirm | null",
+  "chars": 0,
+  "step2": false,
+  "required": 1,
+  "busy": false,
+  "error": null,
+  "recovery": null,
+  "broken": null
+}
+```
+
+- `chars` — characters currently in the host's capture buffer (dots).
+- `step2` — a 2-required unlock holds the accepted passphrase and is now
+  capturing the second factor.
+- `busy` — a worker (Argon2id derivation / vault creation) is running.
+- `error` — user-facing failure text. Unlock failures are deliberately
+  uniform ("unlock failed" — no wrong-key vs tampered oracle); recovery-key
+  FORMAT errors (length/checksum) are specific, they are local typo feedback.
+- `recovery` — the one-time recovery display after setup, until `vault_setup_ack`.
+- `bypassed` — debug-build dev bypass active (gate skipped, sealed state stays sealed).
+- `broken` — the vault file exists but failed validation; the gate stays
+  closed and unlock cannot succeed (fail-closed).
+
+### `get_vault_state` (view -> host, pull)
+
+Request `{ "cmd": "get_vault_state" }` → the same JSON as the push (page-load
+initialization for the lock page and the settings vault section).
+
+### `vault_begin_capture` (view -> host)
+
+Request `{ "cmd": "vault_begin_capture", "purpose": "unlock_pass | unlock_recovery | setup_pass" }`.
+Starts host-side key capture for that purpose. `unlock_*` only while locked;
+`setup_pass` only while no vault exists. (`setup_confirm` is an internal step —
+never begun via IPC.) Reply = the state JSON; also pushed.
+
+### `vault_cancel_capture` (view -> host)
+
+Request `{ "cmd": "vault_cancel_capture" }`. Aborts the current capture and
+wipes its buffers; on the lock screen this resets to a fresh passphrase prompt.
+Reply = the state JSON; also pushed.
+
+### `vault_setup_ack` (view -> host)
+
+Request `{ "cmd": "vault_setup_ack" }`. The user confirmed saving the recovery
+key: the one-time display is zeroized and leaves the state. Reply = state JSON.
+
+### `vault_lock` (view -> host)
+
+Request `{ "cmd": "vault_lock" }` → `{ "ok": true }`. Queues "lock now": the
+shell wipes key material and relaunches itself cold (D-0059) — every CEF child
+process dies with it, and the next boot is the gate.
+
+Key handling while a capture is active (host-side, `app.rs`): printable text →
+buffer; Backspace → UTF-8-aware delete; Enter → advance the flow (derivations
+on a worker thread, never the render loop); Esc → cancel; Ctrl+V → clipboard
+paste read by the HOST (never through the renderer).
 
 ## Update-awareness IPC (CD-13 → CD-22, live)
 

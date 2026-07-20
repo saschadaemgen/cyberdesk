@@ -341,6 +341,14 @@ impl Store {
         self.set(key, if value { "true" } else { "false" });
     }
 
+    /// Remove a settings row entirely (CD-40: used when a value migrates into
+    /// the vault's sealed state — the plaintext row must not linger).
+    pub fn delete(&self, key: &str) {
+        self.conn
+            .execute("DELETE FROM settings WHERE key = ?1", [key])
+            .ok();
+    }
+
     /// All settings as (key, value) pairs, for the get_settings IPC command.
     pub fn all_settings(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();

@@ -542,4 +542,110 @@
       }).catch(function () {});
     });
   }
+
+  // --- Vault (CD-40, D-0058) ------------------------------------------------
+  // Setup + lock controls. No secret ever enters this page: the host captures
+  // the passphrase keystrokes into locked memory and pushes only the masked
+  // character count here (window.cdVault). The one-time recovery display after
+  // setup is the single deliberate exception — user-facing by definition.
+  (function () {
+    var pill = document.getElementById("vault-pill");
+    var noneRow = document.getElementById("vault-none-row");
+    var lockRow = document.getElementById("vault-lock-row");
+    var capture = document.getElementById("vault-capture");
+    var capHint = document.getElementById("vault-cap-hint");
+    var entry = document.getElementById("vault-entry");
+    var dots = document.getElementById("vault-dots");
+    var errEl = document.getElementById("vault-err");
+    var recovery = document.getElementById("vault-recovery");
+    var keyEl = document.getElementById("vault-key");
+    var setupBtn = document.getElementById("vault-setup");
+    var lockBtn = document.getElementById("vault-lock");
+    var cancelBtn = document.getElementById("vault-cancel");
+    var ackBtn = document.getElementById("vault-ack");
+    if (!pill) return;
+
+    function renderDots(n) {
+      var cap = Math.min(n, 64);
+      while (dots.children.length > cap) dots.removeChild(dots.lastChild);
+      while (dots.children.length < cap) {
+        var d = document.createElement("span");
+        d.className = "vdot";
+        dots.appendChild(d);
+      }
+    }
+
+    var HINTS = {
+      setup_pass: "Choose a passphrase (at least 8 characters). It is typed into the CyberDesk core, not this page — Enter to continue, Esc to cancel.",
+      setup_confirm: "Re-type the passphrase to confirm — Enter to create the vault."
+    };
+
+    function render(s) {
+      var label =
+        s.vault === "none" ? "not set up" :
+        s.vault === "unlocked" ? "unlocked" :
+        s.vault === "bypassed" ? "DEV BYPASS" : "locked";
+      pill.textContent = label;
+      pill.className = "tor-status " + (s.vault === "unlocked" ? "s2" : s.vault === "bypassed" ? "s3" : "");
+
+      var capturing = s.capture === "setup_pass" || s.capture === "setup_confirm";
+      noneRow.hidden = !(s.vault === "none" && !capturing);
+      lockRow.hidden = s.vault !== "unlocked";
+      capture.hidden = !capturing;
+      recovery.hidden = !s.recovery;
+      if (capturing) {
+        capHint.textContent = s.busy ? "Creating the vault…" : (HINTS[s.capture] || "");
+        renderDots(s.chars || 0);
+        entry.classList.toggle("busy", !!s.busy);
+      }
+      if (s.error && (capturing || s.vault === "none")) {
+        errEl.textContent = s.error;
+        errEl.hidden = false;
+      } else {
+        errEl.hidden = true;
+      }
+      if (s.recovery) keyEl.textContent = s.recovery;
+    }
+
+    window.cdVault = function (json) {
+      try { render(JSON.parse(json)); } catch (e) {}
+    };
+
+    setupBtn.addEventListener("click", function () {
+      query({ cmd: "vault_begin_capture", purpose: "setup_pass" }).then(function (r) {
+        try { render(JSON.parse(r)); } catch (e) {}
+      }).catch(function (e) { setStatus(String(e), true); });
+    });
+
+    cancelBtn.addEventListener("click", function () {
+      query({ cmd: "vault_cancel_capture" }).then(function (r) {
+        try { render(JSON.parse(r)); } catch (e) {}
+      }).catch(function () {});
+    });
+
+    ackBtn.addEventListener("click", function () {
+      query({ cmd: "vault_setup_ack" }).then(function (r) {
+        try { render(JSON.parse(r)); } catch (e) {}
+      }).catch(function () {});
+    });
+
+    // Locking ends the session (windows close by design — websites are not
+    // saved). Two-step button instead of a modal: the second click confirms.
+    var lockArmed = null;
+    lockBtn.addEventListener("click", function () {
+      if (lockArmed) {
+        query({ cmd: "vault_lock" }).catch(function () {});
+        return;
+      }
+      lockBtn.textContent = "Confirm lock";
+      lockArmed = setTimeout(function () {
+        lockBtn.textContent = "Lock";
+        lockArmed = null;
+      }, 3000);
+    });
+
+    query({ cmd: "get_vault_state" }).then(function (r) {
+      try { render(JSON.parse(r)); } catch (e) {}
+    }).catch(function () {});
+  })();
 })();

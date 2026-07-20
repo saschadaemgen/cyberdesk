@@ -291,3 +291,51 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
   color: color-mix(in srgb, var(--warn) 88%, var(--text));
 }
 .gate-weaken:hover { background: var(--warn); color: var(--bg); }
+
+/* --- Vault (CD-40, D-0058) -------------------------------------------------
+   The host-driven capture entry: dots render the character COUNT the host
+   pushes — the secret itself never enters this page. */
+.vault-capture, .vault-recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 4px;
+}
+.vault-capture[hidden], .vault-recovery[hidden] { display: none; }
+.vault-cap-hint { font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+.vault-entry {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 9px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+.vault-dots { display: flex; flex-wrap: wrap; gap: 5px; }
+.vdot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); opacity: 0.9; }
+.vault-caret { width: 2px; height: 16px; background: var(--brand); animation: vblink 1.1s step-end infinite; }
+@keyframes vblink { 50% { opacity: 0; } }
+.vault-entry.busy .vault-caret { animation: none; opacity: 0.25; }
+.vault-err {
+  font-size: 12.5px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
+.vault-actions { display: flex; gap: 10px; }
+/* The one-time recovery display: monospace, groups readable, selectable for
+   printing — shown exactly once, dropped on ack. */
+.vault-key {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13.5px;
+  letter-spacing: 0.6px;
+  line-height: 1.7;
+  padding: 12px 14px;
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  color: var(--text);
+  user-select: text;
+  word-break: break-all;
+}

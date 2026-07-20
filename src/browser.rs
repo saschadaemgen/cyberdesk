@@ -52,6 +52,10 @@ const START_URL: &str = "cyberdesk://start/";
 const MFZONE_URL: &str = "cyberdesk://mfzone/";
 const HUD_URL: &str = "cyberdesk://hud/";
 const ONION_URL: &str = "cyberdesk://onion/";
+/// The start-authorization lock page (CD-40, D-0058): the ONLY view that exists
+/// while the vault gate is closed. Purely presentational — the host captures
+/// the keystrokes; the page renders masked counts from the vault-state push.
+pub const LOCK_URL: &str = "cyberdesk://lock/";
 
 // cef_event_flags_t bits (modifiers for mouse/key events).
 const EVENTFLAG_SHIFT_DOWN: u32 = 1 << 1;
@@ -1035,6 +1039,35 @@ pub fn set_hud_state(json: &str) {
     }
 }
 
+/// The current vault state JSON (CD-40, D-0058), so the lock/settings pages can
+/// pull it on load (`get_vault_state`) in addition to the host's on-change push.
+/// Counts and states only — never a secret (the host captures every keystroke
+/// of a passphrase itself; the page renders dots from `chars`).
+fn vault_state() -> &'static Mutex<String> {
+    static F: OnceLock<Mutex<String>> = OnceLock::new();
+    F.get_or_init(|| Mutex::new("{}".to_string()))
+}
+
+/// Store the vault state and push it to the internal view (`window.cdVault`),
+/// the same on-change cadence as [`set_frame_state`]. The lock page and the
+/// settings page both live in the internal view, so one push target covers both.
+pub fn set_vault_state(json: &str) {
+    *vault_state().lock().unwrap() = json.to_string();
+    let browser = view(Role::Internal).browser.lock().unwrap().clone();
+    if let Some(browser) = browser
+        && let Some(frame) = browser.main_frame()
+    {
+        let escaped = json.replace('\\', "\\\\").replace('\'', "\\'");
+        let code = format!("window.cdVault&&window.cdVault('{escaped}')");
+        frame.execute_java_script(Some(&CefString::from(code.as_str())), None, 0);
+    }
+}
+
+/// Refresh the vault state snapshot from the runtime and push it.
+pub fn push_vault_state() {
+    set_vault_state(&crate::vault::state_json());
+}
+
 /// Navigate a view (used by the isolation self-test). The internal view's
 /// RequestHandler will refuse anything that is not `cyberdesk://`.
 pub fn load_url(role: Role, url: &str) {
@@ -1778,6 +1811,21 @@ fn info_document() -> String {
     .clone()
 }
 
+/// The vault lock page (CD-40, D-0058): the start-authorization gate's face.
+/// Same self-contained inlining discipline; zero network, zero secrets — it
+/// renders masked counts and states pushed by the host.
+fn lock_document() -> String {
+    static DOC: OnceLock<String> = OnceLock::new();
+    DOC.get_or_init(|| {
+        let theme = crate::theme::Theme::load();
+        include_str!("lock.html")
+            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__CSS__*/", include_str!("lock.css"))
+            .replace("/*__JS__*/", include_str!("lock.js"))
+    })
+    .clone()
+}
+
 /// The MF-zone tabbed viewer page (CD-18): Tor status + log stream, the full app
 /// log, and a reserved Terminal placeholder. Served into the permanent right zone.
 fn mfzone_document() -> String {
@@ -2399,6 +2447,37 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         // pull-then-push pattern as `get_frame`. The cached payload's countdown
         // fields are elapsed-based, so the page re-anchors them at receive time.
         "get_hud_state" => Ok(hud_state().lock().unwrap().clone()),
+        // Vault (CD-40, D-0058). Counts and states only — a secret never rides
+        // this IPC in either direction: while a capture is active the HOST
+        // consumes the keyboard, and the page renders dots from the pushed
+        // character count. (One deliberate exception: the one-time recovery
+        // display after setup — user-facing by definition, dropped on ack.)
+        "get_vault_state" => Ok(crate::vault::state_json()),
+        "vault_begin_capture" => {
+            let purpose = v.get("purpose").and_then(|p| p.as_str()).unwrap_or("");
+            crate::vault::begin_capture(purpose).map_err(|e| (3, e))?;
+            let state = crate::vault::state_json();
+            set_vault_state(&state);
+            Ok(state)
+        }
+        "vault_cancel_capture" => {
+            crate::vault::cancel_capture();
+            let state = crate::vault::state_json();
+            set_vault_state(&state);
+            Ok(state)
+        }
+        "vault_setup_ack" => {
+            crate::vault::setup_ack();
+            let state = crate::vault::state_json();
+            set_vault_state(&state);
+            Ok(state)
+        }
+        // "Lock now": queued for the shell, which relaunches the process cold
+        // (D-0059) — the next boot IS the start-authorization gate.
+        "vault_lock" => {
+            crate::vault::request_lock();
+            Ok("{\"ok\":true}".to_string())
+        }
         // Open the settings card (CD-30: the HUD Ampel's "Custom…" — the
         // per-vector view lives there). Queued for the main thread.
         "open_settings" => {
@@ -3160,6 +3239,8 @@ wrap_scheme_handler_factory! {
                 hud_document()
             } else if url.contains("//onion") {
                 onion_document()
+            } else if url.contains("//lock") {
+                lock_document()
             } else {
                 settings_document()
             };

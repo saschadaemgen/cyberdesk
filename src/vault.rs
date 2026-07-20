@@ -71,6 +71,7 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use argon2::{Algorithm, Argon2, Block, Params, Version};
 use blake2::{Blake2s256, Digest};
@@ -1146,6 +1147,652 @@ impl VaultFile {
 }
 
 // ---------------------------------------------------------------------------
+// SecretInput — host-captured secret entry (Stage 1b)
+// ---------------------------------------------------------------------------
+
+/// A typed-in secret being assembled in locked memory. This is the iron-law
+/// mechanism: while the vault captures input, the HOST consumes the window's
+/// key events and appends them here — the lock/settings page never receives a
+/// keystroke, only a masked character COUNT to render. Fixed capacity (one
+/// page); UTF-8 by construction.
+pub struct SecretInput {
+    buf: SecretBuf,
+    len: usize,
+}
+
+impl SecretInput {
+    const CAP: usize = 1024;
+
+    pub fn new() -> Result<Self> {
+        Ok(Self { buf: SecretBuf::zeroed(Self::CAP)?, len: 0 })
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buf.as_slice()[..self.len]
+    }
+
+    fn as_str(&self) -> &str {
+        // Valid UTF-8 by construction: only whole `&str`s are ever appended.
+        std::str::from_utf8(self.as_slice()).unwrap_or("")
+    }
+
+    /// Number of CHARACTERS typed (what the page renders as dots).
+    pub fn chars(&self) -> usize {
+        self.as_str().chars().count()
+    }
+
+    /// Append typed text; silently ignores input past capacity (a 1 KiB
+    /// passphrase is a keyboard on the desk, not a user).
+    pub fn push_str(&mut self, s: &str) {
+        for ch in s.chars() {
+            // Control characters never enter a secret (Enter/Esc/Backspace are
+            // handled as commands; stray control input is noise).
+            if ch.is_control() {
+                continue;
+            }
+            let mut enc = [0u8; 4];
+            let bytes = ch.encode_utf8(&mut enc).as_bytes();
+            if self.len + bytes.len() > Self::CAP {
+                return;
+            }
+            self.buf.as_mut_slice()[self.len..self.len + bytes.len()].copy_from_slice(bytes);
+            self.len += bytes.len();
+            enc.zeroize();
+        }
+    }
+
+    /// Remove the last character (UTF-8-aware: walks back over continuation
+    /// bytes, then wipes the freed tail).
+    pub fn backspace(&mut self) {
+        if self.len == 0 {
+            return;
+        }
+        let s = self.buf.as_slice();
+        let mut i = self.len - 1;
+        while i > 0 && (s[i] & 0b1100_0000) == 0b1000_0000 {
+            i -= 1;
+        }
+        let old = self.len;
+        self.len = i;
+        self.buf.as_mut_slice()[i..old].zeroize();
+    }
+
+    pub fn clear(&mut self) {
+        self.buf.wipe();
+        self.len = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Runtime (Stage 1b): lock state, capture state machine, workers, sealed state
+// ---------------------------------------------------------------------------
+//
+// One process-wide runtime behind one Mutex, following the store.rs precedent.
+// Called from the main thread (key routing, boot transitions in about_to_wait)
+// and the CEF UI thread (the vault IPC commands); the worker threads lock only
+// to COMMIT results — the Argon2 derivation itself runs without any lock held
+// (CD-38 threading law: nothing here is ever awaited on the router's dispatch
+// stack, and no vault lock is held across a CEF call).
+
+/// What the host is currently capturing keystrokes for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CaptureKind {
+    /// The passphrase, to unlock (step 1 when the policy requires 2).
+    UnlockPass,
+    /// The recovery key, to unlock (alone, or step 2 of a 2-required unlock).
+    UnlockRecovery,
+    /// The new passphrase during vault setup…
+    SetupPass,
+    /// …and its confirmation re-type (internal step, never begun via IPC).
+    SetupConfirm,
+}
+
+impl CaptureKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            CaptureKind::UnlockPass => "unlock_pass",
+            CaptureKind::UnlockRecovery => "unlock_recovery",
+            CaptureKind::SetupPass => "setup_pass",
+            CaptureKind::SetupConfirm => "setup_confirm",
+        }
+    }
+}
+
+/// A finished background operation, taken by the shell (`about_to_wait`) to
+/// drive the UI transition. The VMK itself never rides an outcome — the worker
+/// commits it straight into the runtime.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Outcome {
+    /// The vault unlocked — boot the workspace.
+    Unlocked,
+    /// An unlock attempt failed (the uniform error is already in the state).
+    UnlockFailed,
+    /// Setup finished — the vault exists, the session is unlocked, and the
+    /// one-time recovery display is in the state until acked.
+    SetupDone,
+    /// Setup failed (error in the state).
+    SetupFailed,
+}
+
+struct Runtime {
+    /// Directory holding `vault.json` / `vault.seal` (the app-data dir; tests
+    /// point it at a temp dir).
+    dir: PathBuf,
+    file: Option<VaultFile>,
+    /// A vault file exists but could not be validated (tamper/corruption).
+    /// Fail-closed: the gate stays locked and unlock cannot succeed — booting
+    /// as "no vault" on a broken file would let corruption bypass the gate.
+    broken: Option<String>,
+    vmk: Option<SecretBuf>,
+    /// Dev bypass engaged (debug builds only): the gate is skipped, the
+    /// sealed state stays sealed.
+    bypassed: bool,
+    capture: Option<CaptureKind>,
+    input: Option<SecretInput>,
+    /// The passphrase held between step 1 and step 2 of a 2-required unlock.
+    pending_pass: Option<SecretInput>,
+    busy: bool,
+    error: Option<String>,
+    /// The one-time recovery display after setup, cleared on ack.
+    recovery_display: Option<String>,
+    outcome: Option<Outcome>,
+    relaunch: bool,
+    /// The decrypted sealed app state (`vault.seal`), present only while
+    /// unlocked. JSON object; tenants: identity_seed, identity_seed_born.
+    sealed: Option<serde_json::Value>,
+    /// KDF cost for setup (product default; tests override).
+    kdf: KdfParams,
+}
+
+fn rt() -> &'static Mutex<Runtime> {
+    use std::sync::OnceLock;
+    static RT: OnceLock<Mutex<Runtime>> = OnceLock::new();
+    RT.get_or_init(|| {
+        Mutex::new(Runtime {
+            dir: crate::store::data_dir(),
+            file: None,
+            broken: None,
+            vmk: None,
+            bypassed: false,
+            capture: None,
+            input: None,
+            pending_pass: None,
+            busy: false,
+            error: None,
+            recovery_display: None,
+            outcome: None,
+            relaunch: false,
+            sealed: None,
+            kdf: KdfParams::PRODUCT,
+        })
+    })
+}
+
+/// Load the vault state at boot (after `settings::init`, before any view).
+/// With a valid vault present the app starts LOCKED. The dev bypass
+/// (`CYBERDESK_VAULT_BYPASS=1`) exists ONLY in debug builds — the check is
+/// `cfg(debug_assertions)`-gated, so a release artifact contains no bypass
+/// code path at all; it skips the GATE, never the cryptography (the sealed
+/// state stays sealed — the VMK cannot be conjured).
+pub fn init() {
+    let mut r = rt().lock().unwrap();
+    let path = r.dir.join("vault.json");
+    match VaultFile::load_from(&path) {
+        Ok(file) => r.file = file,
+        Err(e) => {
+            tracing::error!("vault.json failed to load — staying locked: {e}");
+            r.broken = Some(e.to_string());
+        }
+    }
+    #[cfg(debug_assertions)]
+    if (r.file.is_some() || r.broken.is_some())
+        && std::env::var("CYBERDESK_VAULT_BYPASS").as_deref() == Ok("1")
+    {
+        tracing::warn!(
+            "VAULT DEV BYPASS ACTIVE (debug build): gate skipped, sealed state stays sealed"
+        );
+        r.bypassed = true;
+    }
+    if r.file.is_some() && !r.bypassed {
+        tracing::info!("vault present — starting locked");
+    }
+}
+
+pub fn has_vault() -> bool {
+    let r = rt().lock().unwrap();
+    r.file.is_some() || r.broken.is_some()
+}
+
+/// Is the start-authorization gate closed? (True boots the lock screen.)
+pub fn is_locked() -> bool {
+    let r = rt().lock().unwrap();
+    (r.file.is_some() || r.broken.is_some()) && r.vmk.is_none() && !r.bypassed
+}
+
+/// Is a vault present AND open (VMK in memory)?
+pub fn is_unlocked() -> bool {
+    let r = rt().lock().unwrap();
+    r.file.is_some() && r.vmk.is_some()
+}
+
+/// Begin capturing a secret on the host. Valid purposes from the IPC:
+/// `unlock_pass` / `unlock_recovery` (locked only), `setup_pass` (no vault
+/// only, or explicitly while unlocked later for re-tuning — Stage 1c).
+pub fn begin_capture(purpose: &str) -> std::result::Result<(), String> {
+    let mut r = rt().lock().unwrap();
+    if r.busy {
+        return Err("busy".into());
+    }
+    let kind = match purpose {
+        "unlock_pass" => CaptureKind::UnlockPass,
+        "unlock_recovery" => CaptureKind::UnlockRecovery,
+        "setup_pass" => CaptureKind::SetupPass,
+        other => return Err(format!("unknown capture purpose: {other}")),
+    };
+    match kind {
+        CaptureKind::UnlockPass | CaptureKind::UnlockRecovery => {
+            if r.vmk.is_some() || (r.file.is_none() && r.broken.is_none()) {
+                return Err("not locked".into());
+            }
+        }
+        CaptureKind::SetupPass => {
+            if r.file.is_some() || r.broken.is_some() {
+                return Err("a vault already exists".into());
+            }
+        }
+        CaptureKind::SetupConfirm => unreachable!(),
+    }
+    let input = SecretInput::new().map_err(|e| e.to_string())?;
+    r.capture = Some(kind);
+    r.input = Some(input);
+    r.pending_pass = None;
+    r.error = None;
+    Ok(())
+}
+
+/// Cancel the current capture. While locked this resets to a fresh
+/// passphrase prompt; elsewhere it ends the flow.
+pub fn cancel_capture() {
+    let mut r = rt().lock().unwrap();
+    if r.busy {
+        return;
+    }
+    r.input = None;
+    r.pending_pass = None;
+    r.error = None;
+    let locked = (r.file.is_some() || r.broken.is_some()) && r.vmk.is_none() && !r.bypassed;
+    if locked {
+        r.capture = Some(CaptureKind::UnlockPass);
+        r.input = SecretInput::new().ok();
+    } else {
+        r.capture = None;
+    }
+}
+
+/// Is the host currently swallowing keystrokes into a secret buffer?
+pub fn capture_active() -> bool {
+    let r = rt().lock().unwrap();
+    r.capture.is_some() && !r.busy
+}
+
+/// Route typed text into the capture buffer (also the paste path).
+pub fn key_text(text: &str) {
+    let mut r = rt().lock().unwrap();
+    if r.busy {
+        return;
+    }
+    if let Some(input) = r.input.as_mut() {
+        input.push_str(text);
+    }
+}
+
+pub fn key_backspace() {
+    let mut r = rt().lock().unwrap();
+    if r.busy {
+        return;
+    }
+    if let Some(input) = r.input.as_mut() {
+        input.backspace();
+    }
+}
+
+/// Enter: advance the capture state machine. Cheap validations happen here;
+/// anything with an Argon2 in it goes to a worker thread — the render loop
+/// must never stall on a derivation.
+pub fn key_submit() {
+    let mut r = rt().lock().unwrap();
+    if r.busy || r.capture.is_none() {
+        return;
+    }
+    match r.capture.unwrap() {
+        CaptureKind::UnlockPass => {
+            let required = r.file.as_ref().map(|f| f.required).unwrap_or(1);
+            if r.input.as_ref().map(|i| i.len).unwrap_or(0) == 0 {
+                return; // empty Enter: nothing to do
+            }
+            if required >= 2 {
+                // Step 1 of 2 banked; the recovery key is step 2 (the passkey
+                // joins the step list in the final sub-stage).
+                r.pending_pass = r.input.take();
+                r.input = SecretInput::new().ok();
+                r.capture = Some(CaptureKind::UnlockRecovery);
+                r.error = None;
+            } else {
+                let pass = r.input.take();
+                spawn_unlock(&mut r, pass, None);
+            }
+        }
+        CaptureKind::UnlockRecovery => {
+            let Some(input) = r.input.take() else { return };
+            match parse_recovery(input.as_str()) {
+                Ok(rk) => {
+                    let pass = r.pending_pass.take();
+                    spawn_unlock(&mut r, pass, Some(rk));
+                }
+                Err(e) => {
+                    // A local format/checksum error — no crypto ran; let the
+                    // user fix the typo without re-entering everything.
+                    r.error = Some(e.to_string());
+                    r.input = SecretInput::new().ok();
+                }
+            }
+        }
+        CaptureKind::SetupPass => {
+            let len = r.input.as_ref().map(|i| i.len).unwrap_or(0);
+            if len < MIN_PASSPHRASE_LEN {
+                r.error = Some(format!(
+                    "passphrase must be at least {MIN_PASSPHRASE_LEN} characters"
+                ));
+                return;
+            }
+            r.pending_pass = r.input.take();
+            r.input = SecretInput::new().ok();
+            r.capture = Some(CaptureKind::SetupConfirm);
+            r.error = None;
+        }
+        CaptureKind::SetupConfirm => {
+            let confirm = r.input.take();
+            let first = r.pending_pass.take();
+            let (Some(first), Some(confirm)) = (first, confirm) else { return };
+            if first.as_slice() != confirm.as_slice() {
+                r.error = Some("the two entries do not match — start again".into());
+                r.capture = Some(CaptureKind::SetupPass);
+                r.input = SecretInput::new().ok();
+                return;
+            }
+            drop(confirm);
+            spawn_setup(&mut r, first);
+        }
+    }
+}
+
+/// Unlock on a worker thread: derive → try envelopes → open the sealed state
+/// → commit. The runtime lock is NOT held during the derivation.
+fn spawn_unlock(r: &mut Runtime, pass: Option<SecretInput>, rk: Option<SecretBuf>) {
+    let Some(file) = r.file.clone() else {
+        // Broken vault file: unlock is impossible by design (fail-closed).
+        r.error = Some(r.broken.clone().unwrap_or_else(|| "vault unavailable".into()));
+        r.outcome = Some(Outcome::UnlockFailed);
+        r.input = SecretInput::new().ok();
+        return;
+    };
+    r.busy = true;
+    r.error = None;
+    let dir = r.dir.clone();
+    std::thread::spawn(move || {
+        let mut factors: Vec<Factor<'_>> = Vec::new();
+        if let Some(p) = pass.as_ref() {
+            factors.push(Factor::Passphrase(p.as_slice()));
+        }
+        if let Some(k) = rk.as_ref() {
+            factors.push(Factor::Recovery(k.as_slice()));
+        }
+        let result = unlock(&file, &factors);
+        drop(factors);
+        let sealed = result.as_ref().ok().map(|vmk| load_sealed(&dir, vmk));
+        let mut r = rt().lock().unwrap();
+        r.busy = false;
+        match result {
+            Ok(vmk) => {
+                r.vmk = Some(vmk);
+                r.sealed = sealed;
+                r.capture = None;
+                r.input = None;
+                r.pending_pass = None;
+                r.error = None;
+                r.outcome = Some(Outcome::Unlocked);
+                tracing::info!("vault unlocked");
+            }
+            Err(_) => {
+                // Uniform by design (VaultError::Crypto carries no oracle).
+                r.error = Some("unlock failed".into());
+                r.capture = Some(CaptureKind::UnlockPass);
+                r.input = SecretInput::new().ok();
+                r.outcome = Some(Outcome::UnlockFailed);
+            }
+        }
+    });
+}
+
+/// Set up the vault on a worker thread: create → save `vault.json` → migrate
+/// the plaintext identity seed into the sealed state → commit an UNLOCKED
+/// session with the one-time recovery display.
+fn spawn_setup(r: &mut Runtime, pass: SecretInput) {
+    r.busy = true;
+    r.error = None;
+    let dir = r.dir.clone();
+    let kdf = r.kdf;
+    std::thread::spawn(move || {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let result = create(pass.as_slice(), &kdf, now_ms)
+            .and_then(|nv| nv.file.save_to(&dir.join("vault.json")).map(|()| nv));
+        drop(pass);
+        let committed = match result {
+            Ok(nv) => nv,
+            Err(e) => {
+                let mut r = rt().lock().unwrap();
+                r.busy = false;
+                r.error = Some(e.to_string());
+                r.capture = Some(CaptureKind::SetupPass);
+                r.input = SecretInput::new().ok();
+                r.outcome = Some(Outcome::SetupFailed);
+                return;
+            }
+        };
+        // Migrate what is sensitive TODAY into the sealed state: the persisted
+        // identity seed (it keys the fingerprint farbling — linkage material),
+        // then remove the plaintext rows. Session/layout metadata stays in
+        // state.db per the ticket (do not seal what doesn't need sealing).
+        // Not under test: the unit suite must never open (or delete rows from)
+        // the developer's real state.db — the runtime test drives the sealed
+        // tenants through sealed_set/sealed_get instead.
+        let mut sealed = serde_json::json!({});
+        #[cfg(not(test))]
+        {
+            let store = crate::store::shared().lock().unwrap();
+            if let Some(seed) = store.get("identity_seed") {
+                sealed["identity_seed"] = serde_json::Value::String(seed);
+                store.delete("identity_seed");
+            }
+            if let Some(born) = store.get("identity_seed_born") {
+                sealed["identity_seed_born"] = serde_json::Value::String(born);
+                store.delete("identity_seed_born");
+            }
+        }
+        let NewVault { file, vmk, recovery_display } = committed;
+        if let Err(e) = save_sealed(&dir, &vmk, &sealed) {
+            tracing::error!("sealed-state write failed at setup: {e}");
+        }
+        let mut r = rt().lock().unwrap();
+        r.busy = false;
+        r.file = Some(file);
+        r.vmk = Some(vmk);
+        r.sealed = Some(sealed);
+        r.capture = None;
+        r.input = None;
+        r.pending_pass = None;
+        r.recovery_display = Some(recovery_display);
+        r.outcome = Some(Outcome::SetupDone);
+        tracing::info!("vault created — session unlocked");
+    });
+}
+
+/// The user confirmed saving the recovery key: drop the one-time display.
+pub fn setup_ack() {
+    let mut r = rt().lock().unwrap();
+    if let Some(mut s) = r.recovery_display.take() {
+        s.zeroize();
+    }
+}
+
+/// Queue "lock now": the shell relaunches the process cold (D-0059) — every
+/// renderer dies with it, and the next boot IS the gate.
+pub fn request_lock() {
+    rt().lock().unwrap().relaunch = true;
+}
+
+pub fn take_relaunch() -> bool {
+    let mut r = rt().lock().unwrap();
+    std::mem::take(&mut r.relaunch)
+}
+
+pub fn take_outcome() -> Option<Outcome> {
+    rt().lock().unwrap().outcome.take()
+}
+
+/// Best-effort zeroize of everything secret before a deliberate exit/relaunch
+/// (statics never drop on process exit, so this is called explicitly; an
+/// abnormal termination is covered by the OS zeroing freed pages — the CD-33
+/// tier model).
+pub fn wipe_for_exit() {
+    let mut r = rt().lock().unwrap();
+    r.vmk = None;
+    r.input = None;
+    r.pending_pass = None;
+    r.sealed = None;
+    if let Some(mut s) = r.recovery_display.take() {
+        s.zeroize();
+    }
+}
+
+/// The vault state snapshot the lock/settings pages render (pushed on change
+/// via `browser::set_vault_state`, pulled on load via `get_vault_state`).
+/// Carries counts and states — NEVER a secret. (The one deliberate exception
+/// is the one-time recovery display after setup: user-facing by definition —
+/// it exists to leave the machine on paper — and dropped on ack.)
+pub fn state_json() -> String {
+    let r = rt().lock().unwrap();
+    let vault = if r.vmk.is_some() {
+        "unlocked"
+    } else if r.bypassed {
+        "bypassed"
+    } else if r.file.is_some() || r.broken.is_some() {
+        "locked"
+    } else {
+        "none"
+    };
+    serde_json::json!({
+        "vault": vault,
+        "capture": r.capture.map(|c| c.as_str()),
+        "chars": r.input.as_ref().map(|i| i.chars()).unwrap_or(0),
+        "step2": r.pending_pass.is_some(),
+        "required": r.file.as_ref().map(|f| f.required).unwrap_or(1),
+        "busy": r.busy,
+        "error": r.error,
+        "recovery": r.recovery_display,
+        "broken": r.broken,
+    })
+    .to_string()
+}
+
+// --- Sealed-state tenants ---------------------------------------------------
+
+fn load_sealed(dir: &Path, vmk: &SecretBuf) -> serde_json::Value {
+    let path = dir.join("vault.seal");
+    match std::fs::read(&path) {
+        Ok(data) => match open_state(vmk, &data) {
+            Ok(plain) => serde_json::from_slice(plain.as_slice())
+                .unwrap_or_else(|_| serde_json::json!({})),
+            Err(e) => {
+                tracing::error!("sealed state failed to open (tamper/corruption): {e}");
+                serde_json::json!({})
+            }
+        },
+        Err(_) => serde_json::json!({}),
+    }
+}
+
+fn save_sealed(dir: &Path, vmk: &SecretBuf, value: &serde_json::Value) -> Result<()> {
+    let plain = serde_json::to_vec(value).map_err(|e| VaultError::Format(e.to_string()))?;
+    let blob = seal_state(vmk, &plain)?;
+    let path = dir.join("vault.seal");
+    let tmp = dir.join("vault.seal.tmp");
+    std::fs::write(&tmp, &blob).map_err(|e| VaultError::Io(format!("write tmp: {e}")))?;
+    std::fs::rename(&tmp, &path).map_err(|e| VaultError::Io(format!("rename: {e}")))?;
+    Ok(())
+}
+
+/// Read a sealed string tenant (unlocked sessions only — a locked or
+/// bypassed vault yields None, never a plaintext fallback).
+pub fn sealed_get(key: &str) -> Option<String> {
+    let r = rt().lock().unwrap();
+    let sealed = r.sealed.as_ref()?;
+    r.vmk.as_ref()?;
+    sealed.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+}
+
+/// Write a sealed string tenant and persist the sealed state (unlocked
+/// sessions only; a no-op otherwise — fail-closed, nothing falls back to
+/// plaintext).
+pub fn sealed_set(key: &str, value: &str) {
+    let mut r = rt().lock().unwrap();
+    if r.vmk.is_none() {
+        return;
+    }
+    if r.sealed.is_none() {
+        r.sealed = Some(serde_json::json!({}));
+    }
+    if let Some(sealed) = r.sealed.as_mut() {
+        sealed[key] = serde_json::Value::String(value.to_string());
+    }
+    let (dir, sealed) = (r.dir.clone(), r.sealed.clone().unwrap());
+    if let Some(vmk) = r.vmk.as_ref()
+        && let Err(e) = save_sealed(&dir, vmk, &sealed)
+    {
+        tracing::error!("sealed-state write failed: {e}");
+    }
+}
+
+#[cfg(test)]
+fn test_reset_runtime(dir: &Path, kdf: KdfParams) {
+    let mut r = rt().lock().unwrap();
+    *r = Runtime {
+        dir: dir.to_path_buf(),
+        file: None,
+        broken: None,
+        vmk: None,
+        bypassed: false,
+        capture: None,
+        input: None,
+        pending_pass: None,
+        busy: false,
+        error: None,
+        recovery_display: None,
+        outcome: None,
+        relaunch: false,
+        sealed: None,
+        kdf,
+    };
+    let path = dir.join("vault.json");
+    if let Ok(file) = VaultFile::load_from(&path) {
+        r.file = file;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1580,5 +2227,128 @@ mod tests {
         assert_eq!(KdfParams::PRODUCT.m_cost_kib, 65536, "64 MiB");
         assert_eq!(KdfParams::PRODUCT.t_cost, 3);
         assert_eq!(KdfParams::PRODUCT.p_cost, 4);
+    }
+
+    // --- Stage 1b: host capture + runtime -----------------------------------
+
+    /// SecretInput edits correctly across multi-byte characters and wipes on
+    /// clear — the host-captured entry buffer behind the iron law.
+    #[test]
+    fn secret_input_edits_utf8_and_wipes() {
+        let mut i = SecretInput::new().unwrap();
+        i.push_str("pä");
+        i.push_str("ss🙂");
+        assert_eq!(i.chars(), 5);
+        assert_eq!(i.as_slice(), "päss🙂".as_bytes());
+        i.backspace(); // removes the whole 4-byte emoji
+        assert_eq!(i.as_slice(), "päss".as_bytes());
+        i.backspace();
+        i.backspace();
+        i.backspace(); // removes the 2-byte ä
+        assert_eq!(i.as_slice(), b"p");
+        i.backspace();
+        i.backspace(); // underflow is a no-op
+        assert_eq!(i.chars(), 0);
+        i.push_str("secret\n"); // control chars never enter a secret
+        assert_eq!(i.as_slice(), b"secret");
+        i.clear();
+        assert_eq!(i.chars(), 0);
+        assert!(i.buf.as_slice().iter().all(|&b| b == 0), "clear wipes the tail");
+    }
+
+    /// Poll a worker outcome (the workers run real threads).
+    fn wait_outcome() -> Outcome {
+        for _ in 0..500 {
+            if let Some(o) = take_outcome() {
+                return o;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("vault worker outcome never arrived");
+    }
+
+    /// The full Stage-1b runtime flow, end to end against a temp dir: setup
+    /// through the host-capture state machine (mismatch retry included), the
+    /// one-time recovery display + ack, a sealed tenant surviving a simulated
+    /// relaunch, a failed then successful passphrase unlock, and a recovery-key
+    /// unlock. ONE test drives the whole flow because the runtime is a
+    /// process-wide singleton — two parallel tests would interleave.
+    #[test]
+    fn runtime_setup_lock_unlock_flow() {
+        let dir = std::env::temp_dir().join(format!("cdvault-rt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        test_reset_runtime(&dir, TEST_KDF);
+
+        assert!(!has_vault());
+        assert!(!is_locked(), "no vault → the gate is open");
+        assert!(begin_capture("unlock_pass").is_err(), "nothing to unlock yet");
+
+        // Setup: first entry, a mismatching confirm (retry), then a match.
+        begin_capture("setup_pass").unwrap();
+        key_text("correct horse battery staple");
+        key_submit(); // → confirm step
+        key_text("correct horse battery stapl"); // typo
+        key_submit();
+        assert!(
+            state_json().contains("do not match"),
+            "mismatching confirm restarts setup with an error"
+        );
+        key_text("correct horse battery staple");
+        key_submit();
+        key_text("correct horse battery staple");
+        key_submit();
+        assert_eq!(wait_outcome(), Outcome::SetupDone);
+        assert!(is_unlocked(), "setup leaves the session unlocked");
+        assert!(dir.join("vault.json").exists());
+
+        // The one-time recovery display: present until acked, then gone.
+        let state: serde_json::Value = serde_json::from_str(&state_json()).unwrap();
+        let recovery = state["recovery"].as_str().expect("recovery shown once").to_string();
+        assert_eq!(recovery.split('-').count(), 14);
+        setup_ack();
+        assert!(state_json().contains("\"recovery\":null"));
+
+        // A sealed tenant written while unlocked…
+        sealed_set("identity_seed", "00aa11bb");
+        assert_eq!(sealed_get("identity_seed").as_deref(), Some("00aa11bb"));
+
+        // …survives a relaunch (runtime reset), unreadable while locked.
+        test_reset_runtime(&dir, TEST_KDF);
+        assert!(is_locked(), "vault present + no VMK → gate closed");
+        assert_eq!(sealed_get("identity_seed"), None, "sealed stays sealed while locked");
+
+        // Wrong passphrase fails (uniform error), correct one opens the gate.
+        begin_capture("unlock_pass").unwrap();
+        key_text("wrong horse battery staple");
+        key_submit();
+        assert_eq!(wait_outcome(), Outcome::UnlockFailed);
+        assert!(is_locked());
+        key_text("correct horse battery staple");
+        key_submit();
+        assert_eq!(wait_outcome(), Outcome::Unlocked);
+        assert!(is_unlocked());
+        assert_eq!(
+            sealed_get("identity_seed").as_deref(),
+            Some("00aa11bb"),
+            "the sealed tenant is back after unlock"
+        );
+
+        // Recovery-key unlock, via the same host-captured entry (typed with
+        // dashes, exactly as printed).
+        test_reset_runtime(&dir, TEST_KDF);
+        begin_capture("unlock_recovery").unwrap();
+        key_text(&recovery);
+        key_submit();
+        assert_eq!(wait_outcome(), Outcome::Unlocked);
+        assert!(is_unlocked(), "the printed recovery key unlocks independently");
+
+        // Lock request queues a relaunch; wipe drops every secret.
+        request_lock();
+        assert!(take_relaunch());
+        assert!(!take_relaunch(), "one-shot");
+        wipe_for_exit();
+        assert!(!is_unlocked());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

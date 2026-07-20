@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vault</title>
+<link rel="icon" href="data:,">
+<style>
+/*__TOKENS__*/
+/*__CSS__*/
+</style>
+</head>
+<body>
+  <!-- Start-authorization lock page (CD-40, D-0058). Purely presentational:
+       the HOST captures every keystroke into locked memory and pushes only a
+       masked character count here — this page never sees a secret. Copy per
+       D-0044: states what CyberDesk does, confidently. -->
+  <main class="panel">
+    <div class="head">
+      <svg class="mark" viewBox="0 0 48 48" aria-hidden="true">
+        <rect x="12" y="21" width="24" height="18" rx="3" class="lk body-r"/>
+        <path d="M17 21 v-4 a7 7 0 0 1 14 0 v4" class="lk shackle"/>
+        <circle cx="24" cy="30" r="2.6" class="lk pin"/>
+      </svg>
+      <div>
+        <h1 id="title">Vault locked</h1>
+        <div class="sub" id="subtitle">Start authorization</div>
+      </div>
+    </div>
+    <p class="body" id="hint">
+      Enter your passphrase. Keystrokes go to the CyberDesk core only &mdash;
+      no page ever sees them.
+    </p>
+    <div class="entry" id="entry" aria-label="secret entry">
+      <div class="dots" id="dots"></div>
+      <div class="caret" id="caret"></div>
+    </div>
+    <div class="status" id="status" hidden></div>
+    <div class="actions">
+      <button class="btn" id="alt" type="button">Use the recovery key</button>
+      <button class="btn quit" id="quit" type="button">Quit</button>
+    </div>
+    <div class="foot" id="foot">Enter to unlock &middot; Esc to clear &middot; Ctrl+V pastes</div>
+  </main>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

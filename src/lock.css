@@ -1,0 +1,111 @@
+/* Vault lock page styling (CD-40, D-0058). Colors come entirely from the
+   injected token custom properties (theme.toml / Theme::to_css_vars) — nothing
+   hardcoded. Opaque panel, same idiom as the onion/info pages; the wgpu
+   compositor paints the Pulse Grid behind it. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: transparent;
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.panel {
+  width: min(520px, 100%);
+  padding: 30px 32px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--corner-radius);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.head { display: flex; align-items: center; gap: 16px; }
+
+.mark { width: 44px; height: 44px; flex: none; }
+.lk { fill: none; stroke: var(--brand); stroke-width: 2; }
+.body-r { opacity: 0.85; }
+.shackle { stroke-width: 2.5; }
+.pin { fill: var(--brand); stroke: none; }
+.mark { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--brand) 45%, transparent)); }
+
+h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
+.sub { font-size: 11px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
+
+.body { font-size: 13px; line-height: 1.55; color: var(--text-dim); }
+
+/* The masked entry: dots rendered from the HOST-pushed character count. */
+.entry {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dots { display: flex; flex-wrap: wrap; gap: 5px; }
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+  opacity: 0.9;
+}
+/* Recovery-key entry groups every 4th dot pair visually via extra gap. */
+.dot.g { margin-right: 8px; }
+
+.caret {
+  width: 2px;
+  height: 18px;
+  background: var(--brand);
+  animation: blink 1.1s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.entry.busy .caret { animation: none; opacity: 0.25; }
+
+.status {
+  font-size: 12.5px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
+.status.info {
+  border-color: var(--panel-border);
+  color: var(--text-dim);
+}
+
+.actions { display: flex; gap: 10px; }
+
+.btn {
+  appearance: none;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--brand); color: var(--brand); }
+.btn.quit { margin-left: auto; color: var(--text-dim); }
+.btn.quit:hover { border-color: var(--warn); color: var(--warn); }
+
+.foot { font-size: 11px; color: var(--text-dim); opacity: 0.75; }

@@ -95,6 +95,57 @@
          nothing browsed survives there — even if something upstream ever regresses.
          Copy rule (D-0044): state what it does, confidently and accurately; never a
          competitor pointer, never self-deprecation. -->
+    <!-- Vault (CD-40, D-0058): start authorization + envelope key management.
+         Secrets never enter this page — the host captures keystrokes into
+         locked memory; this page renders masked counts pushed via
+         window.cdVault. The one-time recovery display after setup is the
+         single deliberate exception (user-facing by definition). -->
+    <section class="rows tor-section" aria-label="Vault">
+      <h2 class="section-head">Vault <span id="vault-pill" class="tor-status"></span></h2>
+
+      <div class="row" id="vault-none-row" hidden>
+        <div class="label">
+          <span class="name">Start authorization</span>
+          <span class="hint">Protect CyberDesk with a passphrase &mdash; the app stays locked at every start until you unlock it</span>
+        </div>
+        <button class="btn" id="vault-setup" type="button">Set up vault&hellip;</button>
+      </div>
+
+      <div class="row" id="vault-lock-row" hidden>
+        <div class="label">
+          <span class="name">Lock now</span>
+          <span class="hint">Ends the session and returns to the locked start &mdash; key material is wiped</span>
+        </div>
+        <button class="btn" id="vault-lock" type="button">Lock</button>
+      </div>
+
+      <div id="vault-capture" class="vault-capture" hidden>
+        <div class="vault-cap-hint" id="vault-cap-hint"></div>
+        <div class="vault-entry" id="vault-entry">
+          <div class="vault-dots" id="vault-dots"></div>
+          <div class="vault-caret"></div>
+        </div>
+        <div class="vault-err" id="vault-err" hidden></div>
+        <div class="vault-actions">
+          <button class="btn" id="vault-cancel" type="button">Cancel</button>
+        </div>
+      </div>
+
+      <div id="vault-recovery" class="vault-recovery" hidden>
+        <div class="vault-cap-hint">Your recovery key &mdash; shown only this once.
+        Print it or write it down and keep it safe: it unlocks the vault if the
+        passphrase is ever lost. CyberDesk stores it nowhere.</div>
+        <div class="vault-key" id="vault-key"></div>
+        <button class="btn" id="vault-ack" type="button">I have saved my recovery key</button>
+      </div>
+
+      <p class="honesty">The vault wraps one master key in independent envelopes
+      &mdash; your passphrase and your recovery key each open it, and enrolling
+      more methods never re-encrypts your data. While you type a passphrase, the
+      CyberDesk core captures it directly into locked memory &mdash; no page
+      ever sees a keystroke.</p>
+    </section>
+
     <section class="rows tor-section" aria-label="On-disk privacy">
       <h2 class="section-head">On-disk privacy <span id="residue-pill" class="tor-status"></span></h2>
 
