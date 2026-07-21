@@ -543,26 +543,21 @@
     });
   }
 
-  // --- Vault (CD-40, D-0058) ------------------------------------------------
-  // Setup + lock controls. No secret ever enters this page: the host captures
-  // the passphrase keystrokes into locked memory and pushes only the masked
-  // character count here (window.cdVault). The one-time recovery display after
-  // setup is the single deliberate exception — user-facing by definition.
+  // --- Vault (CD-40, D-0058; unlock model per CD-42, D-0062) ----------------
+  // Config + lock controls (setup happens at first launch, on the lock page).
+  // No secret ever enters this page: the host captures the master-password
+  // keystrokes into locked memory and pushes only the masked character count
+  // here (window.cdVault).
   (function () {
     var pill = document.getElementById("vault-pill");
-    var noneRow = document.getElementById("vault-none-row");
     var lockRow = document.getElementById("vault-lock-row");
     var capture = document.getElementById("vault-capture");
     var capHint = document.getElementById("vault-cap-hint");
     var entry = document.getElementById("vault-entry");
     var dots = document.getElementById("vault-dots");
     var errEl = document.getElementById("vault-err");
-    var recovery = document.getElementById("vault-recovery");
-    var keyEl = document.getElementById("vault-key");
-    var setupBtn = document.getElementById("vault-setup");
     var lockBtn = document.getElementById("vault-lock");
     var cancelBtn = document.getElementById("vault-cancel");
-    var ackBtn = document.getElementById("vault-ack");
     if (!pill) return;
 
     function renderDots(n) {
@@ -576,19 +571,16 @@
     }
 
     var HINTS = {
-      setup_pass: "Choose a passphrase (at least 8 characters). It is typed into the CyberDesk core, not this page — Enter to continue, Esc to cancel.",
-      setup_confirm: "Re-type the passphrase to confirm — Enter to create the vault.",
-      change_pass: "New passphrase (at least 8 characters) — Enter to continue, Esc to cancel.",
-      change_confirm: "Re-type the new passphrase to confirm — Enter to change it.",
-      retune_kdf: "Enter your current passphrase to authorize the cost change — verified first, then re-derived under the new parameters."
+      change_pass: "New master password (at least 8 characters) — Enter to continue, Esc to cancel.",
+      change_confirm: "Re-type the new master password to confirm — Enter to change it.",
+      retune_kdf: "Enter your current master password to authorize the cost change — verified first, then re-derived under the new parameters."
     };
     var BUSY = {
-      setup_confirm: "Creating the vault…",
       change_confirm: "Re-wrapping…",
       retune_kdf: "Verifying and re-deriving…"
     };
 
-    var KINDS = { passphrase: "Passphrase", recovery_key: "Recovery key", passkey: "Passkey" };
+    var KINDS = { passphrase: "Master password", passkey: "Passkey" };
     var last = {};
 
     function render(s) {
@@ -600,33 +592,29 @@
       pill.textContent = label;
       pill.className = "tor-status " + (s.vault === "unlocked" ? "s2" : s.vault === "bypassed" ? "s3" : "");
 
-      // Any settings-side capture (setup / change / re-tune) shows the entry.
-      var capturing = s.capture === "setup_pass" || s.capture === "setup_confirm" ||
-                      s.capture === "change_pass" || s.capture === "change_confirm" ||
+      // Any settings-side capture (change / re-tune) shows the entry.
+      var capturing = s.capture === "change_pass" || s.capture === "change_confirm" ||
                       s.capture === "retune_kdf";
-      noneRow.hidden = !(s.vault === "none" && !capturing);
       lockRow.hidden = s.vault !== "unlocked" || capturing;
       capture.hidden = !capturing;
-      recovery.hidden = !s.recovery;
       if (capturing) {
         capHint.textContent = s.busy ? (BUSY[s.capture] || "Working…") : (HINTS[s.capture] || "");
         renderDots(s.chars || 0);
         entry.classList.toggle("busy", !!s.busy);
       }
-      if (s.error && (capturing || s.vault === "none" || s.vault === "unlocked")) {
+      if (s.error && (capturing || s.vault === "unlocked")) {
         errEl.textContent = s.error;
         errEl.hidden = false;
       } else {
         errEl.hidden = true;
       }
-      if (s.recovery) keyEl.textContent = s.recovery;
 
       // The config surface (1c): methods, policy, KDF cost — unlocked only.
       var config = document.getElementById("vault-config");
-      config.hidden = s.vault !== "unlocked" || capturing || !!s.recovery;
+      config.hidden = s.vault !== "unlocked" || capturing;
       if (!config.hidden) {
         var parts = [];
-        var canTwo = (s.methods || []).length >= 2;
+        var hasPasskey = (s.methods || []).some(function (m) { return m.kind === "passkey"; });
         for (var i = 0; i < (s.methods || []).length; i++) {
           var m = s.methods[i];
           parts.push((KINDS[m.kind] || m.kind) + (m.removable ? "" : " (always present)"));
@@ -637,7 +625,10 @@
         var p2 = document.getElementById("vault-pol-2");
         p1.classList.toggle("active", s.required === 1);
         p2.classList.toggle("active", s.required === 2);
-        p2.disabled = !canTwo;
+        // 2FA needs the passkey enrolled (the host refuses regardless — this
+        // just keeps the button honest).
+        p2.disabled = !hasPasskey;
+        p2.title = hasPasskey ? "" : "Requires an enrolled passkey";
         if (s.kdf) {
           document.getElementById("vault-kdf-hint").textContent =
             Math.round(s.kdf.m_cost_kib / 1024) + " MiB · " + s.kdf.t_cost +
@@ -651,20 +642,8 @@
       try { render(JSON.parse(json)); } catch (e) {}
     };
 
-    setupBtn.addEventListener("click", function () {
-      query({ cmd: "vault_begin_capture", purpose: "setup_pass" }).then(function (r) {
-        try { render(JSON.parse(r)); } catch (e) {}
-      }).catch(function (e) { setStatus(String(e), true); });
-    });
-
     cancelBtn.addEventListener("click", function () {
       query({ cmd: "vault_cancel_capture" }).then(function (r) {
-        try { render(JSON.parse(r)); } catch (e) {}
-      }).catch(function () {});
-    });
-
-    ackBtn.addEventListener("click", function () {
-      query({ cmd: "vault_setup_ack" }).then(function (r) {
         try { render(JSON.parse(r)); } catch (e) {}
       }).catch(function () {});
     });
@@ -694,8 +673,9 @@
       });
     }
 
-    // Policy: raising to 2 applies directly (strengthening); lowering to 1 is
-    // a weakening — two-step confirm, and the HOST refuses without the flag.
+    // Policy: turning 2FA on applies directly (strengthening); dropping back
+    // to password-only is a weakening — two-step confirm, and the HOST
+    // refuses without the flag.
     var polArmed = null;
     document.getElementById("vault-pol-2").addEventListener("click", function () {
       applyState(query({ cmd: "vault_set_policy", required: 2 }));
@@ -706,13 +686,13 @@
       if (polArmed) {
         clearTimeout(polArmed);
         polArmed = null;
-        pol1.textContent = "1 required";
+        pol1.textContent = "Password only";
         applyState(query({ cmd: "vault_set_policy", required: 1, confirm: true }));
         return;
       }
-      pol1.textContent = "Confirm 1-required";
+      pol1.textContent = "Confirm password-only";
       polArmed = setTimeout(function () {
-        pol1.textContent = "1 required";
+        pol1.textContent = "Password only";
         polArmed = null;
       }, 3000);
     });
@@ -759,24 +739,6 @@
 
     document.getElementById("vault-change").addEventListener("click", function () {
       applyState(query({ cmd: "vault_begin_capture", purpose: "change_pass" }));
-    });
-
-    // Regenerating invalidates the old printed key — two-step confirm.
-    var regenArmed = null;
-    var regenBtn = document.getElementById("vault-regen");
-    regenBtn.addEventListener("click", function () {
-      if (regenArmed) {
-        clearTimeout(regenArmed);
-        regenArmed = null;
-        regenBtn.textContent = "Regenerate";
-        applyState(query({ cmd: "vault_regen_recovery" }));
-        return;
-      }
-      regenBtn.textContent = "Confirm — old key stops working";
-      regenArmed = setTimeout(function () {
-        regenBtn.textContent = "Regenerate";
-        regenArmed = null;
-      }, 3500);
     });
 
     query({ cmd: "get_vault_state" }).then(function (r) {

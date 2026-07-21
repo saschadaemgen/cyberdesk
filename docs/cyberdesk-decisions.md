@@ -5,6 +5,46 @@ Living document - maintained by Claude Code (CC), updated in the same
 commit-set as the change it records (D-0053). Append-only: historical entries
 are never rewritten; a superseded decision gets a new D-number forward.
 
+## D-0062 - 2026-07-21 - Vault unlock model is authoritative: mandatory master password (+ optional passkey 2FA); overridable complexity warning; no recovery key, no backdoor (CD-42)
+
+*Decision.* The vault requires a master password at first launch (the sole
+mandatory root, always a valid 1-factor unlock — the gate boots into setup
+when no vault exists; the workspace cannot start before it). A passkey is the
+only optional additional factor (at most one enrolled); the unlock policy is
+exactly password-only or password + passkey (2FA) — no other methods or
+combinations, enforced structurally: the master password is a member of EVERY
+envelope, so a passkey alone can never open anything. The master-password
+setup shows a live, host-computed complexity meter and warns on a weak
+password but lets the user deliberately proceed (informed override); the
+password characters never reach the renderer (the host holds the keystrokes,
+only the score/warnings cross to the UI — the iron law). The CD-40 recovery
+key is removed: with no recovery key, a forgotten master password — or a lost
+passkey while 2FA is required — makes the vault unrecoverable, by design (a
+deliberate no-backdoor stance, stated plainly at setup). Supersedes the CD-40
+recovery-key decision (D-0058's recovery-key method and the D-0060
+regenerate-recovery surface); CD-40 itself is frozen history — this is the
+forward correction.
+
+Implementation notes recorded with the decision: (1) `vault.json` bumps to
+**version 2**; a v1 file is refused with a specific reset message (delete
+`vault.json`/`vault.seal`, set up fresh) — no migration, dev data only, as
+the CD-42 briefing sanctions. (2) The CD-40 "never-brick" invariant (a
+mandatory non-hardware envelope) is retired with the recovery key; the v2
+invariants are: exactly one master-password method, at most one passkey, one
+envelope matching the policy shape, every method escrowed. (3) The hard
+minimum stays `MIN_PASSPHRASE_LEN = 8` bytes (NIST SP 800-63B's floor for
+user-chosen secrets): the informed override applies to the STRENGTH
+assessment above that floor — below 8 there is no vault to speak of. (4)
+While the passkey wiring is deferred (D-0061), no passkey can be enrolled, so
+the host's refusal of `required = 2` without one also guarantees no
+2FA-locked vault can exist before the gate's passkey assertion step ships.
+
+*Why.* A security vault's trust comes from having no backdoor; a mandatory
+strong master password as the sole root, with an optional passkey second
+factor and an honest, overridable complexity warning, is a clean and
+defensible model. Computing the strength meter host-side preserves the
+no-key-material-in-the-WebView guarantee.
+
 ## D-0061 - 2026-07-21 - Vault Stage 1d: passkey via WebAuthn PRF — verified and HONESTLY DEFERRED on the target (CD-40)
 
 *Decision.* The passkey sub-stage is the "verify first, ship last" step, and

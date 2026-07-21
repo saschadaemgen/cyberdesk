@@ -574,16 +574,17 @@ and the countdown locally, off absolute anchors.
 - Effect: queues an "open the settings overlay" for the main thread (no-op if it
   is already open). Success: `{"ok":true}`.
 
-## Vault IPC (CD-40, D-0058, live)
+## Vault IPC (CD-40, D-0058; unlock model CD-42, D-0062 — live)
 
 The start-authorization gate + envelope key management. **Iron law on the
 wire: no secret ever rides this IPC in either direction.** While a capture is
 active the HOST consumes the window's key events straight into locked memory
 (`vault::SecretInput`); the page renders dots from a pushed character COUNT.
-The single deliberate exception is the one-time recovery display after setup
-(user-facing by definition — it exists to leave the machine on paper), pushed
-until acked, then dropped. The lock page is `cyberdesk://lock/` (the only view
-that exists while the gate is closed).
+The lock page is `cyberdesk://lock/` (the only view that exists while the
+gate is closed) — it serves both unlock and the mandatory first-launch
+master-password setup. The retired v1 surface (`unlock_recovery`,
+`vault_setup_ack`, `vault_regen_recovery`, the `step2`/`recovery` fields) was
+REMOVED with the recovery key (D-0062).
 
 ### `cdVault(json)` (host -> view, push)
 
@@ -593,32 +594,30 @@ the count changes). Payload:
 ```json
 {
   "vault": "none | locked | unlocked | bypassed",
-  "capture": "unlock_pass | unlock_recovery | setup_pass | setup_confirm | null",
+  "capture": "unlock_pass | setup_pass | setup_confirm | null",
   "chars": 0,
-  "step2": false,
   "required": 1,
   "busy": false,
   "error": null,
-  "recovery": null,
   "broken": null
 }
 ```
 
 - `chars` — characters currently in the host's capture buffer (dots).
-- `step2` — a 2-required unlock holds the accepted passphrase and is now
-  capturing the second factor.
+- `required` — the unlock policy: 1 = password-only, 2 = password + passkey
+  (2FA). UI metadata mirroring the structural envelope shape.
 - `busy` — a worker (Argon2id derivation / vault creation) is running.
 - `error` — user-facing failure text. Unlock failures are deliberately
-  uniform ("unlock failed" — no wrong-key vs tampered oracle); recovery-key
-  FORMAT errors (length/checksum) are specific, they are local typo feedback.
-- `recovery` — the one-time recovery display after setup, until `vault_setup_ack`.
+  uniform ("unlock failed" — no wrong-key vs tampered oracle).
 - `bypassed` — debug-build dev bypass active (gate skipped, sealed state stays sealed).
 - `broken` — the vault file exists but failed validation; the gate stays
-  closed and unlock cannot succeed (fail-closed).
+  closed and unlock cannot succeed (fail-closed). A retired v1
+  (recovery-key model) file carries a specific reset message here.
 - `methods` (1c) — the enrolled methods: `[{id, kind, label, created_ms,
-  removable}]`; `removable` is true only for hardware methods (the never-brick
-  floor: passphrase and recovery key are not removable).
-- `kdf` (1c) — the passphrase envelope's Argon2id cost:
+  removable}]`; `kind` is `passphrase` (the master password) or `passkey`;
+  `removable` is true only for the passkey (the master password is the
+  mandatory root).
+- `kdf` (1c) — the password envelope's Argon2id cost:
   `{m_cost_kib, t_cost, p_cost}`.
 - `capture` additionally takes `change_pass` / `change_confirm` /
   `retune_kdf` (1c, unlocked-session flows).
@@ -630,21 +629,19 @@ initialization for the lock page and the settings vault section).
 
 ### `vault_begin_capture` (view -> host)
 
-Request `{ "cmd": "vault_begin_capture", "purpose": "unlock_pass | unlock_recovery | setup_pass" }`.
-Starts host-side key capture for that purpose. `unlock_*` only while locked;
-`setup_pass` only while no vault exists. (`setup_confirm` is an internal step —
-never begun via IPC.) Reply = the state JSON; also pushed.
+Request `{ "cmd": "vault_begin_capture", "purpose": "unlock_pass | setup_pass | change_pass" }`.
+Starts host-side key capture for that purpose. `unlock_pass` only while
+locked; `setup_pass` only while no vault exists (the shell begins it itself
+at the first-launch gate); `change_pass` only while unlocked.
+(`setup_confirm` / `change_confirm` are internal steps — never begun via
+IPC.) Reply = the state JSON; also pushed.
 
 ### `vault_cancel_capture` (view -> host)
 
 Request `{ "cmd": "vault_cancel_capture" }`. Aborts the current capture and
-wipes its buffers; on the lock screen this resets to a fresh passphrase prompt.
+wipes its buffers; behind the closed gate this resets to a fresh prompt for
+the gate's own flow (unlock, or the mandatory setup — Esc cannot orphan it).
 Reply = the state JSON; also pushed.
-
-### `vault_setup_ack` (view -> host)
-
-Request `{ "cmd": "vault_setup_ack" }`. The user confirmed saving the recovery
-key: the one-time display is zeroized and leaves the state. Reply = state JSON.
 
 ### `vault_lock` (view -> host)
 
@@ -655,8 +652,9 @@ process dies with it, and the next boot is the gate.
 ### `vault_set_policy` (view -> host, 1c)
 
 Request `{ "cmd": "vault_set_policy", "required": 1|2, "confirm": bool }`.
-Re-mints the envelope set structurally (unlocked sessions only). LOWERING the
-required count is a weakening: the host refuses without `confirm` regardless
+Re-mints the envelope structurally (unlocked sessions only): 1 =
+password-only, 2 = password + passkey (refused without an enrolled passkey).
+DROPPING 2FA is a weakening: the host refuses without `confirm` regardless
 of what the page showed (D-0040 discipline). Reply = state JSON; also pushed.
 
 ### `vault_retune_kdf` (view -> host, 1c)
@@ -665,21 +663,16 @@ Request `{ "cmd": "vault_retune_kdf", "m_cost_kib": n, "t_cost": n,
 "p_cost": n, "confirm": bool }`. Validates bounds (16 MiB..=1 GiB, 1..=10
 passes, 1..=8 lanes); anything below the RFC 9106 default OR the current cost
 is a weakening → refused without `confirm`. On success this BEGINS a
-`retune_kdf` capture: the current passphrase is host-captured, VERIFIED
-against the existing envelope (a wrong entry can never silently become the new
-passphrase), then re-derived under the staged params on a worker thread.
-
-### `vault_regen_recovery` (view -> host, 1c)
-
-Request `{ "cmd": "vault_regen_recovery" }`. Mints a fresh recovery key on a
-worker (the old one stops working atomically); the new one-time display rides
-the state until `vault_setup_ack`.
+`retune_kdf` capture: the current master password is host-captured, VERIFIED
+against the existing envelope (a wrong entry can never silently become the
+new password), then re-derived under the staged params on a worker thread.
 
 ### `vault_remove_method` (view -> host, 1c)
 
-Request `{ "cmd": "vault_remove_method", "id": "passkey-…" }`. Hardware
-methods only — the core's never-brick invariant refuses removing the
-passphrase or the recovery key, and refuses dropping below the policy size.
+Request `{ "cmd": "vault_remove_method", "id": "passkey-…" }`. The passkey is
+the only removable method — the core refuses removing the master password,
+and refuses removing the passkey while the 2FA policy requires it (switch to
+password-only first).
 
 Key handling while a capture is active (host-side, `app.rs`): printable text →
 buffer; Backspace → UTF-8-aware delete; Enter → advance the flow (derivations

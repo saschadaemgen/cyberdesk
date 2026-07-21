@@ -179,11 +179,12 @@ pub fn run(windowed: bool) {
     // persisted toggles; the settings IPC writes through it live.
     settings::init();
     // Load the vault state (CD-40, D-0058): with a vault present the shell boots
-    // LOCKED — only the lock page exists until the start-authorization gate opens.
-    // Must follow settings::init (shares the app-data dir) and precede everything
-    // that might touch sealed state.
+    // LOCKED; with none it boots into MANDATORY first-launch setup (CD-42,
+    // D-0062) — only the lock/setup page exists until the start-authorization
+    // gate opens. Must follow settings::init (shares the app-data dir) and
+    // precede everything that might touch sealed state.
     crate::vault::init();
-    let locked = crate::vault::is_locked();
+    let locked = crate::vault::gate_closed();
     // Anti-forensic browsing-residue purge (CD-34, D-0051): wipe the CEF
     // browsing-cache/profile dir BEFORE init_cef (below) — the only moment CEF does
     // not yet hold its files open. Reads the `purge_residue` toggle just loaded by
@@ -256,9 +257,10 @@ pub fn run(windowed: bool) {
 
 struct Shell {
     windowed: bool,
-    /// The start-authorization gate is closed (CD-40, D-0058): a vault exists
-    /// and the VMK is not in memory. While true, only the lock view boots; the
-    /// workspace follows after the unlock outcome arrives.
+    /// The start-authorization gate is closed (CD-40, D-0058): the VMK is not
+    /// in memory — either a vault exists (unlock) or none does yet (mandatory
+    /// first-launch setup, CD-42). While true, only the lock view boots; the
+    /// workspace follows after the unlock/setup outcome arrives.
     locked: bool,
     /// The lock view has been created (one-shot, the locked sibling of
     /// `views_started`).
@@ -2499,10 +2501,12 @@ impl ApplicationHandler for Shell {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // The start-authorization gate (CD-40, D-0058): with a vault present the
-        // shell boots LOCKED — only the internal view exists, showing the lock
-        // page, with the host already capturing the passphrase. Nothing else is
-        // created and no sealed state is readable until the gate opens below.
+        // The start-authorization gate (CD-40, D-0058): the shell boots with
+        // only the internal view, showing the lock page — unlocking an
+        // existing vault, or the MANDATORY first-launch master-password setup
+        // when none exists yet (CD-42, D-0062). Either way the host is already
+        // capturing; nothing else is created and no sealed state is readable
+        // until the gate opens below.
         if self.locked
             && !self.lock_view_started
             && browser::context_ready()
@@ -2518,18 +2522,21 @@ impl ApplicationHandler for Shell {
             }
             browser::create_browser_url(Role::Internal, hwnd, browser::LOCK_URL);
             browser::set_focus(Role::Internal, true);
-            let _ = crate::vault::begin_capture("unlock_pass");
+            let purpose = if crate::vault::has_vault() { "unlock_pass" } else { "setup_pass" };
+            let _ = crate::vault::begin_capture(purpose);
             browser::push_vault_state();
             self.lock_view_started = true;
         }
 
-        // The gate opens: an unlock (or setup) outcome arrived from a vault
-        // worker. On unlock the deferred boot runs — sealed identity seed first
+        // The gate opens: an unlock or first-launch-setup outcome arrived from
+        // a vault worker. The deferred boot runs — sealed identity seed first
         // (it feeds browser creation), then the workspace; the internal view
         // leaves the lock page for its normal settings document.
         if let Some(outcome) = crate::vault::take_outcome() {
             match outcome {
-                crate::vault::Outcome::Unlocked if self.locked => {
+                crate::vault::Outcome::Unlocked | crate::vault::Outcome::SetupDone
+                    if self.locked =>
+                {
                     self.locked = false;
                     self.overlay = Overlay::Closed;
                     browser::init_identity_seed();
@@ -2539,9 +2546,7 @@ impl ApplicationHandler for Shell {
                         self.views_started = true;
                     }
                 }
-                // Setup finished (from the settings page): the session is now
-                // unlocked-with-vault; the page shows the one-time recovery
-                // display from the state push. Failures just re-push state.
+                // Failures (and unlocked-session re-wraps) just re-push state.
                 _ => {}
             }
             browser::push_vault_state();

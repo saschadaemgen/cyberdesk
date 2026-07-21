@@ -21,58 +21,62 @@ The surf zone (CEF) has no path to CARVILON functions (doors, cameras, time cloc
   ONLY on `cyberdesk://` frames — a web page has no IPC surface at all.
 - No generic eval or passthrough channels.
 
-## Vault: keys and authorization (Season 6 crypto, CD-40, D-0058)
+## Vault: keys and authorization (Season 6 crypto, CD-40 D-0058; unlock model CD-42 D-0062)
 
-Stage 1 is shipped through the config/tile surface: the crypto core (1a,
-D-0058), the start-authorization gate (1b, D-0059) and the config surface
-(1c, D-0060) are live (`src/vault.rs`, `app.rs` gate, `cyberdesk://lock/`,
-the settings vault section, the HUD Vault field). The passkey-PRF layer (1d)
-is source-verified and honestly deferred (D-0061 — see the passkey caveat
-below). The standing laws hold **by construction**: no key material in memory before
-authentication (the app boots into a lock view — no slots, no MF zone, no HUD
-— and the workspace is created only after the VMK exists), and no key material
-in the WebView, ever — while a secret is being entered, the HOST consumes the
-keyboard directly into locked memory and the page renders dots from a pushed
-character count; a renderer process never holds a keystroke of a vault secret.
-(One deliberate, documented exception: the one-time recovery display at setup
-— user-facing by definition, shown once in the local settings page, zeroized
-host-side on ack.)
+The crypto core (1a, D-0058), the start-authorization gate (1b, D-0059) and
+the config surface (1c, D-0060) are live (`src/vault.rs`, `app.rs` gate,
+`cyberdesk://lock/`, the settings vault section, the HUD Vault field); CD-42
+(D-0062) set the authoritative unlock model on top: a **mandatory master
+password** as the sole root, an optional passkey as the only additional
+factor, **no recovery key**. The passkey-PRF layer is source-verified and
+honestly deferred (D-0061 — see the passkey caveat below). The standing laws
+hold **by construction**: no key material in memory before authentication
+(the app boots into a lock view — no slots, no MF zone, no HUD — and the
+workspace is created only after the VMK exists; on first launch that view IS
+the mandatory master-password setup), and no key material in the WebView,
+ever — while a secret is being entered, the HOST consumes the keyboard
+directly into locked memory and the page renders dots from a pushed
+character count; a renderer process never holds a keystroke of a vault
+secret.
 
 The model, precisely:
 
 - **Envelope key management.** One random 256-bit Vault Master Key (VMK)
   protects the vault's sensitive data; it is never derived from any single
-  factor. Every enrolled method wraps the VMK in its own XChaCha20-Poly1305
-  envelope: the passphrase via Argon2id (RFC 9106 second recommendation —
-  64 MiB, t=3, p=4 — stored per method, re-tunable), the mandatory recovery
-  key (32 random bytes, displayed exactly once), later the passkey's WebAuthn
-  PRF secret. Enroll/remove/rotate re-wraps the VMK; the vault data is never
-  re-encrypted.
-- **The unlock policy is structural.** "2-required" does not check a flag: at
-  2-required only *pairs* of methods have envelopes, keyed by a combined
-  (BLAKE2s, domain-separated) key of both members. An attacker editing
-  `required` in `vault.json` gains nothing — no single-method envelope
-  exists to open. Unlock failure is one uniform error: wrong passphrase,
-  wrong recovery key and tampered blob are indistinguishable (no oracle).
-- **Never-brick.** The passphrase and the recovery key are always enrolled
-  and cannot be removed; every envelope set must contain at least one
-  envelope needing no hardware, so the policy can only rise while a
-  non-hardware combination still exists. The invariant is enforced on every
-  re-wrap AND on every load — a violating (hand-edited, corrupted) file is
-  refused before it can strand the user.
+  factor. The master password wraps the VMK in an XChaCha20-Poly1305
+  envelope via Argon2id (RFC 9106 second recommendation — 64 MiB, t=3, p=4 —
+  stored per method, re-tunable); the optional passkey's WebAuthn PRF secret
+  joins only as the 2FA pair member. Enroll/remove/rotate re-wraps the VMK;
+  the vault data is never re-encrypted.
+- **The unlock policy is structural — and exactly two shapes exist
+  (D-0062).** Password-only has the single envelope `{password}`; password +
+  passkey (2FA) has the single envelope `{password, passkey}`, keyed by a
+  combined (BLAKE2s, domain-separated) key of both members. The master
+  password is a member of EVERY envelope, so a passkey alone can never open
+  anything — it is an additional factor, never a replacement. An attacker
+  editing `required` in `vault.json` gains nothing — no other envelope
+  exists to open. Unlock failure is one uniform error: wrong password and
+  tampered blob are indistinguishable (no oracle).
+- **No recovery key, no backdoor — the honest consequence (D-0062).** The
+  master password is the sole 1-factor recovery. A forgotten master password
+  — or a lost passkey while 2FA is required — makes the vault
+  **unrecoverable, by design**: a deliberate no-backdoor stance, not a bug,
+  and it is stated plainly on the setup screen so the choice is informed.
+  (The CD-40 "never-brick" rule — a mandatory non-hardware fallback — was
+  retired with the recovery key; under 2FA the user has explicitly accepted
+  hardware loss as vault loss.) The structural invariants — exactly one
+  master password, at most one passkey, the envelope shape matching the
+  policy — are enforced on every re-wrap AND on every load; a violating
+  (hand-edited, corrupted) file is refused. The offline brute-force surface
+  of `vault.json` is the password envelope at the stored Argon2id cost.
 - **Escrows.** Each method's wrapping key is also stored wrapped *under the
   VMK*, so enrolling a passkey / changing the policy works from an unlocked
-  session without re-prompting every factor. Honest assessment: an attacker
-  who obtains the VMK could also read the current wrapping keys — but the
-  VMK already decrypts everything the vault protects, so this adds no
-  capability; rotating a method replaces its escrow.
-- **Honest recovery caveat.** The recovery key is shown once at mint time and
-  never stored. Whoever holds it (the printout) can unlock a 1-required
-  vault; losing BOTH the passphrase and the printed recovery key means the
-  vault stays shut — there is no backdoor, which is the point. The offline
-  brute-force surface of `vault.json` is the passphrase envelope at the
-  stored Argon2id cost; the recovery-key and passkey envelopes sit at full
-  256-bit strength.
+  session without re-prompting every factor. (At password-only an enrolled
+  passkey exists ONLY as an escrow — no envelope — ready for the 2FA
+  switch.) Honest assessment: an attacker who obtains the VMK could also
+  read the current wrapping keys — but the VMK already decrypts everything
+  the vault protects, so this adds no capability; rotating a method replaces
+  its escrow.
 - **Memory hygiene — the CD-33-deferred Tasks C/D are CLOSED for vault
   keys.** All key material lives in dedicated `VirtualAlloc`ed,
   `VirtualLock`ed pages (never the pagefile), zeroized before unlock/free on
@@ -123,33 +127,44 @@ The model, precisely:
   **honest, flagged deferral** (acceptance #3 sanctions this explicitly). What
   is already proven ready: the envelope layer treats a passkey as an opaque
   32-byte method secret — `vault::enroll_passkey` + `Factor::MethodSecret`
-  are implemented and unit-tested (a passkey-shaped secret enrolls from an
-  unlocked session and unlocks independently at 1-required; the non-hardware
-  never-brick pair is preserved at 2-required). The remaining, bounded work:
-  enable the WebAuthn feature (or add `webauthn-authenticator-rs`), turn a
-  real authenticator's PRF output into that 32-byte secret via a persisted
-  per-vault salt, and wire it into the existing `enroll_passkey` seam. The
-  foundation (passphrase + recovery + gate + config surface + memory hygiene)
-  ships now and never waits on it.
-- **The gate, precisely (1b, D-0059).** Locked boot creates ONLY the lock
-  view; unlock/setup derivations run on worker threads; "Lock now" wipes key
-  material and relaunches the process cold (provable teardown of every
-  renderer — no in-process CEF lifecycle edge cases). A vault file that fails
-  validation keeps the gate CLOSED with an honest message: corruption or
-  tampering must never bypass authorization. Every deliberate exit path wipes
-  key material explicitly. The identity seed (fingerprint linkage material)
-  is the sealed store's first tenant: with a vault present it exists only
-  inside `vault.seal`, migrated out of plaintext at setup, and is never
-  readable — with no plaintext fallback — before unlock.
-- **Config surface (1c, D-0060).** Every knob is visible and settable in
-  settings: enrolled methods, the 1/2-required policy, the Argon2id cost,
-  change-passphrase, regenerate-recovery, Lock now; the HUD tile shows the
-  vault state (a dev bypass is loudly warned). Weakening — lowering the
-  policy, or an Argon2id cost below the RFC default or the current setting —
-  is HOST-refused without a confirmation flag; a page bug cannot quietly
+  are implemented and unit-tested under the D-0062 model (the passkey
+  enrolls from an unlocked session as the only additional factor, never
+  unlocks alone, and pairs with the password under 2FA). The remaining,
+  bounded work: enable the WebAuthn feature (or add
+  `webauthn-authenticator-rs`), turn a real authenticator's PRF output into
+  that 32-byte secret via a persisted per-vault salt, wire it into the
+  existing `enroll_passkey` seam, and add the passkey assertion step to the
+  2FA unlock flow at the gate. The foundation (master password + gate +
+  config surface + memory hygiene) ships now and never waits on it. Until it
+  lands, no passkey can be enrolled, so the 2FA policy cannot be enabled —
+  the host refuses `required = 2` without an enrolled passkey, which also
+  means no unlockable-only-with-hardware state can arise before the unlock
+  flow can serve it.
+- **The gate, precisely (1b, D-0059; mandatory setup, CD-42).** A closed
+  gate creates ONLY the lock view — unlocking an existing vault, or the
+  mandatory first-launch master-password setup when none exists (no skip, no
+  default: the workspace cannot boot before the vault does). Unlock/setup
+  derivations run on worker threads; "Lock now" wipes key material and
+  relaunches the process cold (provable teardown of every renderer — no
+  in-process CEF lifecycle edge cases). A vault file that fails validation
+  keeps the gate CLOSED with an honest message: corruption or tampering must
+  never bypass authorization (a retired v1 recovery-key-model file gets a
+  specific reset message — dev data only, sanctioned by the CD-42 briefing).
+  Every deliberate exit path wipes key material explicitly. The identity
+  seed (fingerprint linkage material) is the sealed store's first tenant:
+  with a vault present it exists only inside `vault.seal`, migrated out of
+  plaintext at setup, and is never readable — with no plaintext fallback —
+  before unlock.
+- **Config surface (1c, D-0060; restricted by CD-42).** Every knob is
+  visible and settable in settings: enrolled methods, the password-only /
+  password+passkey policy, the Argon2id cost, change-master-password, Lock
+  now; the HUD tile shows the vault state (a dev bypass is loudly warned).
+  No recovery-key control exists anywhere. Weakening — dropping 2FA, or an
+  Argon2id cost below the RFC default or the current setting — is
+  HOST-refused without a confirmation flag; a page bug cannot quietly
   cheapen the offline brute-force surface. A KDF re-tune verifies the
-  captured passphrase against the existing envelope before re-deriving, so a
-  typo can never silently become the new passphrase. Change-passphrase is
+  captured password against the existing envelope before re-deriving, so a
+  typo can never silently become the new password. Change-master-password is
   VMK-authorized (session possession = vault control — recorded reasoning in
   D-0060).
 - **Dev bypass honesty.** `CYBERDESK_VAULT_BYPASS=1` exists only under

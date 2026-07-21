@@ -292,16 +292,16 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
 }
 .gate-weaken:hover { background: var(--warn); color: var(--bg); }
 
-/* --- Vault (CD-40, D-0058) -------------------------------------------------
+/* --- Vault (CD-40, D-0058; unlock model per CD-42, D-0062) -----------------
    The host-driven capture entry: dots render the character COUNT the host
    pushes — the secret itself never enters this page. */
-.vault-capture, .vault-recovery {
+.vault-capture {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 12px 0 4px;
 }
-.vault-capture[hidden], .vault-recovery[hidden] { display: none; }
+.vault-capture[hidden] { display: none; }
 .vault-cap-hint { font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
 .vault-entry {
   min-height: 42px;
@@ -325,20 +325,6 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
   color: var(--warn);
 }
 .vault-actions { display: flex; gap: 10px; }
-/* The one-time recovery display: monospace, groups readable, selectable for
-   printing — shown exactly once, dropped on ack. */
-.vault-key {
-  font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 13.5px;
-  letter-spacing: 0.6px;
-  line-height: 1.7;
-  padding: 12px 14px;
-  border: 1px solid var(--brand);
-  border-radius: 8px;
-  color: var(--text);
-  user-select: text;
-  word-break: break-all;
-}
 
 /* Config surface (CD-40 1c): policy buttons + the KDF re-tune form. */
 .vault-policy { display: flex; gap: 8px; }

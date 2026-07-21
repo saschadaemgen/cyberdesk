@@ -53,8 +53,10 @@ const MFZONE_URL: &str = "cyberdesk://mfzone/";
 const HUD_URL: &str = "cyberdesk://hud/";
 const ONION_URL: &str = "cyberdesk://onion/";
 /// The start-authorization lock page (CD-40, D-0058): the ONLY view that exists
-/// while the vault gate is closed. Purely presentational — the host captures
-/// the keystrokes; the page renders masked counts from the vault-state push.
+/// while the vault gate is closed — unlock over an existing vault, or the
+/// mandatory first-launch master-password setup (CD-42, D-0062). Purely
+/// presentational — the host captures the keystrokes; the page renders masked
+/// counts from the vault-state push.
 pub const LOCK_URL: &str = "cyberdesk://lock/";
 
 // cef_event_flags_t bits (modifiers for mouse/key events).
@@ -2447,11 +2449,10 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         // pull-then-push pattern as `get_frame`. The cached payload's countdown
         // fields are elapsed-based, so the page re-anchors them at receive time.
         "get_hud_state" => Ok(hud_state().lock().unwrap().clone()),
-        // Vault (CD-40, D-0058). Counts and states only — a secret never rides
-        // this IPC in either direction: while a capture is active the HOST
-        // consumes the keyboard, and the page renders dots from the pushed
-        // character count. (One deliberate exception: the one-time recovery
-        // display after setup — user-facing by definition, dropped on ack.)
+        // Vault (CD-40, D-0058; model per CD-42, D-0062). Counts and states
+        // only — a secret never rides this IPC in either direction: while a
+        // capture is active the HOST consumes the keyboard, and the page
+        // renders dots from the pushed character count.
         "get_vault_state" => Ok(crate::vault::state_json()),
         "vault_begin_capture" => {
             let purpose = v.get("purpose").and_then(|p| p.as_str()).unwrap_or("");
@@ -2466,20 +2467,15 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             set_vault_state(&state);
             Ok(state)
         }
-        "vault_setup_ack" => {
-            crate::vault::setup_ack();
-            let state = crate::vault::state_json();
-            set_vault_state(&state);
-            Ok(state)
-        }
         // "Lock now": queued for the shell, which relaunches the process cold
         // (D-0059) — the next boot IS the start-authorization gate.
         "vault_lock" => {
             crate::vault::request_lock();
             Ok("{\"ok\":true}".to_string())
         }
-        // Config surface (CD-40 1c). All host-revalidated: lowering the policy
-        // or the KDF cost is a weakening and refuses without `confirm` —
+        // Config surface (CD-40 1c; policy restricted to password-only /
+        // password+passkey by CD-42). All host-revalidated: dropping 2FA or
+        // lowering the KDF cost is a weakening and refuses without `confirm` —
         // regardless of what the page claims to have shown (D-0040 discipline).
         "vault_set_policy" => {
             let required = v.get("required").and_then(|n| n.as_u64()).unwrap_or(0) as u8;
@@ -2495,12 +2491,6 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             let p = v.get("p_cost").and_then(|n| n.as_u64()).unwrap_or(0) as u32;
             let confirm = v.get("confirm").and_then(|c| c.as_bool()).unwrap_or(false);
             crate::vault::retune_kdf(m, t, p, confirm).map_err(|e| (3, e))?;
-            let state = crate::vault::state_json();
-            set_vault_state(&state);
-            Ok(state)
-        }
-        "vault_regen_recovery" => {
-            crate::vault::regen_recovery().map_err(|e| (3, e))?;
             let state = crate::vault::state_json();
             set_vault_state(&state);
             Ok(state)

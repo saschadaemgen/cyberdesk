@@ -95,21 +95,13 @@
          nothing browsed survives there — even if something upstream ever regresses.
          Copy rule (D-0044): state what it does, confidently and accurately; never a
          competitor pointer, never self-deprecation. -->
-    <!-- Vault (CD-40, D-0058): start authorization + envelope key management.
-         Secrets never enter this page — the host captures keystrokes into
-         locked memory; this page renders masked counts pushed via
-         window.cdVault. The one-time recovery display after setup is the
-         single deliberate exception (user-facing by definition). -->
+    <!-- Vault (CD-40, D-0058; unlock model per CD-42, D-0062): start
+         authorization + envelope key management. The master password is set
+         at first launch (mandatory); this section manages it. Secrets never
+         enter this page — the host captures keystrokes into locked memory;
+         this page renders masked counts pushed via window.cdVault. -->
     <section class="rows tor-section" aria-label="Vault">
       <h2 class="section-head">Vault <span id="vault-pill" class="tor-status"></span></h2>
-
-      <div class="row" id="vault-none-row" hidden>
-        <div class="label">
-          <span class="name">Start authorization</span>
-          <span class="hint">Protect CyberDesk with a passphrase &mdash; the app stays locked at every start until you unlock it</span>
-        </div>
-        <button class="btn" id="vault-setup" type="button">Set up vault&hellip;</button>
-      </div>
 
       <div class="row" id="vault-lock-row" hidden>
         <div class="label">
@@ -131,11 +123,11 @@
         <div class="row">
           <div class="label">
             <span class="name">Unlock policy</span>
-            <span class="hint">How many methods must be presented together to unlock</span>
+            <span class="hint">The master password is always required; a passkey can be required in addition (2FA) &mdash; no other combination exists</span>
           </div>
           <div class="vault-policy">
-            <button class="btn pol" id="vault-pol-1" type="button">1 required</button>
-            <button class="btn pol" id="vault-pol-2" type="button">2 required</button>
+            <button class="btn pol" id="vault-pol-1" type="button">Password only</button>
+            <button class="btn pol" id="vault-pol-2" type="button">Password + passkey</button>
           </div>
         </div>
         <div class="row">
@@ -154,17 +146,10 @@
         </div>
         <div class="row">
           <div class="label">
-            <span class="name">Change passphrase</span>
+            <span class="name">Change master password</span>
             <span class="hint">Re-wraps the master key &mdash; your data is never re-encrypted</span>
           </div>
           <button class="btn" id="vault-change" type="button">Change&hellip;</button>
-        </div>
-        <div class="row">
-          <div class="label">
-            <span class="name">Regenerate recovery key</span>
-            <span class="hint">Invalidates the old key and shows a new one, once</span>
-          </div>
-          <button class="btn" id="vault-regen" type="button">Regenerate</button>
         </div>
         <!-- Passkey enrollment (CD-40 1d) — honest state per the tile doctrine.
              The envelope layer already accepts a passkey as a device-bound
@@ -173,7 +158,7 @@
         <div class="row muted">
           <div class="label">
             <span class="name">Passkey (security key or Windows Hello)</span>
-            <span class="hint">A device-bound envelope via WebAuthn PRF. Enrolled from this unlocked session once PRF is confirmed on your device.</span>
+            <span class="hint">The optional second factor via WebAuthn PRF &mdash; with two-factor unlock on, password and passkey are both required. Enrolled from this unlocked session once PRF is confirmed on your device.</span>
           </div>
           <span class="soon">Coming</span>
         </div>
@@ -191,19 +176,11 @@
         </div>
       </div>
 
-      <div id="vault-recovery" class="vault-recovery" hidden>
-        <div class="vault-cap-hint">Your recovery key &mdash; shown only this once.
-        Print it or write it down and keep it safe: it unlocks the vault if the
-        passphrase is ever lost. CyberDesk stores it nowhere.</div>
-        <div class="vault-key" id="vault-key"></div>
-        <button class="btn" id="vault-ack" type="button">I have saved my recovery key</button>
-      </div>
-
-      <p class="honesty">The vault wraps one master key in independent envelopes
-      &mdash; your passphrase and your recovery key each open it, and enrolling
-      more methods never re-encrypts your data. While you type a passphrase, the
-      CyberDesk core captures it directly into locked memory &mdash; no page
-      ever sees a keystroke.</p>
+      <p class="honesty">The vault wraps one master key that only your master
+      password opens &mdash; there is no recovery key and no backdoor, by
+      design. If the master password is forgotten, the vault cannot be opened.
+      While you type it, the CyberDesk core captures it directly into locked
+      memory &mdash; no page ever sees a keystroke.</p>
     </section>
 
     <section class="rows tor-section" aria-label="On-disk privacy">

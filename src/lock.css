@@ -66,8 +66,16 @@ h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
   background: var(--brand);
   opacity: 0.9;
 }
-/* Recovery-key entry groups every 4th dot pair visually via extra gap. */
-.dot.g { margin-right: 8px; }
+
+/* The no-recovery consequence (CD-42): plainly visible during setup. */
+.consequence {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  border-radius: 8px;
+}
 
 .caret {
   width: 2px;
