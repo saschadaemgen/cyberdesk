@@ -597,6 +597,9 @@ the count changes). Payload:
   "capture": "unlock_pass | setup_pass | setup_confirm | null",
   "chars": 0,
   "required": 1,
+  "strength": { "score": 0, "len_ok": false, "target_len": 12,
+                "warning": null, "suggestions": [] },
+  "weak_pending": false,
   "busy": false,
   "error": null,
   "broken": null
@@ -619,6 +622,13 @@ the count changes). Payload:
   mandatory root).
 - `kdf` (1c) — the password envelope's Argon2id cost:
   `{m_cost_kib, t_cost, p_cost}`.
+- `strength` (CD-42 Task B) — the HOST-computed live meter, present only
+  while a NEW master password is typed (`setup_pass` / `change_pass`, else
+  `null`): zxcvbn score 0–4, the length criterion, and zxcvbn's canned
+  feedback strings. The password characters themselves NEVER cross — the
+  meter runs on the host's locked input.
+- `weak_pending` (CD-42 Task B) — a weak submit (score < 3) is parked on the
+  prominent warning; only `vault_accept_weak` proceeds.
 - `capture` additionally takes `change_pass` / `change_confirm` /
   `retune_kdf` (1c, unlocked-session flows).
 
@@ -642,6 +652,14 @@ Request `{ "cmd": "vault_cancel_capture" }`. Aborts the current capture and
 wipes its buffers; behind the closed gate this resets to a fresh prompt for
 the gate's own flow (unlock, or the mandatory setup — Esc cannot orphan it).
 Reply = the state JSON; also pushed.
+
+### `vault_accept_weak` (view -> host, CD-42)
+
+Request `{ "cmd": "vault_accept_weak" }`. The informed override: proceed with
+a weak master password after the prominent warning. Valid ONLY while the
+host's own state has a weak submit parked (`weak_pending`) — the page cannot
+skip ahead, and Enter never overrides. Advances to the confirm re-type
+exactly like a strong submit. Reply = state JSON; also pushed.
 
 ### `vault_lock` (view -> host)
 

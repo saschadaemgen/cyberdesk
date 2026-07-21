@@ -581,7 +581,34 @@
     };
 
     var KINDS = { passphrase: "Master password", passkey: "Passkey" };
+    var SCORE_LABELS = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
     var last = {};
+
+    // The live meter (CD-42 Task B), rendered purely from the host-computed
+    // snapshot — the password itself never enters this page.
+    function renderMeter(s) {
+      var meter = document.getElementById("vault-meter");
+      var weak = document.getElementById("vault-weak");
+      var st = s.strength;
+      var show = !!st && s.capture === "change_pass";
+      meter.hidden = !show;
+      weak.hidden = !s.weak_pending;
+      if (!show) return;
+      meter.className = "vmeter s" + st.score;
+      document.getElementById("vault-meter-fill").style.width =
+        s.chars ? (((st.score + 1) * 20) + "%") : "0";
+      document.getElementById("vault-meter-label").textContent =
+        s.chars ? SCORE_LABELS[st.score] : " ";
+      var crit = document.getElementById("vault-crit-len");
+      crit.textContent = (st.len_ok ? "✓ " : "") + st.target_len + "+ characters";
+      crit.className = st.len_ok ? "vcrit met" : "vcrit";
+      var fb = [];
+      if (st.warning) fb.push(st.warning);
+      if (st.suggestions && st.suggestions.length) fb = fb.concat(st.suggestions);
+      var fbEl = document.getElementById("vault-meter-fb");
+      fbEl.hidden = !fb.length;
+      fbEl.textContent = fb.join(" ");
+    }
 
     function render(s) {
       last = s;
@@ -602,6 +629,7 @@
         renderDots(s.chars || 0);
         entry.classList.toggle("busy", !!s.busy);
       }
+      renderMeter(s);
       if (s.error && (capturing || s.vault === "unlocked")) {
         errEl.textContent = s.error;
         errEl.hidden = false;
@@ -646,6 +674,15 @@
       query({ cmd: "vault_cancel_capture" }).then(function (r) {
         try { render(JSON.parse(r)); } catch (e) {}
       }).catch(function () {});
+    });
+
+    document.getElementById("vault-weak-use").addEventListener("click", function () {
+      query({ cmd: "vault_accept_weak" }).then(function (r) {
+        try { render(JSON.parse(r)); } catch (e) {}
+      }).catch(function (e) {
+        errEl.textContent = String(e);
+        errEl.hidden = false;
+      });
     });
 
     // Locking ends the session (windows close by design — websites are not

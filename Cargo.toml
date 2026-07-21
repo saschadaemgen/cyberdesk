@@ -89,10 +89,15 @@ chacha20poly1305 = { version = "0.10", default-features = false, features = ["al
 # `zeroize`: volatile-write key erasure the optimizer cannot elide (closes the
 # CD-33-deferred memory-hygiene tasks C/D for vault keys).
 zeroize = "1"
-# `blake2`: keyless KDF/checksum duties — combining per-method wrapping keys for
-# multi-factor envelopes and the recovery-key display checksum. Already proven
-# code: it is the same hash family Argon2 builds on internally.
+# `blake2`: keyless KDF duties — combining per-method wrapping keys into the
+# 2FA pair-envelope key (domain-separated). Already proven code: it is the same
+# hash family Argon2 builds on internally.
 blake2 = "0.10"
+# `zxcvbn`: the vetted password-strength estimator behind the HOST-side setup
+# meter (CD-42 Task B, D-0062; MIT, license-checked per D-0005). Runs only in
+# the host on the locked input buffer — the renderer sees score/criteria, never
+# characters. No hand-rolled strength rules.
+zxcvbn = "3.1.1"
 
 [profile.release]
 opt-level = 3

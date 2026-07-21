@@ -83,7 +83,11 @@ Nothing on the app path is throwaway work.
   no vault, no workspace), unlock policy exactly password-only or password +
   passkey (2FA, both required), **no recovery key, no backdoor** — a
   forgotten master password means an unrecoverable vault, by design, stated
-  plainly at setup. Start-authorization gate — closed-gate boot shows only
+  plainly at setup. Setup/change show a HOST-computed live strength meter
+  (`zxcvbn`, MIT, license-checked; only score/criteria/canned feedback reach
+  the renderer — never the characters) with an overridable weak warning
+  (informed override via explicit IPC, host-revalidated; never a
+  hard-block). Start-authorization gate — closed-gate boot shows only
   `cyberdesk://lock/` (unlock or first-launch setup), HOST-captured secret
   entry (no renderer ever holds a keystroke), "Lock now" via cold relaunch,
   identity seed sealed as the first tenant, `debug_assertions`-only dev

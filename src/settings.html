@@ -170,6 +170,23 @@
           <div class="vault-dots" id="vault-dots"></div>
           <div class="vault-caret"></div>
         </div>
+        <!-- The live strength meter (CD-42 Task B): rendered purely from the
+             host-computed score push — shown while a NEW master password is
+             typed (change flow); the password never enters this page. -->
+        <div class="vmeter" id="vault-meter" hidden>
+          <div class="vmeter-bar"><span id="vault-meter-fill"></span></div>
+          <div class="vmeter-row">
+            <span id="vault-meter-label">&nbsp;</span>
+            <span class="vcrit" id="vault-crit-len">12+ characters</span>
+          </div>
+          <div class="vmeter-fb" id="vault-meter-fb" hidden></div>
+        </div>
+        <div class="vweak" id="vault-weak" hidden>
+          <div class="vweak-text">This password is weak &mdash; it could be
+          guessed. Keep typing to strengthen it, or use it anyway: the choice
+          is yours.</div>
+          <button class="btn" id="vault-weak-use" type="button">Use this weak password anyway</button>
+        </div>
         <div class="vault-err" id="vault-err" hidden></div>
         <div class="vault-actions">
           <button class="btn" id="vault-cancel" type="button">Cancel</button>

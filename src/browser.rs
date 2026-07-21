@@ -2467,6 +2467,15 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             set_vault_state(&state);
             Ok(state)
         }
+        // The informed override (CD-42 Task B): proceed with a weak master
+        // password after the prominent warning. Valid only while the host's
+        // OWN state has a weak submit parked — the page cannot skip ahead.
+        "vault_accept_weak" => {
+            crate::vault::accept_weak().map_err(|e| (3, e))?;
+            let state = crate::vault::state_json();
+            set_vault_state(&state);
+            Ok(state)
+        }
         // "Lock now": queued for the shell, which relaunches the process cold
         // (D-0059) — the next boot IS the start-authorization gate.
         "vault_lock" => {

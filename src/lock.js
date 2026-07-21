@@ -16,6 +16,36 @@
   var statusEl = document.getElementById("status");
   var consequenceEl = document.getElementById("consequence");
   var quitEl = document.getElementById("quit");
+  var meterEl = document.getElementById("meter");
+  var meterFill = document.getElementById("meter-fill");
+  var meterLabel = document.getElementById("meter-label");
+  var critLen = document.getElementById("crit-len");
+  var meterFb = document.getElementById("meter-fb");
+  var weakEl = document.getElementById("weak");
+  var weakUse = document.getElementById("weak-use");
+
+  // The host's zxcvbn score 0..4, verbalized (D-0044: confident, accurate).
+  var SCORE_LABELS = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
+
+  // Render the live meter from the HOST-computed snapshot (score, criteria,
+  // canned feedback) — the password itself never reaches this page.
+  function renderMeter(s) {
+    var st = s.strength;
+    var show = !!st && (s.capture === "setup_pass" || s.capture === "change_pass");
+    meterEl.hidden = !show;
+    weakEl.hidden = !s.weak_pending;
+    if (!show) return;
+    meterEl.className = "meter s" + st.score;
+    meterFill.style.width = s.chars ? (((st.score + 1) * 20) + "%") : "0";
+    meterLabel.textContent = s.chars ? SCORE_LABELS[st.score] : " ";
+    critLen.textContent = (st.len_ok ? "✓ " : "") + st.target_len + "+ characters";
+    critLen.className = st.len_ok ? "crit met" : "crit";
+    var fb = [];
+    if (st.warning) fb.push(st.warning);
+    if (st.suggestions && st.suggestions.length) fb = fb.concat(st.suggestions);
+    meterFb.hidden = !fb.length;
+    meterFb.textContent = fb.join(" ");
+  }
 
   function query(req) {
     return new Promise(function (resolve, reject) {
@@ -56,6 +86,7 @@
   function render(s) {
     renderDots(s.chars || 0);
     entryEl.classList.toggle("busy", !!s.busy);
+    renderMeter(s);
 
     if (s.broken) {
       titleEl.textContent = "Vault unavailable";
@@ -65,6 +96,8 @@
         "guessing — the details below say what to do.";
       setStatus(s.broken, false);
       consequenceEl.hidden = true;
+      meterEl.hidden = true;
+      weakEl.hidden = true;
       return;
     }
 
@@ -98,6 +131,12 @@
   window.cdVault = function (json) {
     try { render(JSON.parse(json)); } catch (e) { /* keep last good state */ }
   };
+
+  weakUse.addEventListener("click", function () {
+    query({ cmd: "vault_accept_weak" }).then(function (r) {
+      try { render(JSON.parse(r)); } catch (e) {}
+    }).catch(function (e) { setStatus(String(e), false); });
+  });
 
   quitEl.addEventListener("click", function () {
     query({ cmd: "quit" }).catch(function () {});

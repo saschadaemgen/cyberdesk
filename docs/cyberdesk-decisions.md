@@ -38,6 +38,18 @@ assessment above that floor — below 8 there is no vault to speak of. (4)
 While the passkey wiring is deferred (D-0061), no passkey can be enrolled, so
 the host's refusal of `required = 2` without one also guarantees no
 2FA-locked vault can exist before the gate's passkey assertion step ships.
+(5) The strength estimator is the vetted `zxcvbn` crate 3.1 (MIT,
+license-checked per D-0005; new transitive deps fancy-regex/bit-set/
+derive_builder/darling — MIT/Apache-2.0), evaluated HOST-side per keystroke
+over a 64-char prefix cap (superlinear matching stays bounded on the UI
+thread; a capped score only under-states). The weak line is zxcvbn's own
+"score < 3"; the target criteria shown are score + a 12-char length line. A
+weak submit PARKS the flow: Enter never overrides — only the page's explicit
+`vault_accept_weak` IPC proceeds, and the host validates it against its OWN
+staged state (a page cannot skip ahead). Honest residual: the estimator
+processes a transient copy of the password in regular heap memory during
+evaluation (same tier as the crypto crates' internals; the copy the vault
+owns is zeroized).
 
 *Why.* A security vault's trust comes from having no backdoor; a mandatory
 strong master password as the sole root, with an optional passkey second

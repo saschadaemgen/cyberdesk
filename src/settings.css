@@ -326,6 +326,44 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
 }
 .vault-actions { display: flex; gap: 10px; }
 
+/* The live strength meter + parked weak override (CD-42 Task B): drawn from
+   the host-pushed score only. Score color classes s0..s4 ride the fill. */
+.vmeter { display: flex; flex-direction: column; gap: 6px; }
+.vmeter[hidden] { display: none; }
+.vmeter-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--panel-border) 60%, transparent);
+  overflow: hidden;
+}
+#vault-meter-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: var(--warn);
+  transition: width 160ms ease-out, background 160ms ease-out;
+}
+.vmeter.s2 #vault-meter-fill { background: color-mix(in srgb, var(--warn) 55%, var(--brand)); }
+.vmeter.s3 #vault-meter-fill, .vmeter.s4 #vault-meter-fill { background: var(--brand); }
+.vmeter-row { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-dim); }
+.vmeter.s3 #vault-meter-label, .vmeter.s4 #vault-meter-label { color: var(--brand); }
+.vcrit { opacity: 0.7; }
+.vcrit.met { color: var(--brand); opacity: 1; }
+.vmeter-fb { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+.vweak {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+}
+.vweak[hidden] { display: none; }
+.vweak-text { font-size: 12.5px; line-height: 1.55; color: var(--warn); }
+#vault-weak-use { align-self: flex-start; border-color: var(--warn); color: var(--warn); }
+#vault-weak-use:hover { background: var(--warn); color: var(--bg); }
+
 /* Config surface (CD-40 1c): policy buttons + the KDF re-tune form. */
 .vault-policy { display: flex; gap: 8px; }
 .btn.pol.active {

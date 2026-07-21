@@ -37,6 +37,24 @@
       <div class="dots" id="dots"></div>
       <div class="caret" id="caret"></div>
     </div>
+    <!-- The live strength meter (CD-42 Task B): rendered PURELY from the
+         host-computed score/criteria push — the password never enters this
+         page. Shown only while a new master password is being typed. -->
+    <div class="meter" id="meter" hidden>
+      <div class="meter-bar"><span id="meter-fill"></span></div>
+      <div class="meter-row">
+        <span id="meter-label">&nbsp;</span>
+        <span class="crit" id="crit-len">12+ characters</span>
+      </div>
+      <div class="meter-fb" id="meter-fb" hidden></div>
+    </div>
+    <!-- The parked weak submit: prominent, and the ONLY way past it is the
+         deliberate button — the host refuses everything else. -->
+    <div class="weak" id="weak" hidden>
+      <div class="weak-text">This password is weak &mdash; it could be guessed.
+      Keep typing to strengthen it, or use it anyway: the choice is yours.</div>
+      <button class="btn weak-use" id="weak-use" type="button">Use this weak password anyway</button>
+    </div>
     <div class="status" id="status" hidden></div>
     <!-- The honest no-recovery consequence (CD-42 Task E): shown during
          setup, plainly, so the choice of master password is informed. -->

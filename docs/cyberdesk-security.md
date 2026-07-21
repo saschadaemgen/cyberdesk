@@ -57,6 +57,22 @@ The model, precisely:
   editing `required` in `vault.json` gains nothing — no other envelope
   exists to open. Unlock failure is one uniform error: wrong password and
   tampered blob are indistinguishable (no oracle).
+- **The strength meter is host-computed — the iron law extends to it
+  (CD-42 Task B, D-0062).** As the master password is typed at setup (and in
+  the change flow), the HOST — which already holds the keystrokes in locked
+  memory — evaluates it with the vetted `zxcvbn` crate (3.1, MIT,
+  license-checked D-0005; no hand-rolled strength rules) over a 64-char
+  prefix cap. Only the score (0–4), a met/unmet length criterion (12+) and
+  zxcvbn's canned feedback strings (fixed enum texts that never echo input)
+  cross to the renderer; the meter never requires the plaintext in the
+  WebView. Submitting below zxcvbn's own weak line (score < 3) parks the
+  flow on a prominent warning; the ONLY way forward is the page's explicit
+  "use it anyway" IPC — the informed override — which the host validates
+  against its own staged state. Respecting the final choice is deliberate:
+  warn honestly, never hard-block (above the 8-char NIST floor). Honest
+  residual (same tier as the crypto-crate internals): the estimator
+  processes a transient copy of the password in regular, unlockable heap
+  memory during each evaluation; the copy the vault owns is zeroized after.
 - **No recovery key, no backdoor — the honest consequence (D-0062).** The
   master password is the sole 1-factor recovery. A forgotten master password
   — or a lost passkey while 2FA is required — makes the vault

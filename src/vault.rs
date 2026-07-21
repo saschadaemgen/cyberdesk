@@ -100,6 +100,18 @@ const SALT_LEN: usize = 16;
 /// user-chosen secrets; the strength meter targets far higher, but the
 /// informed-override stops here — below 8 there is no vault to speak of).
 pub const MIN_PASSPHRASE_LEN: usize = 8;
+/// The strength meter's "weak" line: zxcvbn's own documentation says any
+/// score below 3 should be considered too weak. Submitting below it stages
+/// the informed override (CD-42 Task B) — never a hard block.
+const WEAK_SCORE_FLOOR: u8 = 3;
+/// The meter's length criterion ("very complex" target — advisory, shown as
+/// a met/unmet criterion, never enforced).
+const TARGET_LEN: usize = 12;
+/// The strength estimator evaluates at most this many leading characters.
+/// zxcvbn's matching is superlinear in input length and runs per keystroke
+/// on the UI thread; 64 characters are far past every target, and a capped
+/// score can only UNDER-state the full secret's strength.
+const STRENGTH_EVAL_CAP: usize = 64;
 /// The vault file format version this build reads and writes. Version 1 was
 /// the CD-40 recovery-key model — retired by D-0062; v1 files are refused
 /// with a reset message (dev data only, sanctioned by the CD-42 briefing).
@@ -1167,6 +1179,46 @@ impl CaptureKind {
     }
 }
 
+/// A host-computed strength snapshot of the password being typed (CD-42
+/// Task B, D-0062). This — and ONLY this — crosses to the renderer: a coarse
+/// score, a met/unmet length criterion and zxcvbn's canned feedback strings
+/// (fixed enum texts that never echo input). The password characters stay in
+/// host-locked memory; the meter is honest without breaking the iron law.
+#[derive(Clone, Debug)]
+struct Strength {
+    /// zxcvbn score 0..=4 (the crate's own scale; < 3 is "too weak").
+    score: u8,
+    /// Characters typed (the length criterion is chars, not bytes).
+    chars: usize,
+    /// zxcvbn's canned warning, if any (set only at score <= 2).
+    warning: Option<String>,
+    /// zxcvbn's canned improvement suggestions.
+    suggestions: Vec<String>,
+}
+
+/// Evaluate the typed secret with the vetted `zxcvbn` estimator (MIT,
+/// license-checked per D-0005 — no hand-rolled strength rules). Runs in the
+/// HOST only. Bounded residual (documented in cyberdesk-security.md): the
+/// estimator processes a transient copy of the password in regular heap
+/// memory during evaluation — same tier as the crypto crates' internal
+/// state; the copy this function owns is zeroized before returning.
+fn eval_strength(input: &SecretInput) -> Strength {
+    let s = input.as_str();
+    let chars = s.chars().count();
+    let mut capped: String = s.chars().take(STRENGTH_EVAL_CAP).collect();
+    let entropy = zxcvbn::zxcvbn(&capped, &[]);
+    capped.zeroize();
+    let feedback = entropy.feedback();
+    Strength {
+        score: entropy.score().into(),
+        chars,
+        warning: feedback.and_then(|f| f.warning()).map(|w| w.to_string()),
+        suggestions: feedback
+            .map(|f| f.suggestions().iter().map(|s| s.to_string()).collect())
+            .unwrap_or_default(),
+    }
+}
+
 /// A finished background operation, taken by the shell (`about_to_wait`) to
 /// drive the UI transition. The VMK itself never rides an outcome — the worker
 /// commits it straight into the runtime.
@@ -1204,6 +1256,13 @@ struct Runtime {
     /// The first entry held between a setup/change step and its confirm
     /// re-type.
     pending_pass: Option<SecretInput>,
+    /// Live strength snapshot of the entry — present only while a NEW master
+    /// password is being typed (setup/change), recomputed per keystroke.
+    strength: Option<Strength>,
+    /// A weak entry was submitted: the flow is parked on the prominent
+    /// warning until the page's explicit "use it anyway" IPC (the informed
+    /// override) — Enter never overrides, and further typing re-evaluates.
+    weak_pending: bool,
     busy: bool,
     error: Option<String>,
     outcome: Option<Outcome>,
@@ -1231,6 +1290,8 @@ fn rt() -> &'static Mutex<Runtime> {
             capture: None,
             input: None,
             pending_pass: None,
+            strength: None,
+            weak_pending: false,
             busy: false,
             error: None,
             outcome: None,
@@ -1240,6 +1301,20 @@ fn rt() -> &'static Mutex<Runtime> {
             pending_kdf: None,
         })
     })
+}
+
+/// Does this capture type a NEW master password (the meter's home)?
+fn captures_new_password(kind: Option<CaptureKind>) -> bool {
+    matches!(kind, Some(CaptureKind::SetupPass) | Some(CaptureKind::ChangePass))
+}
+
+/// Recompute (or drop) the strength snapshot to match the current capture.
+fn refresh_strength(r: &mut Runtime) {
+    r.strength = if captures_new_password(r.capture) {
+        r.input.as_ref().map(eval_strength)
+    } else {
+        None
+    };
 }
 
 /// Load the vault state at boot (after `settings::init`, before any view).
@@ -1341,7 +1416,9 @@ pub fn begin_capture(purpose: &str) -> std::result::Result<(), String> {
     r.capture = Some(kind);
     r.input = Some(input);
     r.pending_pass = None;
+    r.weak_pending = false;
     r.error = None;
+    refresh_strength(&mut r);
     Ok(())
 }
 
@@ -1356,6 +1433,7 @@ pub fn cancel_capture() {
     r.input = None;
     r.pending_pass = None;
     r.pending_kdf = None;
+    r.weak_pending = false;
     r.error = None;
     if r.vmk.is_none() && !r.bypassed {
         let vault_exists = r.file.is_some() || r.broken.is_some();
@@ -1368,6 +1446,7 @@ pub fn cancel_capture() {
     } else {
         r.capture = None;
     }
+    refresh_strength(&mut r);
 }
 
 /// Is the host currently swallowing keystrokes into a secret buffer?
@@ -1376,7 +1455,9 @@ pub fn capture_active() -> bool {
     r.capture.is_some() && !r.busy
 }
 
-/// Route typed text into the capture buffer (also the paste path).
+/// Route typed text into the capture buffer (also the paste path). Editing
+/// re-evaluates the live strength meter and clears a parked weak override —
+/// the warning always describes the CURRENT entry.
 pub fn key_text(text: &str) {
     let mut r = rt().lock().unwrap();
     if r.busy {
@@ -1385,6 +1466,8 @@ pub fn key_text(text: &str) {
     if let Some(input) = r.input.as_mut() {
         input.push_str(text);
     }
+    r.weak_pending = false;
+    refresh_strength(&mut r);
 }
 
 pub fn key_backspace() {
@@ -1395,6 +1478,8 @@ pub fn key_backspace() {
     if let Some(input) = r.input.as_mut() {
         input.backspace();
     }
+    r.weak_pending = false;
+    refresh_strength(&mut r);
 }
 
 /// Enter: advance the capture state machine. Cheap validations happen here;
@@ -1425,10 +1510,19 @@ pub fn key_submit() {
                 ));
                 return;
             }
+            // A weak entry parks on the prominent warning (CD-42 Task B): the
+            // ONLY way forward is the page's explicit accept_weak IPC —
+            // repeated Enter never overrides. Editing re-evaluates.
+            if r.strength.as_ref().map(|s| s.score).unwrap_or(0) < WEAK_SCORE_FLOOR {
+                r.weak_pending = true;
+                r.error = None;
+                return;
+            }
             r.pending_pass = r.input.take();
             r.input = SecretInput::new().ok();
             r.capture = Some(CaptureKind::SetupConfirm);
             r.error = None;
+            refresh_strength(&mut r);
         }
         CaptureKind::SetupConfirm => {
             let confirm = r.input.take();
@@ -1438,6 +1532,7 @@ pub fn key_submit() {
                 r.error = Some("the two entries do not match — start again".into());
                 r.capture = Some(CaptureKind::SetupPass);
                 r.input = SecretInput::new().ok();
+                refresh_strength(&mut r);
                 return;
             }
             drop(confirm);
@@ -1451,10 +1546,18 @@ pub fn key_submit() {
                 ));
                 return;
             }
+            // Same informed-override gate as setup — a change IS setting the
+            // master password.
+            if r.strength.as_ref().map(|s| s.score).unwrap_or(0) < WEAK_SCORE_FLOOR {
+                r.weak_pending = true;
+                r.error = None;
+                return;
+            }
             r.pending_pass = r.input.take();
             r.input = SecretInput::new().ok();
             r.capture = Some(CaptureKind::ChangeConfirm);
             r.error = None;
+            refresh_strength(&mut r);
         }
         CaptureKind::ChangeConfirm => {
             let confirm = r.input.take();
@@ -1464,6 +1567,7 @@ pub fn key_submit() {
                 r.error = Some("the two entries do not match — start again".into());
                 r.capture = Some(CaptureKind::ChangePass);
                 r.input = SecretInput::new().ok();
+                refresh_strength(&mut r);
                 return;
             }
             drop(confirm);
@@ -1487,6 +1591,33 @@ pub fn key_submit() {
             spawn_rewrap(&mut r, RewrapJob::RetuneKdf { pass: input, kdf });
         }
     }
+}
+
+/// The informed override (CD-42 Task B): the user deliberately proceeds with
+/// a weak master password after the prominent warning. Only valid while a
+/// weak submit is parked — the host trusts its OWN staged state, never the
+/// page's claim — and advances to the confirm re-type exactly like a strong
+/// submit would have.
+pub fn accept_weak() -> std::result::Result<(), String> {
+    let mut r = rt().lock().unwrap();
+    if r.busy {
+        return Err("busy".into());
+    }
+    if !r.weak_pending {
+        return Err("no weak entry is awaiting confirmation".into());
+    }
+    let next = match r.capture {
+        Some(CaptureKind::SetupPass) => CaptureKind::SetupConfirm,
+        Some(CaptureKind::ChangePass) => CaptureKind::ChangeConfirm,
+        _ => return Err("no weak entry is awaiting confirmation".into()),
+    };
+    r.weak_pending = false;
+    r.pending_pass = r.input.take();
+    r.input = SecretInput::new().ok();
+    r.capture = Some(next);
+    r.error = None;
+    refresh_strength(&mut r);
+    Ok(())
 }
 
 /// A background re-wrap job from an unlocked session (CD-40 1c). Every job
@@ -1536,6 +1667,8 @@ fn spawn_rewrap(r: &mut Runtime, job: RewrapJob) {
         r.capture = None;
         r.input = None;
         r.pending_pass = None;
+        r.strength = None;
+        r.weak_pending = false;
         match result {
             Ok(new) => {
                 r.file = Some(new);
@@ -1600,7 +1733,9 @@ pub fn retune_kdf(m_cost_kib: u32, t_cost: u32, p_cost: u32, confirm: bool) -> s
     r.capture = Some(CaptureKind::RetuneKdf);
     r.input = SecretInput::new().ok();
     r.pending_pass = None;
+    r.weak_pending = false;
     r.error = None;
+    refresh_strength(&mut r);
     Ok(())
 }
 
@@ -1715,6 +1850,8 @@ fn spawn_setup(r: &mut Runtime, pass: SecretInput) {
                 r.error = Some(e.to_string());
                 r.capture = Some(CaptureKind::SetupPass);
                 r.input = SecretInput::new().ok();
+                r.weak_pending = false;
+                refresh_strength(&mut r);
                 r.outcome = Some(Outcome::SetupFailed);
                 return;
             }
@@ -1751,6 +1888,8 @@ fn spawn_setup(r: &mut Runtime, pass: SecretInput) {
         r.capture = None;
         r.input = None;
         r.pending_pass = None;
+        r.strength = None;
+        r.weak_pending = false;
         r.outcome = Some(Outcome::SetupDone);
         tracing::info!("vault created — session unlocked");
     });
@@ -1827,6 +1966,18 @@ pub fn state_json() -> String {
         .and_then(|f| f.methods.iter().find(|m| m.kind == MethodKind::Passphrase))
         .and_then(|m| m.kdf)
         .map(|k| serde_json::json!({ "m_cost_kib": k.m_cost_kib, "t_cost": k.t_cost, "p_cost": k.p_cost }));
+    // The live meter (CD-42 Task B): present only while a NEW master password
+    // is being typed. Score, criteria and zxcvbn's canned feedback strings —
+    // the password characters themselves never cross (the iron law).
+    let strength = r.strength.as_ref().map(|s| {
+        serde_json::json!({
+            "score": s.score,
+            "len_ok": s.chars >= TARGET_LEN,
+            "target_len": TARGET_LEN,
+            "warning": s.warning,
+            "suggestions": s.suggestions,
+        })
+    });
     serde_json::json!({
         "vault": vault,
         "capture": r.capture.map(|c| c.as_str()),
@@ -1834,6 +1985,8 @@ pub fn state_json() -> String {
         "required": r.file.as_ref().map(|f| f.required).unwrap_or(1),
         "methods": methods,
         "kdf": kdf,
+        "strength": strength,
+        "weak_pending": r.weak_pending,
         "busy": r.busy,
         "error": r.error,
         "broken": r.broken,
@@ -1911,6 +2064,8 @@ fn test_reset_runtime(dir: &Path, kdf: KdfParams) {
         capture: None,
         input: None,
         pending_pass: None,
+        strength: None,
+        weak_pending: false,
         busy: false,
         error: None,
         outcome: None,
@@ -2317,6 +2472,37 @@ mod tests {
         assert!(i.buf.as_slice().iter().all(|&b| b == 0), "clear wipes the tail");
     }
 
+    // --- Strength meter (CD-42 Task B) --------------------------------------
+
+    /// The meter is host-computed on the locked input: a dictionary word
+    /// scores below the weak floor with a canned warning, a random-looking
+    /// long entry scores 4, and the evaluation cap keeps very long input
+    /// bounded while the reported char count stays honest.
+    #[test]
+    fn strength_meter_is_host_computed_and_bounded() {
+        let mut i = SecretInput::new().unwrap();
+        i.push_str("password");
+        let weak = eval_strength(&i);
+        assert!(weak.score < WEAK_SCORE_FLOOR, "'password' must be weak");
+        assert!(weak.warning.is_some(), "a canned warning explains the weakness");
+
+        i.clear();
+        i.push_str("vB7#kePq9wRx2xLm");
+        let strong = eval_strength(&i);
+        assert_eq!(strong.score, 4, "a random 16-char mix is very strong");
+        assert!(strong.warning.is_none());
+        assert_eq!(strong.chars, 16);
+
+        // 240 chars: evaluated over the 64-char prefix cap (bounded CPU on
+        // the UI thread), char count reported in full.
+        i.clear();
+        for _ in 0..30 {
+            i.push_str("abcdefgh");
+        }
+        let long = eval_strength(&i);
+        assert_eq!(long.chars, 240);
+    }
+
     /// Poll a worker outcome (the workers run real threads).
     fn wait_outcome() -> Outcome {
         for _ in 0..500 {
@@ -2345,19 +2531,51 @@ mod tests {
         assert!(gate_closed(), "no vault → the gate is CLOSED on mandatory setup (CD-42)");
         assert!(begin_capture("unlock_pass").is_err(), "nothing to unlock yet");
 
-        // Setup: first entry, a mismatching confirm (retry), then a match.
+        // The master password used through the flow — random-looking, so the
+        // meter scores it strong AND the iron-law tripwire below can assert
+        // it never appears in the state JSON.
+        const STRONG: &str = "vB7#kePq9wRx2xLm";
+
+        // Setup. A weak entry parks on the prominent warning: Enter never
+        // overrides, editing re-evaluates (CD-42 Task B).
         begin_capture("setup_pass").unwrap();
-        key_text("correct horse battery staple");
-        key_submit(); // → confirm step
-        key_text("correct horse battery stapl"); // typo
+        assert!(state_json().contains("\"strength\""), "the live meter is on during setup");
+        key_text("password");
+        key_submit();
+        assert!(state_json().contains("\"weak_pending\":true"), "weak submit parks");
+        key_submit();
+        assert!(
+            state_json().contains("\"weak_pending\":true"),
+            "repeated Enter does not override the warning"
+        );
+        key_backspace();
+        assert!(
+            state_json().contains("\"weak_pending\":false"),
+            "editing clears the parked warning and re-evaluates"
+        );
+        for _ in 0..8 {
+            key_backspace();
+        }
+
+        // Strong entry: the iron-law tripwire — the typed characters never
+        // appear in the state JSON — then a mismatching confirm (retry), then
+        // a clean create.
+        key_text(STRONG);
+        assert!(
+            !state_json().contains("vB7#kePq"),
+            "IRON LAW: the typed password must never reach the renderer state"
+        );
+        key_submit(); // strong → straight to the confirm step
+        assert!(state_json().contains("setup_confirm"));
+        key_text("not the same at all");
         key_submit();
         assert!(
             state_json().contains("do not match"),
             "mismatching confirm restarts setup with an error"
         );
-        key_text("correct horse battery staple");
+        key_text(STRONG);
         key_submit();
-        key_text("correct horse battery staple");
+        key_text(STRONG);
         key_submit();
         assert_eq!(wait_outcome(), Outcome::SetupDone);
         assert!(is_unlocked(), "setup leaves the session unlocked");
@@ -2375,11 +2593,15 @@ mod tests {
 
         // Wrong password fails (uniform error), the correct one opens the gate.
         begin_capture("unlock_pass").unwrap();
+        assert!(
+            state_json().contains("\"strength\":null"),
+            "no meter on the unlock prompt — it exists only while SETTING a password"
+        );
         key_text("wrong horse battery staple");
         key_submit();
         assert_eq!(wait_outcome(), Outcome::UnlockFailed);
         assert!(is_locked());
-        key_text("correct horse battery staple");
+        key_text(STRONG);
         key_submit();
         assert_eq!(wait_outcome(), Outcome::Unlocked);
         assert!(is_unlocked());
@@ -2396,40 +2618,47 @@ mod tests {
         assert!(set_policy(2, false).is_err(), "2FA without a passkey is refused");
         assert!(state_json().contains("\"required\":1"));
 
-        // Change the master password through the host-captured flow.
+        // Change the master password to a WEAK one via the informed override
+        // (CD-42 acceptance 1: a weak password CAN be set deliberately).
         begin_capture("change_pass").unwrap();
-        key_text("a brand new passphrase");
+        assert!(accept_weak().is_err(), "nothing parked yet — the IPC cannot skip ahead");
+        key_text("password");
         key_submit();
-        key_text("a brand new passphrase");
+        assert!(state_json().contains("\"weak_pending\":true"));
+        accept_weak().expect("the deliberate override proceeds");
+        key_text("password");
         key_submit();
         assert_eq!(wait_outcome(), Outcome::Rewrapped);
         assert!(is_unlocked(), "the session stays unlocked across a re-wrap");
 
-        // Relaunch: the OLD password is dead, the new one unlocks.
+        // Relaunch: the OLD password is dead; the deliberately-weak new one
+        // really unlocks (the override produced a working vault).
         test_reset_runtime(&dir, TEST_KDF);
         begin_capture("unlock_pass").unwrap();
-        key_text("correct horse battery staple");
+        key_text(STRONG);
         key_submit();
         assert_eq!(wait_outcome(), Outcome::UnlockFailed);
-        key_text("a brand new passphrase");
+        key_text("password");
         key_submit();
         assert_eq!(wait_outcome(), Outcome::Unlocked);
 
         // KDF re-tune: bounds + weakening gate enforced, the captured entry is
         // VERIFIED against the current envelope (a wrong entry must not
-        // silently become the new passphrase), then the cost really changes.
+        // silently become the new password), then the cost really changes.
+        // No meter here — the CURRENT password is being entered, not a new one.
         assert!(retune_kdf(1024, 1, 1, true).is_err(), "below the memory floor");
         assert!(
             retune_kdf(16 * 1024, 1, 1, false).is_err(),
             "weaker than the product default needs confirmation"
         );
         retune_kdf(16 * 1024, 1, 1, true).unwrap();
+        assert!(state_json().contains("\"strength\":null"));
         key_text("not the passphrase at all");
         key_submit();
         assert_eq!(wait_outcome(), Outcome::RewrapFailed);
         assert!(state_json().contains("does not match"));
         retune_kdf(16 * 1024, 1, 1, true).unwrap();
-        key_text("a brand new passphrase");
+        key_text("password");
         key_submit();
         assert_eq!(wait_outcome(), Outcome::Rewrapped);
         assert!(state_json().contains("\"m_cost_kib\":16384"));
