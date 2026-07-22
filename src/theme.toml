@@ -16,6 +16,10 @@ text         = "#DCE9F2"
 text_dim     = "#7C9CB4"
 accent       = "#009FE3"
 warn         = "#E8A23D"  # amber - insecure/plain-http hint
+# Semantic result colours (CD-45, D-0065). Like the Ampel lamps below they
+# carry MEANING, so the user accent never recolours them.
+error        = "#E0736B"  # a failed action / refused state
+success      = "#35D07F"  # a completed action (matches the Ampel green)
 ampel_green  = "#35D07F"  # the Ampel lamps (CD-30): graded protection control
 ampel_yellow = "#E8C542"
 ampel_red    = "#FF5D5D"

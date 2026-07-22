@@ -11,6 +11,7 @@
 )]
 
 mod app;
+mod appearance;
 mod browser;
 mod degoogle;
 mod forensic;

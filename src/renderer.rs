@@ -421,16 +421,22 @@ impl FieldUniforms {
     fn from_theme(theme: &crate::theme::Theme, resolution: [f32; 2], time: f32) -> Self {
         let d = &theme.deep_field;
         let rgb4 = |v: [f32; 3]| [v[0], v[1], v[2], 1.0];
+        // The Calm template obeys the same appearance state as Cyber (CD-45):
+        // the accent recolours it, its intensity option scales the visible
+        // amplitudes, and motion off freezes it (a still field, still drawn).
+        let a = crate::settings::appearance();
+        let k = a.intensity as f32 / 100.0;
+        let time = if a.motion { time } else { 0.0 };
         Self {
             resolution,
             time,
             _pad: 0.0,
             base: rgb4(theme.colors.background_rgb()),
-            brand: rgb4(theme.colors.brand_rgb()),
-            breathing: [d.breathing_period, d.breathing_amplitude, 0.0, 0.0],
-            nebula: [d.nebula_a_period, d.nebula_b_period, d.nebula_amplitude, 0.0],
-            dust: [d.dust_amplitude, d.dust_twinkle_period, 0.0, 0.0],
-            sweep: [d.sweep_period_min, d.sweep_period_max, d.sweep_amplitude, 0.0],
+            brand: rgb4(a.accent_rgb()),
+            breathing: [d.breathing_period, d.breathing_amplitude * k, 0.0, 0.0],
+            nebula: [d.nebula_a_period, d.nebula_b_period, d.nebula_amplitude * k, 0.0],
+            dust: [d.dust_amplitude * k, d.dust_twinkle_period, 0.0, 0.0],
+            sweep: [d.sweep_period_min, d.sweep_period_max, d.sweep_amplitude * k, 0.0],
         }
     }
 }
@@ -815,6 +821,11 @@ struct PulseGrid {
     scale: f32,
     seed: u64,
     needs_bake: bool,
+    /// The accent the current board was baked with (CD-45): a change here
+    /// re-bakes, so the background follows the accent live.
+    accent: [f32; 3],
+    /// The template's background-intensity option the board was baked with.
+    intensity: u8,
 
     // CPU board model (kept for the life layer).
     board: Option<pulsegrid::Board>,
@@ -996,6 +1007,8 @@ impl PulseGrid {
             scale: 1.0,
             seed: 0,
             needs_bake: false,
+            accent: [-1.0, -1.0, -1.0],
+            intensity: u8::MAX,
             board: None,
         }
     }
@@ -1017,11 +1030,17 @@ impl PulseGrid {
         zones: &[[f32; 4]],
     ) -> bool {
         let cfg = &theme.background;
+        // The board's colours come from the accent (CD-45), so an accent
+        // change invalidates the bake exactly like a size or seed change.
+        let accent = crate::settings::accent_rgb();
+        let intensity = crate::settings::appearance().intensity;
         let dirty = self.bake_view.is_none()
             || self.width != w
             || self.height != h
             || self.scale != scale
-            || self.seed != cfg.seed;
+            || self.seed != cfg.seed
+            || self.accent != accent
+            || self.intensity != intensity;
 
         if dirty {
             let t0 = std::time::Instant::now();
@@ -1039,9 +1058,15 @@ impl PulseGrid {
             });
             let bake_view = bake.create_view(&wgpu::TextureViewDescriptor::default());
 
-            // Deterministic board generation.
-            let brand = theme.colors.brand_rgb();
-            let board = pulsegrid::generate(w.max(1), h.max(1), scale, cfg, brand);
+            // Deterministic board generation. The board's own colours are the
+            // accent family (CD-45), so a re-bake follows the accent.
+            let brand = crate::settings::accent_rgb();
+            // The template's intensity option scales how dense the board is.
+            let mut tuned = cfg.clone();
+            let density = crate::settings::appearance().intensity as f32 / 100.0;
+            tuned.trace_density *= density;
+            tuned.lattice_glow *= density;
+            let board = pulsegrid::generate(w.max(1), h.max(1), scale, &tuned, brand);
             self.prim_count = board.prims.len() as u32;
 
             let prim_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1120,6 +1145,8 @@ impl PulseGrid {
             self.height = h;
             self.scale = scale;
             self.seed = cfg.seed;
+            self.accent = accent;
+            self.intensity = intensity;
             self.needs_bake = true;
             self.board = Some(board);
 
@@ -1200,8 +1227,14 @@ impl PulseGrid {
     /// sprites. Must run before the frame encoder (queues a buffer write).
     fn update_life(&mut self, queue: &wgpu::Queue, time: f32, theme: &crate::theme::Theme) {
         // Clamp the delta so a stall (or the first frame) can't fling pulses
-        // across the board.
-        let dt = (time - self.last_time).clamp(0.0, 0.05);
+        // across the board. With the template's motion option off (CD-45) the
+        // delta is zero: the board stays fully drawn and simply stops moving,
+        // which is what "still" should mean.
+        let dt = if crate::settings::appearance().motion {
+            (time - self.last_time).clamp(0.0, 0.05)
+        } else {
+            0.0
+        };
         self.last_time = time;
 
         self.life_count = 0;
@@ -1799,12 +1832,18 @@ impl SurfaceRenderer {
         let (cfg_w, cfg_h) = (self.config.width, self.config.height);
         let (win_w, win_h) = (cfg_w as f32, cfg_h as f32);
         let base = self.theme.colors.background_rgb();
-        let brand = self.theme.colors.brand_rgb();
+        // THE accent (CD-45, D-0065): resolved once in settings from the
+        // template default plus the user's choice, and read here so the
+        // background, the glow and the pages can never disagree. The static
+        // theme token is only the fallback baked into the template row.
+        let brand = crate::settings::accent_rgb();
 
         // Background selection is a template token (D-0012): Pulse Grid (Cyber
         // default) or the Deep Field (Calm). The "Animated background" toggle
         // (`background_on`) gates whichever the template picked.
-        let use_pulse = self.theme.background.is_pulse_grid();
+        // The TEMPLATE picks the effect (CD-45); the theme token is the
+        // fallback for a store that has never chosen one.
+        let use_pulse = crate::settings::background_is_pulse_grid();
         let do_pulse = background_on && use_pulse;
         let do_deep = background_on && !use_pulse;
 

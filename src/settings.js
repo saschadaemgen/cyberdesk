@@ -94,6 +94,145 @@
     })(switches[i]);
   }
 
+  // --- Appearance: template + accent (CD-45, D-0065) ------------------------
+  // The host owns the resolved appearance and fans it out; this section only
+  // triggers changes and paints the current state. Selecting an accent
+  // recolours the live page immediately (the host pushes the new custom
+  // properties to every open view, and re-bakes the background).
+  (function () {
+    var tplSelect = document.getElementById("template-select");
+    var tplBtn = document.getElementById("template-btn");
+    var tplMenu = document.getElementById("template-menu");
+    var tplVal = document.getElementById("template-val");
+    var tplNote = document.getElementById("template-note");
+    var swatches = document.getElementById("accent-swatches");
+    var custom = document.getElementById("accent-custom");
+    var bgRange = document.getElementById("bg-intensity");
+    var bgVal = document.getElementById("bg-intensity-val");
+    if (!tplSelect || !swatches) return;
+
+    var templates = [];
+    var presets = [];
+    var current = { template: "cyber", accent: "#009FE3" };
+
+    function paintTemplate(id) {
+      current.template = id;
+      var t = templates.filter(function (x) { return x.id === id; })[0];
+      if (t) {
+        tplVal.textContent = t.label;
+        tplNote.textContent = t.note;
+      }
+      var opts = tplMenu.querySelectorAll("li");
+      for (var i = 0; i < opts.length; i++) {
+        opts[i].setAttribute("aria-selected", opts[i].dataset.value === id ? "true" : "false");
+      }
+    }
+
+    function paintAccent(hex) {
+      current.accent = hex;
+      var norm = String(hex || "").toUpperCase();
+      var items = swatches.querySelectorAll(".swatch");
+      for (var i = 0; i < items.length; i++) {
+        var on = items[i].dataset.hex.toUpperCase() === norm;
+        items[i].classList.toggle("active", on);
+      }
+      custom.value = norm.length === 7 ? norm : "#009FE3";
+      // Paint this page immediately; the host push covers every other view.
+      document.documentElement.style.setProperty("--brand", norm);
+      document.documentElement.style.setProperty("--accent", norm);
+    }
+
+    function openTpl(open) {
+      tplSelect.classList.toggle("open", open);
+      tplBtn.setAttribute("aria-expanded", open ? "true" : "false");
+      tplMenu.hidden = !open;
+    }
+
+    tplBtn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      openTpl(!tplSelect.classList.contains("open"));
+    });
+
+    function buildTemplates(list) {
+      templates = list || [];
+      tplMenu.innerHTML = "";
+      templates.forEach(function (t) {
+        var li = document.createElement("li");
+        li.setAttribute("role", "option");
+        li.dataset.value = t.id;
+        li.textContent = t.label;
+        li.addEventListener("click", function (e) {
+          e.stopPropagation();
+          openTpl(false);
+          query({ cmd: "set_setting", key: "template", value: t.id })
+            .then(function () { return query({ cmd: "get_settings" }); })
+            .then(function (r) { try { applyAppearance(JSON.parse(r)); } catch (x) {} })
+            .catch(function (err) { setStatus(String(err), true); });
+        });
+        tplMenu.appendChild(li);
+      });
+    }
+
+    function buildSwatches(list) {
+      presets = list || [];
+      swatches.innerHTML = "";
+      presets.forEach(function (p) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "swatch";
+        b.dataset.hex = p.hex;
+        b.title = p.label;
+        b.setAttribute("aria-label", p.label);
+        b.style.background = p.hex;
+        b.style.color = p.hex;
+        b.addEventListener("click", function () { setAccent(p.id, p.hex); });
+        swatches.appendChild(b);
+      });
+    }
+
+    function setAccent(value, hexForPaint) {
+      paintAccent(hexForPaint || value);
+      query({ cmd: "set_setting", key: "accent", value: value })
+        .catch(function (err) { setStatus(String(err), true); });
+    }
+
+    custom.addEventListener("input", function () { paintAccent(custom.value); });
+    custom.addEventListener("change", function () { setAccent(custom.value); });
+
+    if (bgRange) {
+      bgRange.addEventListener("input", function () {
+        var v = parseInt(bgRange.value, 10);
+        bgVal.textContent = v + "%";
+        bgRange.style.setProperty("--fill", (v / 200 * 100) + "%");
+        query({ cmd: "set_setting", key: "bg_intensity", value: v })
+          .catch(function (err) { setStatus(String(err), true); });
+      });
+    }
+
+    // Painted from the settings snapshot; also called after a template change.
+    window.applyAppearance = function (j) {
+      if (!j) return;
+      paintTemplate(j.template || "cyber");
+      paintAccent(j.accent || "#009FE3");
+      if (bgRange && typeof j.bg_intensity === "number") {
+        bgRange.value = j.bg_intensity;
+        bgVal.textContent = j.bg_intensity + "%";
+        bgRange.style.setProperty("--fill", (j.bg_intensity / 200 * 100) + "%");
+      }
+      paint("motion", j.motion !== false);
+    };
+
+    query({ cmd: "get_appearance_catalog" }).then(function (r) {
+      var cat;
+      try { cat = JSON.parse(r); } catch (x) { return; }
+      buildTemplates(cat.templates);
+      buildSwatches(cat.presets);
+      return query({ cmd: "get_settings" }).then(function (s2) {
+        try { window.applyAppearance(JSON.parse(s2)); } catch (x) {}
+      });
+    }).catch(function () {});
+  })();
+
   // Glow-intensity slider: applied live on every input, persisted host-side.
   var glow = document.getElementById("glow");
   var glowVal = document.getElementById("glow-val");

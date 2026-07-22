@@ -272,6 +272,50 @@ pub fn take_overlay_close() -> bool {
     CLOSE_OVERLAY.swap(false, Ordering::Relaxed)
 }
 
+/// Push the resolved appearance to every live `cyberdesk://` page and ask
+/// the shell to re-bake the background (CD-45, D-0065). The pages set the
+/// accent custom properties directly, so the recolour is live and no page
+/// reload is needed; the semantic properties are never sent, so they cannot
+/// be touched from here even by accident.
+pub fn apply_appearance() {
+    let a = crate::settings::appearance();
+    let vars = a
+        .accent_vars()
+        .into_iter()
+        .map(|(k, v)| format!("d.setProperty('{k}','{v}');"))
+        .collect::<String>();
+    let code = format!("(function(){{var d=document.documentElement.style;{vars}}})()");
+    for role in [
+        Role::Internal,
+        Role::Hud,
+        Role::MfZone,
+        Role::Slot(0),
+        Role::Slot(1),
+        Role::Slot(2),
+        Role::Slot(3),
+    ] {
+        let browser = view(role).browser.lock().unwrap().clone();
+        if let Some(browser) = browser
+            && let Some(frame) = browser.main_frame()
+        {
+            frame.execute_java_script(Some(&CefString::from(code.as_str())), None, 0);
+        }
+    }
+    // The background needs no signal: the Pulse Grid's bake check and the
+    // Deep Field's uniforms both read the resolved appearance directly, so
+    // the next frame already carries the new accent (one mechanism, not two
+    // that could drift).
+}
+
+/// The `:root` token block every `cyberdesk://` page is served with: the
+/// theme's tokens with the ACCENT family replaced by the user's resolved
+/// accent (CD-45, D-0065). One function, so a page cannot be served
+/// un-themed, and the semantic tokens (warn, error, success, the Ampel
+/// lamps) pass through untouched by construction.
+fn page_tokens(theme: &crate::theme::Theme) -> String {
+    crate::settings::appearance().css_vars(theme)
+}
+
 /// Point the internal view at the settings page.
 pub fn show_internal_settings() {
     load_url(Role::Internal, SETTINGS_URL);
@@ -1763,7 +1807,7 @@ fn settings_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("settings.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("settings.css"))
             .replace("/*__JS__*/", include_str!("settings.js"))
     })
@@ -1777,7 +1821,7 @@ fn command_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("command.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("command.css"))
             .replace("/*__JS__*/", include_str!("command.js"))
     })
@@ -1792,7 +1836,7 @@ fn start_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("start.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("start.css"))
             .replace("/*__JS__*/", include_str!("start.js"))
     })
@@ -1806,7 +1850,7 @@ fn info_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("info.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("info.css"))
             .replace("/*__JS__*/", include_str!("info.js"))
     })
@@ -1821,7 +1865,7 @@ fn lock_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("lock.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("lock.css"))
             .replace("/*__JS__*/", include_str!("lock.js"))
     })
@@ -1835,7 +1879,7 @@ fn mfzone_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("mfzone.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("mfzone.css"))
             .replace("/*__JS__*/", include_str!("mfzone.js"))
     })
@@ -1850,7 +1894,7 @@ fn hud_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("hud.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("hud.css"))
             .replace("/*__JS__*/", include_str!("hud.js"))
     })
@@ -1867,7 +1911,7 @@ fn onion_document() -> String {
     DOC.get_or_init(|| {
         let theme = crate::theme::Theme::load();
         include_str!("onion.html")
-            .replace("/*__TOKENS__*/", &theme.to_css_vars())
+            .replace("/*__TOKENS__*/", &page_tokens(&theme))
             .replace("/*__CSS__*/", include_str!("onion.css"))
             .replace("/*__JS__*/", include_str!("onion.js"))
     })
@@ -2099,6 +2143,27 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
     match v.get("cmd").and_then(|c| c.as_str()).unwrap_or("") {
         // Settings (CD-03).
         "get_settings" => Ok(crate::settings::snapshot_json()),
+        // The Appearance catalog (CD-45, D-0065): the template rows and the
+        // curated accent presets, straight from the data table so the picker
+        // can never drift from the model.
+        "get_appearance_catalog" => {
+            let templates: Vec<serde_json::Value> = crate::appearance::TEMPLATES
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "id": t.id,
+                        "label": t.label,
+                        "note": t.note,
+                        "effect": t.effect.as_str(),
+                    })
+                })
+                .collect();
+            let presets: Vec<serde_json::Value> = crate::appearance::PRESETS
+                .iter()
+                .map(|p| serde_json::json!({ "id": p.id, "label": p.label, "hex": p.hex }))
+                .collect();
+            Ok(serde_json::json!({ "templates": templates, "presets": presets }).to_string())
+        }
         // Anti-forensic on-disk footprint readout (CD-34, D-0051): the live browsing-
         // cache size + what the last launch purge did. Read-only, truthful by
         // construction (both numbers are measured, not asserted).
@@ -2134,6 +2199,39 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
                     .or_else(|| value.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
                     .ok_or((2, "'value' must be numeric for glow_intensity".to_string()))?;
                 crate::settings::set_glow_intensity(n).map_err(|e| (3, e))
+            } else if key == crate::settings::KEY_TEMPLATE {
+                // Appearance (CD-45, D-0065). Every appearance write re-serves
+                // the live pages with the new token block and re-bakes the
+                // background, so the change is visible immediately.
+                let sv = value
+                    .as_str()
+                    .ok_or((2, "'value' must be a string for template".to_string()))?;
+                let reply = crate::settings::set_template(sv).map_err(|e| (3, e))?;
+                apply_appearance();
+                Ok(reply)
+            } else if key == crate::settings::KEY_ACCENT {
+                let sv = value
+                    .as_str()
+                    .ok_or((2, "'value' must be a string for accent".to_string()))?;
+                let reply = crate::settings::set_accent(sv).map_err(|e| (3, e))?;
+                apply_appearance();
+                Ok(reply)
+            } else if key == crate::settings::KEY_BG_INTENSITY {
+                let n = value
+                    .as_i64()
+                    .or_else(|| value.as_f64().map(|f| f.round() as i64))
+                    .or_else(|| value.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+                    .ok_or((2, "'value' must be numeric for bg_intensity".to_string()))?;
+                let reply = crate::settings::set_bg_intensity(n).map_err(|e| (3, e))?;
+                apply_appearance();
+                Ok(reply)
+            } else if key == crate::settings::KEY_MOTION {
+                let b = value
+                    .as_bool()
+                    .ok_or((2, "'value' must be boolean for motion".to_string()))?;
+                let reply = crate::settings::set_motion(b).map_err(|e| (3, e))?;
+                apply_appearance();
+                Ok(reply)
             } else if key == crate::settings::KEY_ROTATE_INTERVAL {
                 let n = value
                     .as_i64()

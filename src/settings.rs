@@ -58,6 +58,12 @@ static HARDENING_CUSTOM: Mutex<harden::Config> = Mutex::new(harden::Config::STAN
 /// faked (browser.rs `common_screen_for` keeps reported ≥ measured). A per-window
 /// override lives in browser.rs (`SLOT_SCREEN`).
 static SCREEN_PRESET: AtomicU8 = AtomicU8::new(DEFAULT_SCREEN_PRESET);
+
+/// The resolved appearance (CD-45, D-0065): template + accent + the
+/// template's options, cached so the render loop reads it without touching
+/// the store. THE single source both the CSS fan-out and the shader uniforms
+/// read; see `appearance.rs` for why that matters.
+static APPEARANCE: Mutex<Option<crate::appearance::Resolved>> = Mutex::new(None);
 /// The factory-default reported screen preset: 1920x1080 (id 2).
 const DEFAULT_SCREEN_PRESET: u8 = 2;
 
@@ -91,6 +97,12 @@ pub const KEY_PURGE_RESIDUE: &str = "purge_residue";
 pub const KEY_GLOW_INTENSITY: &str = "glow_intensity";
 /// The command-bar search-engine choice (CD-07). One of the ids below.
 pub const KEY_SEARCH_ENGINE: &str = "search_engine";
+/// Appearance (CD-45, D-0065): the selected template, the user accent colour
+/// (absent = the template's default), and the template's own options.
+pub const KEY_TEMPLATE: &str = "template";
+pub const KEY_ACCENT: &str = "accent";
+pub const KEY_BG_INTENSITY: &str = "bg_intensity";
+pub const KEY_MOTION: &str = "motion";
 /// Per-window Tor: the engine master switch and the new-window default (CD-15).
 pub const KEY_TOR_ENABLED: &str = "tor_enabled";
 pub const KEY_TOR_DEFAULT: &str = "tor_default";
@@ -264,6 +276,140 @@ pub fn set_screen_preset(value: &str) -> Result<String, String> {
     Ok(format!(
         "{{\"ok\":true,\"key\":\"{KEY_SCREEN_PRESET}\",\"value\":\"{value}\"}}"
     ))
+}
+
+// --- Appearance: accent + template (CD-45, D-0065) --------------------------
+
+/// Resolve the appearance from the store: the selected template supplies the
+/// defaults, an explicit user choice overrides each one. Unknown ids and
+/// malformed colours fall back rather than fail, so a store written by a
+/// future build can never brick the picker.
+fn resolve_appearance(s: &Store) -> crate::appearance::Resolved {
+    use crate::appearance;
+    let template_id = s
+        .get(KEY_TEMPLATE)
+        .filter(|id| appearance::TEMPLATES.iter().any(|t| t.id == id))
+        .unwrap_or_else(|| appearance::DEFAULT_TEMPLATE.to_string());
+    let t = appearance::template(&template_id);
+    let accent = s
+        .get(KEY_ACCENT)
+        .and_then(|v| appearance::normalize_hex(&v))
+        .unwrap_or_else(|| t.default_accent.to_string());
+    let intensity = s
+        .get(KEY_BG_INTENSITY)
+        .and_then(|v| v.parse::<u8>().ok())
+        .map(|v| v.min(200))
+        .unwrap_or(t.default_intensity);
+    let motion = s
+        .get(KEY_MOTION)
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(t.default_motion);
+    crate::appearance::Resolved {
+        template_id,
+        accent,
+        intensity,
+        // Glow keeps its own long-standing setting and slider (CD-05); the
+        // template only supplies the value a fresh install starts from, so
+        // there is ONE glow control rather than two that could disagree.
+        glow: glow_intensity_percent().min(200) as u8,
+        motion,
+    }
+}
+
+/// The resolved appearance. Cheap: the cache is filled at init and on every
+/// change, so the render loop can call this per frame.
+pub fn appearance() -> crate::appearance::Resolved {
+    if let Some(a) = APPEARANCE.lock().unwrap().as_ref() {
+        let mut a = a.clone();
+        // Glow lives in its own setting, so keep the view of it current.
+        a.glow = glow_intensity_percent().min(200) as u8;
+        return a;
+    }
+    let a = resolve_appearance(&store().lock().unwrap());
+    *APPEARANCE.lock().unwrap() = Some(a.clone());
+    a
+}
+
+/// Re-resolve and cache the appearance (after any appearance write).
+fn refresh_appearance() {
+    let a = resolve_appearance(&store().lock().unwrap());
+    *APPEARANCE.lock().unwrap() = Some(a);
+}
+
+/// The accent as shader components. THE one value the wgpu uniforms see.
+pub fn accent_rgb() -> [f32; 3] {
+    appearance().accent_rgb()
+}
+
+/// Does the active template run the Pulse Grid? (The renderer's background
+/// selection: the template owns it now, D-0012 tokens supply the details.)
+pub fn background_is_pulse_grid() -> bool {
+    appearance().effect() == crate::appearance::Effect::PulseGrid
+}
+
+/// Select a template. Its own defaults apply to any option the user has not
+/// explicitly set (the per-option keys are cleared, so switching templates
+/// gives that template's look rather than the previous one's leftovers).
+pub fn set_template(id: &str) -> Result<String, String> {
+    if !crate::appearance::TEMPLATES.iter().any(|t| t.id == id) {
+        return Err(format!("unknown template: {id}"));
+    }
+    let t = crate::appearance::template(id);
+    {
+        let s = store().lock().unwrap();
+        s.set(KEY_TEMPLATE, id);
+        s.delete(KEY_ACCENT);
+        s.delete(KEY_BG_INTENSITY);
+        s.delete(KEY_MOTION);
+        // Glow keeps its own long-standing setting and slider (CD-05), so a
+        // template switch applies that template's glow default explicitly
+        // rather than leaving the previous template's value behind.
+        s.set(KEY_GLOW_INTENSITY, &t.default_glow.to_string());
+    }
+    GLOW_INTENSITY.store(
+        (t.default_glow as u32).clamp(GLOW_MIN, GLOW_MAX),
+        Ordering::Relaxed,
+    );
+    refresh_appearance();
+    Ok(format!("{{\"ok\":true,\"key\":\"{KEY_TEMPLATE}\",\"value\":\"{id}\"}}"))
+}
+
+/// Set the accent colour: a preset id or a custom `#RRGGBB`. Validated here,
+/// because the value reaches both a stylesheet and a shader uniform.
+pub fn set_accent(value: &str) -> Result<String, String> {
+    let hex = crate::appearance::PRESETS
+        .iter()
+        .find(|p| p.id == value)
+        .map(|p| p.hex.to_string())
+        .or_else(|| crate::appearance::normalize_hex(value))
+        .ok_or_else(|| format!("not a colour: {value}"))?;
+    store().lock().unwrap().set(KEY_ACCENT, &hex);
+    refresh_appearance();
+    Ok(format!("{{\"ok\":true,\"key\":\"{KEY_ACCENT}\",\"value\":\"{hex}\"}}"))
+}
+
+/// Background-effect intensity, percent of the template baseline (0..=200).
+pub fn set_bg_intensity(percent: i64) -> Result<String, String> {
+    let clamped = percent.clamp(0, 200) as u8;
+    store()
+        .lock()
+        .unwrap()
+        .set(KEY_BG_INTENSITY, &clamped.to_string());
+    refresh_appearance();
+    Ok(format!(
+        "{{\"ok\":true,\"key\":\"{KEY_BG_INTENSITY}\",\"value\":{clamped}}}"
+    ))
+}
+
+/// Background motion on or off (a still background still renders, it simply
+/// stops animating).
+pub fn set_motion(on: bool) -> Result<String, String> {
+    store()
+        .lock()
+        .unwrap()
+        .set(KEY_MOTION, if on { "1" } else { "0" });
+    refresh_appearance();
+    Ok(format!("{{\"ok\":true,\"key\":\"{KEY_MOTION}\",\"value\":{on}}}"))
 }
 
 // --- Identity rotation (CD-29) ----------------------------------------------
@@ -463,7 +609,7 @@ pub fn glow_intensity() -> f32 {
 pub fn snapshot_json() -> String {
     // `fp_custom` is injected raw (it is already a JSON object, not a string).
     format!(
-        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"purge_residue\":{},\"glow_intensity\":{},\"search_engine\":\"{}\",\"tor_enabled\":{},\"tor_default\":{},\"fp_preset\":\"{}\",\"fp_custom\":{},\"screen_preset\":\"{}\",\"rotate_on_restart\":{},\"rotate_auto\":{},\"rotate_new_circuit\":{},\"rotate_interval_min\":{}}}",
+        "{{\"feather_edges\":{},\"animated_background\":{},\"stay_foreground\":{},\"purge_residue\":{},\"glow_intensity\":{},\"search_engine\":\"{}\",\"tor_enabled\":{},\"tor_default\":{},\"fp_preset\":\"{}\",\"fp_custom\":{},\"screen_preset\":\"{}\",\"rotate_on_restart\":{},\"rotate_auto\":{},\"rotate_new_circuit\":{},\"rotate_interval_min\":{},\"template\":\"{}\",\"accent\":\"{}\",\"bg_intensity\":{},\"motion\":{}}}",
         feather_edges(),
         animated_background(),
         stay_foreground(),
@@ -479,6 +625,10 @@ pub fn snapshot_json() -> String {
         rotate_auto(),
         rotate_new_circuit(),
         rotate_interval_min(),
+        appearance().template_id,
+        appearance().accent,
+        appearance().intensity,
+        appearance().motion,
     )
 }
 

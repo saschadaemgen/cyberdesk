@@ -5,6 +5,62 @@ Living document - maintained by Claude Code (CC), updated in the same
 commit-set as the change it records (D-0053). Append-only: historical entries
 are never rewritten; a superseded decision gets a new D-number forward.
 
+## D-0065 - 2026-07-22 - Appearance: user accent colour across the whole desktop, and a data-driven template architecture (Template 1 = Cyber) (CD-45)
+
+*Decision.* Settings gains an Appearance section with a user-selectable accent
+colour, offered as curated presets plus a custom picker, applied live and
+persisted. The accent is defined once in the settings store and fanned out to
+both the CSS custom properties of the `cyberdesk://` pages and the wgpu
+shader uniforms of the background and glow, so no colour is hardcoded twice
+and the page and the shader cannot disagree. Semantic status colours are
+explicitly excluded from accent theming: the Ampel green/yellow/red, the Red
+bunker glow, and warning/error/success keep their meaning under every accent
+and every template, because a status display must never become ambiguous.
+Templates are modelled as complete named token sets, data rather than code
+branches, with the current look shipped as Template 1 (Cyber, Pulse Grid) and
+the existing Deep Field ("Calm") background (D-0012) wired as the second
+entry. Each template exposes its own options, and adding a template later is
+data plus assets rather than a refactor.
+
+*How the one source actually holds.* `settings::appearance()` resolves the
+template row, the accent and the options once and caches them.
+`Resolved::css_vars` produces the page token block and `Resolved::accent_rgb`
+produces the shader components, both from that same value: the renderer's
+frame colour, the Pulse Grid bake, the Deep Field uniforms and every page are
+therefore reading one number. Two consequences worth recording: the Pulse
+Grid's bake-invalidation now compares the accent and the intensity option
+alongside size and seed, so the board re-bakes when they change and needs no
+separate signal; and a live change pushes the accent custom properties into
+every open view, so nothing has to reload.
+
+*The separation of the semantic palette is structural, not a convention.*
+`SEMANTIC_VARS` names the properties the status palette owns. The accent
+fan-out skips any property in that list IN PRODUCTION CODE, so even a future
+template that wrongly declares `--warn` as an accent variable cannot recolour
+it, and `no_semantic_var_is_accent_themed` plus
+`accent_never_recolours_the_status_palette` turn the same mistake into a
+failing build. Two semantic tokens were added while doing this
+(`colors.error`, `colors.success`), which also removed the last hardcoded
+colour in the page CSS.
+
+*Reasoned deviations, recorded.* (1) Glow keeps its own long-standing setting
+and slider (CD-05) rather than being duplicated as a template option; the
+template supplies the value a switch resets it to, so there is one glow
+control instead of two that could disagree. (2) Calm ships as a real second
+entry rather than an honest "unavailable": the Deep Field is a complete
+render path (own shader, half-res target, composite pipeline, full token
+block), and it was taught the same appearance state as Cyber, so it follows
+the accent, the intensity option and the motion option. (3) The template's
+options are applied where they are real, not decorative: motion off freezes
+the simulation while the board stays fully drawn, and intensity scales the
+board's trace density and lattice glow (and the Deep Field's amplitudes).
+
+*Why.* Personalisation is one of the cheapest ways for the cyber desktop to
+feel like the user's own machine, and it applies beautifully across the
+background effects. Doing it through a single token source and a data-driven
+template model keeps it consistent and extensible, while excluding the
+semantic palette preserves the honesty of every protection indicator.
+
 ## D-0064 - 2026-07-22 - Vault UX overhaul: real password-field ergonomics under host capture, strength-honest warnings, em dashes forbidden, settings as a full-screen animated layer (CD-44)
 
 *Decision.* The master password field must behave like a real password field

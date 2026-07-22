@@ -35,6 +35,10 @@ pub struct Colors {
     pub text_dim: String,
     pub accent: String,
     pub warn: String,
+    /// Semantic result colours (CD-45, D-0065): like the Ampel lamps they
+    /// carry meaning, so the user accent never recolours them.
+    pub error: String,
+    pub success: String,
     /// The Ampel lamp colors (CD-30): the graded protection control's
     /// green/yellow/red - semantic traffic-light colors, tokenized like
     /// everything else so a template can restyle them.
@@ -262,6 +266,8 @@ impl Theme {
              \x20 --text-dim: {text_dim};\n\
              \x20 --accent: {accent};\n\
              \x20 --warn: {warn};\n\
+             \x20 --error: {error};\n\
+             \x20 --success: {success};\n\
              \x20 --ampel-green: {ampel_g};\n\
              \x20 --ampel-yellow: {ampel_y};\n\
              \x20 --ampel-red: {ampel_r};\n\
@@ -286,6 +292,8 @@ impl Theme {
             text_dim = self.colors.text_dim,
             accent = self.colors.accent,
             warn = self.colors.warn,
+            error = self.colors.error,
+            success = self.colors.success,
             ampel_g = self.colors.ampel_green,
             ampel_y = self.colors.ampel_yellow,
             ampel_r = self.colors.ampel_red,

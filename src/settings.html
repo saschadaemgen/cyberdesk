@@ -30,6 +30,79 @@
          added later without a rewrite. -->
     <div class="sections">
 
+    <!-- Appearance (CD-45, D-0065): the template selector, the accent colour,
+         and the selected template's own options. The accent is resolved ONCE
+         in the host and fanned out to both the page tokens and the shader
+         uniforms; the semantic status colours are never part of it. -->
+    <section class="rows" aria-label="Appearance">
+      <h2 class="section-head">Appearance</h2>
+
+      <div class="row">
+        <div class="label">
+          <span class="name">Template</span>
+          <span class="hint" id="template-note">The complete look: background effect, surface and defaults</span>
+        </div>
+        <div class="select" id="template-select">
+          <button class="select-btn" id="template-btn" type="button"
+                  aria-haspopup="listbox" aria-expanded="false">
+            <span class="select-val" id="template-val">Template 1 (Cyber)</span>
+            <svg class="select-chev" viewBox="0 0 24 24" width="16" height="16"><path
+              d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <ul class="select-menu" id="template-menu" role="listbox" hidden></ul>
+        </div>
+      </div>
+
+      <div class="row accent-row">
+        <div class="label">
+          <span class="name">Accent colour</span>
+          <span class="hint">Recolours the whole desktop, the pages and the background effects alike. Status colours keep their meaning.</span>
+        </div>
+        <div class="accent-picker">
+          <div class="swatches" id="accent-swatches"></div>
+          <label class="accent-custom">
+            <input type="color" id="accent-custom" value="#009FE3" aria-label="Custom accent colour">
+            <span>Custom</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="label">
+          <span class="name">Background effect</span>
+          <span class="hint" id="bg-intensity-hint">Density of the template background</span>
+        </div>
+        <div class="slider">
+          <input id="bg-intensity" class="range" type="range" min="0" max="200" step="5"
+                 value="100" aria-label="Background effect intensity">
+          <span class="val" id="bg-intensity-val">100%</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="label">
+          <span class="name">Background motion</span>
+          <span class="hint">Animate the background. Off leaves it drawn but still.</span>
+        </div>
+        <div class="switch" data-key="motion" role="switch" tabindex="0" aria-checked="true">
+          <span class="knob"></span>
+        </div>
+      </div>
+
+      <details class="more">
+        <summary>What this does</summary>
+        <p class="honesty">A template is a complete token set: which background
+        effect runs, the surface colours, and the defaults every option starts
+        from. The accent you choose here is defined once and reaches both the
+        pages and the background shaders from that one definition, so nothing
+        can drift out of step. The <strong>status colours stay fixed</strong>:
+        the protection Ampel, the bunker signal, and warning, error and success
+        keep their meaning under every accent and every template, because an
+        indicator that could take on any colour would stop being an indicator.</p>
+      </details>
+    </section>
+
     <section class="rows" aria-label="Display and search">
       <h2 class="section-head">Display and search</h2>
       <div class="row">
