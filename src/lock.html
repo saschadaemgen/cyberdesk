@@ -67,6 +67,20 @@
       be opened. That is a deliberate design choice. Choose a password you
       can remember.
     </p>
+    <!-- The first-run passkey offer (CD-44 D1): optional and declinable, shown
+         once, right after the master password is set. The master password
+         stays the required root either way (CD-42). -->
+    <div class="offer" id="offer" hidden>
+      <div class="offer-head">Add a passkey?</div>
+      <p class="offer-text">Windows Hello can act as a second factor: with
+      two-factor unlock on, CyberDesk asks for your master password and a
+      Hello confirmation. It is optional, and you can add or remove it later
+      in Settings.</p>
+      <div class="offer-actions">
+        <button class="btn primary" id="offer-add" type="button">Set up passkey</button>
+        <button class="btn" id="offer-skip" type="button">Not now</button>
+      </div>
+    </div>
     <div class="actions">
       <button class="btn quit" id="quit" type="button">Quit</button>
     </div>

@@ -390,6 +390,22 @@ struct SlotPlan {
     url: Option<String>,
 }
 
+/// The application icon for the window and the taskbar (CD-44 Stage D).
+/// A 64x64 straight-RGBA blob generated from the committed brand tokens by
+/// `scripts/make-icon.py` and embedded at compile time, so no image decoder
+/// is pulled in and the icon cannot go missing at runtime. The .exe FILE
+/// resource is a separate path (build.rs). Returns None only if the blob is
+/// somehow the wrong size, in which case the window keeps the default icon
+/// rather than failing to open.
+fn app_icon() -> Option<winit::window::Icon> {
+    const ICON_EDGE: u32 = 64;
+    let rgba = include_bytes!("../assets/cyberdesk.rgba");
+    if rgba.len() != (ICON_EDGE * ICON_EDGE * 4) as usize {
+        return None;
+    }
+    winit::window::Icon::from_rgba(rgba.to_vec(), ICON_EDGE, ICON_EDGE).ok()
+}
+
 fn window_hwnd(window: &Window) -> isize {
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     match window
@@ -1887,6 +1903,22 @@ impl Shell {
         self.restore_session_views(window, true);
     }
 
+    /// Open the start-authorization gate: the VMK exists, so the deferred
+    /// boot runs (sealed identity seed first, it feeds browser creation, then
+    /// the workspace) and the internal view leaves the lock page for its
+    /// normal settings document. Reached from an unlock, or from a first-run
+    /// setup once the optional passkey offer is answered (CD-44 D1).
+    fn open_gate(&mut self) {
+        self.locked = false;
+        self.overlay = Overlay::Closed;
+        browser::init_identity_seed();
+        browser::show_internal_settings();
+        if let Some(window) = self.window.clone() {
+            self.restore_session_views(&window, false);
+            self.views_started = true;
+        }
+    }
+
     /// [`Shell::restore_session`], parameterized for the vault gate (CD-40):
     /// after an unlock the internal view ALREADY exists (it carried the lock
     /// page and was just navigated back to settings), so only the MF zone, the
@@ -2069,7 +2101,9 @@ impl ApplicationHandler for Shell {
         if self.window.is_some() {
             return;
         }
-        let mut attributes = Window::default_attributes().with_title("CARVILON CyberDesk");
+        let mut attributes = Window::default_attributes()
+            .with_title("CARVILON CyberDesk")
+            .with_window_icon(app_icon());
         attributes = if self.windowed {
             // `CYBERDESK_WINDOW_SIZE=WxH` overrides the dev window size (default
             // 1600x900) - e.g. to exercise multi-slot layouts on a non-ultrawide.
@@ -2599,18 +2633,25 @@ impl ApplicationHandler for Shell {
                 crate::vault::Outcome::Unlocked | crate::vault::Outcome::SetupDone
                     if self.locked =>
                 {
-                    self.locked = false;
-                    self.overlay = Overlay::Closed;
-                    browser::init_identity_seed();
-                    browser::show_internal_settings();
-                    if let Some(window) = self.window.clone() {
-                        self.restore_session_views(&window, false);
-                        self.views_started = true;
+                    // First launch offers the passkey before the workspace
+                    // boots (CD-44 D1): the vault is already unlocked, the
+                    // lock view simply stays up for that one optional step.
+                    if crate::vault::passkey_offer_open() {
+                        browser::push_vault_state();
+                        return;
                     }
+                    self.open_gate();
                 }
                 // Failures (and unlocked-session re-wraps) just re-push state.
                 _ => {}
             }
+            browser::push_vault_state();
+        }
+
+        // The first-run passkey offer was answered (declined or enrolled):
+        // boot the workspace now (CD-44 D1).
+        if self.locked && !crate::vault::passkey_offer_open() && crate::vault::is_unlocked() {
+            self.open_gate();
             browser::push_vault_state();
         }
 

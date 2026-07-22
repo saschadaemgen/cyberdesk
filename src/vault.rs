@@ -1280,6 +1280,10 @@ struct Runtime {
     /// enrollment, two prompts) or `"assert"` (the 2FA unlock step). Drives
     /// the pages' "follow the Windows Hello prompt" hint (CD-43).
     hello: Option<&'static str>,
+    /// First launch just created the vault and the passkey offer is on
+    /// screen (CD-44 D1). Purely a UI step: the vault is already usable, the
+    /// offer is declinable, and declining continues into the workspace.
+    offer_passkey: bool,
     busy: bool,
     error: Option<String>,
     outcome: Option<Outcome>,
@@ -1310,6 +1314,7 @@ fn rt() -> &'static Mutex<Runtime> {
             strength: None,
             weak_pending: false,
             hello: None,
+            offer_passkey: false,
             busy: false,
             error: None,
             outcome: None,
@@ -1773,6 +1778,19 @@ pub fn key_submit() {
     }
 }
 
+/// Is the first-run passkey offer on screen? While it is, the shell holds
+/// the gate view up (the vault itself is already unlocked, CD-44 D1).
+pub fn passkey_offer_open() -> bool {
+    rt().lock().unwrap().offer_passkey
+}
+
+/// Dismiss the first-run passkey offer: either declined ("not now") or
+/// finished (enrolled). The vault is unaffected either way; this only ends
+/// the UI step, and the workspace boots next.
+pub fn dismiss_passkey_offer() {
+    rt().lock().unwrap().offer_passkey = false;
+}
+
 /// The informed override (CD-42 Task B): the user deliberately proceeds with
 /// a weak master password after the prominent warning. Only valid while a
 /// weak submit is parked - the host trusts its OWN staged state, never the
@@ -2068,6 +2086,8 @@ pub fn begin_hello_enroll() -> std::result::Result<(), String> {
             Ok(new) => {
                 r.file = Some(new);
                 r.error = None;
+                // Enrolling from the first-run offer answers it (CD-44 D1).
+                r.offer_passkey = false;
                 r.outcome = Some(Outcome::Rewrapped);
                 tracing::info!("hello passkey enrolled - 2FA is now available");
             }
@@ -2279,6 +2299,9 @@ fn spawn_setup(r: &mut Runtime, pass: SecretInput) {
         r.pending_pass = None;
         r.strength = None;
         r.weak_pending = false;
+        // Offer the passkey right after the master password (CD-44 D1) -
+        // optional, declinable, and only where it can actually be taken up.
+        r.offer_passkey = platform_info().2;
         r.outcome = Some(Outcome::SetupDone);
         tracing::info!("vault created - session unlocked");
     });
@@ -2382,6 +2405,7 @@ pub fn state_json() -> String {
         "strength": strength,
         "weak_pending": r.weak_pending,
         "hello": r.hello,
+        "offer_passkey": r.offer_passkey,
         "webauthn": { "available": wa_available, "api": wa_api, "hello_ready": wa_hello },
         "busy": r.busy,
         "error": r.error,
@@ -2463,6 +2487,7 @@ fn test_reset_runtime(dir: &Path, kdf: KdfParams) {
         strength: None,
         weak_pending: false,
         hello: None,
+        offer_passkey: false,
         busy: false,
         error: None,
         outcome: None,
@@ -3004,6 +3029,13 @@ mod tests {
         assert!(is_unlocked(), "setup leaves the session unlocked");
         assert!(!gate_closed(), "setup opens the gate");
         assert!(dir.join("vault.json").exists());
+        // The first-run passkey offer (CD-44 D1) is a UI step only: it is
+        // raised solely where a passkey could actually be taken up, the
+        // vault is already usable, and declining just ends the step.
+        assert!(
+            !passkey_offer_open(),
+            "no offer without a usable platform authenticator"
+        );
 
         // A sealed tenant written while unlocked…
         sealed_set("identity_seed", "00aa11bb");
@@ -3095,6 +3127,17 @@ mod tests {
         // id + PRF secret, re-wraps the file, and 2FA becomes available.
         const PRF: [u8; KEY_LEN] = [0x5a; KEY_LEN];
         *test_prf().lock().unwrap() = Some(PRF.to_vec());
+
+        // With a platform authenticator present, a fresh setup DOES raise the
+        // offer, and dismissing it is what lets the workspace boot (D1).
+        {
+            let mut r = rt().lock().unwrap();
+            r.offer_passkey = platform_info().2;
+        }
+        assert!(passkey_offer_open(), "the offer is raised where Hello can serve it");
+        dismiss_passkey_offer();
+        assert!(!passkey_offer_open(), "declining ends the step, vault untouched");
+        assert!(is_unlocked(), "declining never affects the vault itself");
         begin_hello_enroll().expect("enroll via the mock platform");
         assert_eq!(wait_outcome(), Outcome::Rewrapped);
         assert!(begin_hello_enroll().is_err(), "one passkey max");

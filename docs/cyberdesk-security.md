@@ -74,6 +74,24 @@ The model, precisely:
   residual (same tier as the crypto-crate internals): the estimator
   processes a transient copy of the password in regular, unlockable heap
   memory during each evaluation; the copy the vault owns is zeroized after.
+- **Host-capture ergonomics do not weaken the iron law (CD-44 A1, D-0064).**
+  The entry field stays a masked count rendered from a host-pushed number;
+  what CD-44 added is behaviour, not exposure: non-destructive Escape (clear
+  the entry, or step back one step when empty; the mandatory flows never
+  abort), a visible focus state, a neutral placeholder, and step-by-step
+  copy. No password character reaches the renderer on any of these paths,
+  and the two capabilities host capture genuinely cannot offer - caret
+  placement and text selection - are stated rather than faked.
+- **Passkey enrolment pre-checks the platform (CD-44 A3, D-0064).** A live
+  probe on the target showed `webauthn.dll` at API v9 but
+  `WebAuthNIsUserVerifyingPlatformAuthenticatorAvailable` returning FALSE
+  with no Hello PIN/biometric enrolled, which is what produced the bare
+  `NotSupportedError` on Add passkey. Enrolment now refuses up front with
+  the actual next step, the config surface shows that state instead of
+  offering a dead button (and re-probes so it lights up once Hello is set
+  up), and every remaining API error is translated to plain language. The
+  first-run offer is raised only where a passkey could actually be taken
+  up, is declinable, and never touches the vault either way.
 - **No recovery key, no backdoor - the honest consequence (D-0062).** The
   master password is the sole 1-factor recovery. A forgotten master password
  - or a lost passkey while 2FA is required - makes the vault

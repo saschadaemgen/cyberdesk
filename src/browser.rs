@@ -2514,6 +2514,15 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             set_vault_state(&state);
             Ok(state)
         }
+        // Answer the first-run passkey offer (CD-44 D1): "not now" declines
+        // it, and the shell boots the workspace on the next pass. Enrolling
+        // from the offer uses vault_enroll_passkey and dismisses on success.
+        "vault_skip_passkey_offer" => {
+            crate::vault::dismiss_passkey_offer();
+            let state = crate::vault::state_json();
+            set_vault_state(&state);
+            Ok(state)
+        }
         // Enroll THE passkey via Windows Hello (CD-43): host-validated
         // (unlocked, none enrolled, platform available); the modal
         // MakeCredential + first PRF eval run on a vault worker - the page

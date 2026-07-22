@@ -72,6 +72,23 @@ whoever stages it is flagged then), and a `cargo test` tripwire
 during normal development. The purge itself replaced 1719 occurrences across
 67 files.
 
+*Stage D, recorded choices.* The first-run passkey offer is a pure UI step:
+the vault is already created and unlocked when it appears, it is raised only
+where a platform authenticator could actually serve it, declining or
+enrolling both simply end the step, and the workspace boots afterwards. The
+application icon is DERIVED from the committed brand, not invented: the
+generator (`scripts/make-icon.py`) reads `theme.toml` for the colours and
+the CARVILON ring geometry (radius, stroke, the 32-degree gap) and the
+Energy Core's hollow ring and spark, and emits both the multi-size `.ico`
+for the exe resource and a raw RGBA blob for the winit window icon. It uses
+only the Python standard library, so a token change is one command away from
+a regenerated icon. The exe resource is compiled by the Windows SDK `rc.exe`
+from `build.rs`, which - like the existing arti-version probe there - NEVER
+fails the build: without the tool the binary is merely icon-less in
+Explorer. If Sascha prefers a supplied artwork file over the derived mark,
+dropping it in as `assets/cyberdesk.ico` and regenerating the RGBA is the
+whole change.
+
 *Why.* The vault was cryptographically sound but unusable on first contact,
 and the first screen a user ever sees decides whether the product is
 trusted. These are product-critical corrections, made without weakening the

@@ -70,6 +70,13 @@ Nothing on the app path is throwaway work.
 - Request filter as adblock foundation (filter lists on the network level)
 - Later: Widevine for streaming DRM (plan for Google's license process), autofill via the Rust password core
 
+- **Per-section settings reveal animation (CD-44 Stage C follow-up, D-0064).**
+  The settings layer already opens full-screen with the workspace sliding
+  away over a fixed background, and its sections are independent cards in a
+  balanced multi-column flow. The next step is animating each section in on
+  its own (staggered reveal as the layer opens). Deliberately deferred by
+  Sascha; the card structure needs no rewrite to support it.
+
 ## Crypto + authorization (Season 6)
 
 - **Vault - foundation SHIPPED (CD-40, D-0058/D-0059/D-0060/D-0061);

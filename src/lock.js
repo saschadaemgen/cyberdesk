@@ -27,6 +27,9 @@
   var meterFb = document.getElementById("meter-fb");
   var weakEl = document.getElementById("weak");
   var weakUse = document.getElementById("weak-use");
+  var offerEl = document.getElementById("offer");
+  var offerAdd = document.getElementById("offer-add");
+  var offerSkip = document.getElementById("offer-skip");
 
   // The host's zxcvbn score 0..4, verbalized (D-0044: confident, accurate).
   var SCORE_LABELS = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
@@ -96,6 +99,32 @@
     // and no worker is running - the visual focus never lies (CD-44 A1).
     entryEl.classList.toggle("live", !!s.capture && !s.busy);
     renderMeter(s);
+
+    // The first-run passkey offer (CD-44 D1): the vault is already set up,
+    // so the entry and the meter step aside for one optional question.
+    if (s.offer_passkey) {
+      offerEl.hidden = false;
+      entryEl.hidden = true;
+      meterEl.hidden = true;
+      weakEl.hidden = true;
+      consequenceEl.hidden = true;
+      placeholderEl.hidden = true;
+      titleEl.textContent = "Master password set";
+      subtitleEl.textContent = "First launch - optional step";
+      hintEl.textContent =
+        "Your vault is ready. One optional extra: a passkey as the second factor.";
+      footEl.textContent = "";
+      var busyHello = s.hello === "enroll";
+      offerAdd.disabled = busyHello;
+      offerAdd.textContent = busyHello ? "Follow Windows Hello…" : "Set up passkey";
+      offerSkip.disabled = busyHello;
+      setStatus(s.error || (busyHello
+        ? "Confirm twice with Windows Hello: once to create the passkey, once to derive its vault secret."
+        : null), !s.error);
+      return;
+    }
+    offerEl.hidden = true;
+    entryEl.hidden = false;
 
     if (s.broken) {
       titleEl.textContent = "Vault unavailable";
@@ -202,6 +231,18 @@
 
   weakUse.addEventListener("click", function () {
     query({ cmd: "vault_accept_weak" }).then(function (r) {
+      try { render(JSON.parse(r)); } catch (e) {}
+    }).catch(function (e) { setStatus(String(e), false); });
+  });
+
+  offerAdd.addEventListener("click", function () {
+    query({ cmd: "vault_enroll_passkey" }).then(function (r) {
+      try { render(JSON.parse(r)); } catch (e) {}
+    }).catch(function (e) { setStatus(String(e), false); });
+  });
+
+  offerSkip.addEventListener("click", function () {
+    query({ cmd: "vault_skip_passkey_offer" }).then(function (r) {
       try { render(JSON.parse(r)); } catch (e) {}
     }).catch(function (e) { setStatus(String(e), false); });
   });

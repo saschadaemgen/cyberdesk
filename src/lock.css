@@ -169,6 +169,23 @@ h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
   color: var(--text-dim);
 }
 
+/* The first-run passkey offer (CD-44 D1): a clear, optional step, not a
+   modal that traps the user. */
+.offer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+}
+.offer-head { font-size: 14px; font-weight: 600; color: var(--brand); }
+.offer-text { font-size: 12.5px; line-height: 1.55; color: var(--text-dim); }
+.offer-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn.primary { border-color: var(--brand); color: var(--brand); }
+.btn.primary:hover { background: var(--brand); color: var(--bg); }
+
 .actions { display: flex; gap: 10px; }
 
 .btn {
