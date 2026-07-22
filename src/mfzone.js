@@ -1,5 +1,5 @@
 // MF-zone tabbed viewer (CD-18). Talks to the Rust host over the CEF message
-// router (window.cefQuery) only — no network, no fetch, no external resources.
+// router (window.cefQuery) only - no network, no fetch, no external resources.
 // Commands: get_log_lines (incremental via since_seq), tor_status. Wire format in
 // docs/cyberdesk-wire-format.md.
 
@@ -19,7 +19,7 @@
   }
 
   // Severity ranks (mirror the Rust ring: TRACE=0..ERROR=4). Used for the Log
-  // tab's level filter — never trust tracing's inverted Level ordering.
+  // tab's level filter - never trust tracing's inverted Level ordering.
   var SEV = { trace: 0, debug: 1, info: 2, warn: 3, warning: 3, error: 4 };
   function sevOf(level) { return SEV[(level || "").toLowerCase()] != null ? SEV[level.toLowerCase()] : 2; }
 
@@ -49,8 +49,8 @@
       t.setAttribute("aria-selected", on ? "true" : "false");
     });
     Object.keys(panes).forEach(function (k) { panes[k].classList.toggle("active", k === name); });
-    // CD-31 (D-0048): the MF zone's width is a property of the ZONE — identical
-    // for all three tabs — so tab switches are purely page-local now (the CD-30
+    // CD-31 (D-0048): the MF zone's width is a property of the ZONE - identical
+    // for all three tabs - so tab switches are purely page-local now (the CD-30
     // `mf_tab` report to the host is retired).
     render();
   }
@@ -85,7 +85,7 @@
   }
   function fmtPlain(l) { return fmtTime(l.ts) + " " + (l.level || "") + " " + (l.target || "") + "  " + (l.msg || ""); }
 
-  // Build one line element with textContent nodes (never innerHTML — a log msg
+  // Build one line element with textContent nodes (never innerHTML - a log msg
   // could contain markup; keep it inert).
   function lineEl(l) {
     var lvl = (l.level || "").toLowerCase();
@@ -127,7 +127,7 @@
   var torState = document.getElementById("tor-state");
   var torReason = document.getElementById("tor-reason");
   var STATE = ["idle", "connecting", "ready", "failed"];
-  var LABEL = ["Tor engine idle", "Connecting to the Tor network…", "Connected — Tor ready", "Tor bootstrap failed"];
+  var LABEL = ["Tor engine idle", "Connecting to the Tor network…", "Connected - Tor ready", "Tor bootstrap failed"];
   function paintTor(status, reason) {
     var s = STATE[status] || "idle";
     torHead.className = "tor-head s-" + s;

@@ -1,4 +1,4 @@
-// CARVILON CyberDesk — Deep Field background.
+// CARVILON CyberDesk - Deep Field background.
 //
 // A procedural, texture-free living background rendered at half resolution and
 // upscaled. Four layers, all token-driven, all within a tight amplitude budget

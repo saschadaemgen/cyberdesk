@@ -1,5 +1,5 @@
 /* Vault lock page styling (CD-40, D-0058). Colors come entirely from the
-   injected token custom properties (theme.toml / Theme::to_css_vars) — nothing
+   injected token custom properties (theme.toml / Theme::to_css_vars) - nothing
    hardcoded. Opaque panel, same idiom as the onion/info pages; the wgpu
    compositor paints the Pulse Grid behind it. */
 

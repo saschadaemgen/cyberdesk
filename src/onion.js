@@ -1,5 +1,5 @@
 // Onion refusal page (CD-35 Task B). Talks to the Rust host over the CEF
-// message router (window.cefQuery) only — no network, no fetch, no external
+// message router (window.cefQuery) only - no network, no fetch, no external
 // resources. The refused target and the slot id arrive in the query string
 // (?s=<slot>&u=<encoded url>), stamped by the host when it built this URL, so
 // the buttons act on the window they live in. The host re-validates everything
@@ -22,7 +22,7 @@
 
   // URLSearchParams.get already percent-decodes the strictly-encoded value
   // (the host encodes every reserved byte, so no literal '+' ever reaches the
-  // plus-to-space rule) — decoding again here would corrupt a target that
+  // plus-to-space rule) - decoding again here would corrupt a target that
   // legitimately contains %XX sequences.
   var params = new URLSearchParams(location.search);
   var target = params.get("u") || "";
@@ -30,7 +30,7 @@
 
   var addrEl = document.getElementById("addr");
   var errEl = document.getElementById("err");
-  // textContent only — the target is untrusted input and must never be markup.
+  // textContent only - the target is untrusted input and must never be markup.
   addrEl.textContent = target || "(no address)";
   addrEl.title = target;
 

@@ -1,11 +1,11 @@
-// CARVILON CyberDesk — per-slot lines (CD-09): the loading line and the active
+// CARVILON CyberDesk - per-slot lines (CD-09): the loading line and the active
 // accent, drawn for every slot in one instanced pass.
 //
-//   * Loading line — a thin brand bar along the slot's TOP edge with a highlight
+//   * Loading line - a thin brand bar along the slot's TOP edge with a highlight
 //     that sweeps left→right while the slot loads; overall alpha is the host-side
 //     loading intensity (ramps up on load, fades on done). Same look as the CD-08
 //     single loading line, now per slot.
-//   * Active accent — a thin brand line along the slot's BOTTOM edge, shown only
+//   * Active accent - a thin brand line along the slot's BOTTOM edge, shown only
 //     for the active slot (the one keyboard input and the top bar target).
 //
 // Both are brand-colored and premultiplied OVER; transparent everywhere else.

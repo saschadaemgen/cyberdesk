@@ -8,7 +8,7 @@ change (D-0053).
 
 ## Host<->CEF IPC (live)
 
-- Explicit allowlist of named commands — the sections below ARE the allowlist,
+- Explicit allowlist of named commands - the sections below ARE the allowlist,
   one section per command: name, direction, fields, error cases.
 - No generic eval or passthrough channels. The bridge (`window.cefQuery`) is
   exposed only on `cyberdesk://` frames; web pages have no IPC surface.
@@ -19,13 +19,13 @@ change (D-0053).
 ## Settings IPC (CD-03, live)
 
 The internal settings view (`cyberdesk://settings/`) talks to the Rust host over
-the CEF message router (`window.cefQuery`) — process messages, never network
+the CEF message router (`window.cefQuery`) - process messages, never network
 requests. The bridge is registered ONLY on `cyberdesk://` contexts, so it exists
 only on the internal view; the surf zone has no access to it.
 
 Transport: `window.cefQuery({ request, persistent: false, onSuccess, onFailure })`.
 `request` is a JSON string; the success response is a JSON string; failures carry
-`(error_code, message)`. Commands are an explicit allowlist — no generic eval.
+`(error_code, message)`. Commands are an explicit allowlist - no generic eval.
 
 ### `get_settings` (view -> host)
 
@@ -34,20 +34,20 @@ Transport: `window.cefQuery({ request, persistent: false, onSuccess, onFailure }
   (`tor_enabled` / `tor_default` added in CD-15; `fp_preset` / `fp_custom` in CD-25;
   `screen_preset` and the `rotate_*` identity-rotation keys in CD-29;
   `purge_residue` in CD-34.)
-  - `purge_residue` (default true) — the on-launch browsing-residue purge (CD-34,
+ - `purge_residue` (default true) - the on-launch browsing-residue purge (CD-34,
     D-0051).
-  - `glow_intensity` is a whole percent (50..=220).
-  - `search_engine` ∈ { `google`, `duckduckgo`, `bing`, `startpage`, `brave` }
+ - `glow_intensity` is a whole percent (50..=220).
+ - `search_engine` ∈ { `google`, `duckduckgo`, `bing`, `startpage`, `brave` }
     (CD-07; CD-27/D-0043 added `brave` and flipped the factory default to
     `duckduckgo`).
-  - `fp_preset` ∈ { `off`, `green`, `yellow`, `red`, `custom` } — the GLOBAL
+ - `fp_preset` ∈ { `off`, `green`, `yellow`, `red`, `custom` } - the GLOBAL
     Ampel level a window inherits (CD-25; graded CD-30, factory default `green`).
     `yellow`/`red` are the former `standard`/`strict` (identical content); the
     old names still parse as aliases so persisted configs never silently change.
-  - `fp_custom` — the per-vector flags used when `fp_preset` is `custom`: one
-    boolean per vector key in the CD-29/CD-32 surface — `canvas`, `webgl`,
+ - `fp_custom` - the per-vector flags used when `fp_preset` is `custom`: one
+    boolean per vector key in the CD-29/CD-32 surface - `canvas`, `webgl`,
     `gpu`, `audio`, `metrics`, `nav` (device profile), `fonts`, `timing`,
-    `media`, `math`, `viewport` (window size, CD-32) — plus the level flags the
+    `media`, `math`, `viewport` (window size, CD-32) - plus the level flags the
     config model carries (`harden::VECTOR_KEYS` is the authoritative order).
 - Failure: code 1 (malformed request JSON).
 
@@ -55,26 +55,26 @@ Transport: `window.cefQuery({ request, persistent: false, onSuccess, onFailure }
 
 - Request: `{"cmd":"set_setting","key":"<key>","value":<bool|int|str>[,"confirm":<bool>]}`
 - Writable keys and their value types:
-  - `feather_edges`, `animated_background`, `stay_foreground` — boolean.
-  - `purge_residue` — boolean (CD-34, D-0051); the on-launch browsing-residue purge.
+ - `feather_edges`, `animated_background`, `stay_foreground` - boolean.
+ - `purge_residue` - boolean (CD-34, D-0051); the on-launch browsing-residue purge.
     Default true. Setting it to `false` is a WEAKENING and requires `"confirm":true`
     (the host re-validates the D-0040 gate, code 3 without it); setting it `true` is
     immediate. See `get_residue_footprint` for the live readout.
-  - `glow_intensity` — number (whole percent; accepts a JSON number or a numeric
+ - `glow_intensity` - number (whole percent; accepts a JSON number or a numeric
     string, clamped host-side to 50..=220).
-  - `search_engine` — string (CD-07); one of `google`, `duckduckgo`, `bing`,
+ - `search_engine` - string (CD-07); one of `google`, `duckduckgo`, `bing`,
     `startpage`, `brave` (CD-27). Any other value is rejected with code 3.
-  - `screen_preset` — string (CD-29); the GLOBAL reported-screen size, one of
+ - `screen_preset` - string (CD-29); the GLOBAL reported-screen size, one of
     `1920x1080` (default), `1600x900`, `1280x720`. Sets the common resolution web
     slots report for `screen.*`; the actual viewport is never faked. Changing it
     respawns every slot that inherits the global screen. Any other value → code 3.
-  - `rotate_on_restart`, `rotate_auto`, `rotate_new_circuit` — boolean (CD-29
+ - `rotate_on_restart`, `rotate_auto`, `rotate_new_circuit` - boolean (CD-29
     identity rotation). `rotate_on_restart` (default true) mints a fresh global
     identity seed each launch; turning it OFF persists the current seed for a stable
     cross-launch identity. `rotate_auto` (default false) enables the timed global
     re-roll (the Pulse Grid countdown). `rotate_new_circuit` (default false) also
     rotates Tor circuits on a rotation.
-  - `rotate_interval_min` — number (CD-29); automatic-rotation interval in whole
+ - `rotate_interval_min` - number (CD-29); automatic-rotation interval in whole
     minutes, clamped host-side to 1..=180.
 - Effect: updates the in-memory setting (applied by the next rendered frame /
   next navigation) and the SQLite `settings` row (survives restart).
@@ -89,36 +89,36 @@ with code 4. There is no passthrough channel.
 
 ### `get_residue_footprint` (view -> host, CD-34, D-0051)
 
-The anti-forensic on-disk readout — the live browsing-cache footprint plus what the
+The anti-forensic on-disk readout - the live browsing-cache footprint plus what the
 last launch purge did. Read-only, truthful by construction (both sizes are measured).
 
 - Request: `{"cmd":"get_residue_footprint"}`
 - Success: `{"enabled":<bool>,"on_disk_bytes":<int>,"on_disk_human":<str>,"last_purge":{"ran":<bool>,"found_bytes":<int>,"found_human":<str>,"cleared":<bool>,"error":<str|null>}}`
-  - `enabled` — whether the on-launch purge is on (the `purge_residue` setting).
-  - `on_disk_*` — the CURRENT size of the browsing-cache/profile directory: the
+ - `enabled` - whether the on-launch purge is on (the `purge_residue` setting).
+ - `on_disk_*` - the CURRENT size of the browsing-cache/profile directory: the
     working profile CEF scaffolds while running. It holds no browsing content (that
     is RAM-only, CD-33) and is wiped at the next launch.
-  - `last_purge` — what the launch purge did: `ran` (was it enabled), `found_bytes`
+ - `last_purge` - what the launch purge did: `ran` (was it enabled), `found_bytes`
     (residue found before deleting), `cleared` (target removed), `error` (a non-fatal
     message if it could not fully complete, else null).
 - Failure: code 1 (malformed request JSON).
 
 ### `set_hardening` (view -> host, CD-25; vectors extended CD-29; Ampel CD-30)
 
-The GLOBAL Ampel level — its own command (not `set_setting`) because it carries
+The GLOBAL Ampel level - its own command (not `set_setting`) because it carries
 a structured `vectors` object and a weakening `confirm` flag. Sent by the
 settings card AND the floating HUD Ampel (CD-30).
 
 - Request: `{"cmd":"set_hardening","level":"<off|green|yellow|red|custom>"[,"vectors":{...}][,"confirm":<bool>]}`
   (`standard`/`strict` accepted as aliases of `yellow`/`red`)
-  - `vectors` (CD-29) keys are the ten vectors: `canvas`, `webgl` (readback), `gpu`
+ - `vectors` (CD-29) keys are the ten vectors: `canvas`, `webgl` (readback), `gpu`
     (vendor/renderer identity), `audio`, `metrics`, `nav` (device profile), `fonts`,
     `timing` (clock), `media` (codecs/voices), `math`. Read only when `level` is
     `custom`; **absent flags default to `true`** (so an older/partial page never
-    silently weakens a vector — and a CD-25 six-key object upgrades with the four new
+    silently weakens a vector - and a CD-25 six-key object upgrades with the four new
     vectors ON).
-  - `confirm` — REQUIRED (`true`) to WEAKEN: any step DOWN the Ampel ladder
-    (Red→Yellow→Green→Off — CD-30 made leaving Red's tight buckets a weakening
+ - `confirm` - REQUIRED (`true`) to WEAKEN: any step DOWN the Ampel ladder
+    (Red→Yellow→Green→Off - CD-30 made leaving Red's tight buckets a weakening
     too), or a dropped vector. The host re-validates the two-confirmation safety
     gate rather than trusting the page to have run it; an unconfirmed weakening
     is rejected with code 3. Strengthening (up the ladder / re-enabling a
@@ -132,14 +132,14 @@ settings card AND the floating HUD Ampel (CD-30).
 ### `set_slot_hardening` (view -> host, CD-25; per-vector custom CD-29)
 
 A PER-WINDOW override. Since CD-29 (Task C) it accepts a full per-vector `custom`,
-not just presets — every vector is settable per-window as well as globally.
+not just presets - every vector is settable per-window as well as globally.
 
 - Request: `{"cmd":"set_slot_hardening","level":"<inherit|off|green|yellow|red|custom>"[,"vectors":{...}][,"confirm":<bool>][,"slot":<int>]}`
   (`standard`/`strict` accepted as aliases of `yellow`/`red`)
-  - `inherit` clears the override (the window follows the global again).
-  - `custom` carries a `vectors` object (same ten keys as `set_hardening`); absent
+ - `inherit` clears the override (the window follows the global again).
+ - `custom` carries a `vectors` object (same ten keys as `set_hardening`); absent
     keys stay ON. When `vectors` is omitted the slot's existing custom is reused.
-  - `confirm` — same weakening rule as `set_hardening`; the host compares the window's
+ - `confirm` - same weakening rule as `set_hardening`; the host compares the window's
     current effective config to the target and rejects an unconfirmed weakening (code 3).
 - Effect: queues the override for the main thread, which respawns the slot's browser
   under the new config (like a Tor flip). Overrides are session-ephemeral (not
@@ -149,7 +149,7 @@ not just presets — every vector is settable per-window as well as globally.
 
 ### `new_identity` (view -> host, CD-29)
 
-The MANUAL per-window "new identity now" — re-rolls THIS window's farble seed (and its
+The MANUAL per-window "new identity now" - re-rolls THIS window's farble seed (and its
 Tor circuit if `rotate_new_circuit` is on) and respawns it so the fresh document loads
 under the new identity immediately.
 
@@ -176,9 +176,9 @@ The PER-WINDOW reported-screen preset (the per-window counterpart of the global
 gate.
 
 - `set_slot_screen`: `{"cmd":"set_slot_screen","value":"<inherit|1920x1080|1600x900|1280x720>"[,"slot":<int>]}`
-  - `inherit` clears the override; else respawns the slot so `screen.*` reports the
+ - `inherit` clears the override; else respawns the slot so `screen.*` reports the
     new common value. Session-ephemeral; a reused slot id starts fresh.
-  - Success: `{"ok":true}`; Failure: code 2 (missing/unknown value).
+ - Success: `{"ok":true}`; Failure: code 2 (missing/unknown value).
 - `get_slot_screen`: `{"cmd":"get_slot_screen"[,"slot":<int>]}` →
   `{"value":"<preset name>","inherited":<bool>}`.
 
@@ -187,8 +187,8 @@ gate.
 The command bar view (`cyberdesk://command/`) drives navigation over the same
 message-router bridge as the settings view (`window.cefQuery`, process messages
 only, registered on `cyberdesk://` contexts only). Since CD-09 (D-0017) every
-command here targets the **active slot** — the host reads/drives
-`browser::active_slot()` internally — rather than a single fixed surf view; the
+command here targets the **active slot** - the host reads/drives
+`browser::active_slot()` internally - rather than a single fixed surf view; the
 top bar always shows and drives the active column. This needed **no new commands
 and no field changes**: the wire format below is unchanged from CD-08, only the
 host-side target moved from `Role::Surf` to the active slot. The internal views
@@ -201,9 +201,9 @@ CD-10 (sessions, width units, rearrange, open-in-new-slot; D-0018/D-0019) added
 shortcuts are host-side key handling, and open-in-new-slot is a CEF
 `on_before_popup` decision (not a page command). The wire format is unchanged.
 
-CD-11 (the main frame — side zones, reflow-to-rails; D-0020) is likewise **no
+CD-11 (the main frame - side zones, reflow-to-rails; D-0020) is likewise **no
 IPC**: the frame is pure host-side layout math (`slots::frame_layout`) and shell
-rendering. The wire format is unchanged. The **revised frame law (D-0022** — three
+rendering. The wire format is unchanged. The **revised frame law (D-0022** - three
 slots, a permanent right Multifunctional zone, a flexible left Spine zone, gutter
 56) is also **no IPC**: it only changes `frame_layout`'s pure math and the shell
 glyphs. The CD-12 `cdFrame` push below carries the resulting slot rects verbatim,
@@ -212,11 +212,11 @@ so the floating layer adapts with no wire change.
 CD-14 (own start page, no saved websites; D-0025) adds **no new commands**. The
 own start page (`cyberdesk://start/`, the default content of every empty slot) is
 served from the binary and reuses the existing `navigate` (search / address box)
-and `query_suggestions ""` (favorite tiles) commands below — both act on the
+and `query_suggestions ""` (favorite tiles) commands below - both act on the
 active slot (interacting with a slot activates it). The one wiring change: the
 browser-side message router now forwards `on_process_message_received` for **every**
 view, not just the internal one, so a slot's start page can use `window.cefQuery`.
-This is safe — `cefQuery` is exposed only on `cyberdesk://` frames (the render-side
+This is safe - `cefQuery` is exposed only on `cyberdesk://` frames (the render-side
 `on_context_created` gate), and the start page is the sole `cyberdesk://` content a
 slot ever shows (a web page in a slot has no query bridge). Session-URL persistence
 is removed (store-side, no IPC).
@@ -224,24 +224,24 @@ is removed (store-side, no IPC).
 CD-12 (floating command sets; D-0021) **retires the single top bar**. The command
 view becomes N floating **ensembles** (one per column) plus a shared favorites
 launcher, so every navigation command below now accepts an **optional `slot`
-field** — the id of the ensemble's column. The host's `target_slot` reads it
+field** - the id of the ensemble's column. The host's `target_slot` reads it
 (clamped to a live slot), else falls back to the keyboard-active slot (so an
 omitted `slot` preserves the CD-09 behaviour). No commands were removed and no
-fields renamed; `slot` is purely additive. Two new pieces — the host→page frame
-push (`window.cdFrame`) and `drag_start` — are documented under "Floating command
+fields renamed; `slot` is purely additive. Two new pieces - the host→page frame
+push (`window.cdFrame`) and `drag_start` - are documented under "Floating command
 sets IPC" below.
 
 ### `get_nav_state` (view -> host)
 
-- Request: `{"cmd":"get_nav_state"[,"slot":<int>]}` — `slot` (CD-12) selects the
+- Request: `{"cmd":"get_nav_state"[,"slot":<int>]}` - `slot` (CD-12) selects the
   ensemble's column; omitted → the active slot. Each ensemble's capsule shows its
   own column's url/title/scheme/star.
 - Success: `{"url":<str>,"title":<str>,"can_back":<bool>,"can_forward":<bool>,"loading":<bool>,"scheme":<str>,"favorite":<bool>,"autofocus":<bool>}`
-  - `scheme` ∈ { `https`, `http`, `other` }, derived host-side from `url`. The
+ - `scheme` ∈ { `https`, `http`, `other` }, derived host-side from `url`. The
     command bar paints the amber "insecure" hint when `scheme == "http"`.
-  - `favorite` (CD-07) is whether `url` is currently a favorite; it drives the
+ - `favorite` (CD-07) is whether `url` is currently a favorite; it drives the
     star glyph in the command bar.
-  - `autofocus` (CD-08) tells the bar page whether to focus + select its input on
+ - `autofocus` (CD-08) tells the bar page whether to focus + select its input on
     this open: `true` for a Ctrl+L reveal, `false` for a hover-to-top reveal
     (which shows the favorites chips without stealing the caret). Set host-side
     before each reveal.
@@ -249,20 +249,20 @@ sets IPC" below.
 
 ### `navigate` (view -> host)
 
-- Request: `{"cmd":"navigate","input":"<str>"[,"slot":<int>]}` — `slot` (CD-12)
+- Request: `{"cmd":"navigate","input":"<str>"[,"slot":<int>]}` - `slot` (CD-12)
   targets the ensemble's column; omitted → the active slot.
 - `input` is the raw command-bar text; the host classifies it (URL vs. search):
-  - contains `://` -> used verbatim (an explicit `http://` stays http)
-  - `localhost` (optionally `:port`/`/path`), or a dot with no whitespace ->
-    `https://<input>` — except a `.onion` host, which defaults to
+ - contains `://` -> used verbatim (an explicit `http://` stays http)
+ - `localhost` (optionally `:port`/`/path`), or a dot with no whitespace ->
+    `https://<input>` - except a `.onion` host, which defaults to
     `http://<input>` (CD-35, D-0052: the onion transport is E2E-encrypted;
     https-onion certificates are a later phase)
-  - empty -> `about:blank`
-  - otherwise -> a search on the SELECTED engine (CD-07; factory default
-    DuckDuckGo, and every unknown-engine fallback is DuckDuckGo — never
+ - empty -> `about:blank`
+ - otherwise -> a search on the SELECTED engine (CD-07; factory default
+    DuckDuckGo, and every unknown-engine fallback is DuckDuckGo - never
     silently Google, CD-27/D-0043)
 - Onion reroute (CD-35): a classified `.onion` target in a CLEARNET slot does
-  not navigate — the host reroutes to the refusal page
+  not navigate - the host reroutes to the refusal page
   `cyberdesk://onion/?s=<slot>&u=<encoded target>` before any resolver is
   consulted; the reply's `url` is then the refusal URL. Tor slots pass
   `.onion` through unchanged.
@@ -275,7 +275,7 @@ sets IPC" below.
 ### `go_back` / `go_forward` / `reload` (view -> host)
 
 - Request: `{"cmd":"go_back"[,"slot":<int>]}` | `{"cmd":"go_forward"[,"slot":<int>]}`
-  | `{"cmd":"reload"[,"slot":<int>]}` — `slot` (CD-12) targets the ensemble's
+  | `{"cmd":"reload"[,"slot":<int>]}` - `slot` (CD-12) targets the ensemble's
   column; omitted → the active slot.
 - Effect: the target slot steps back / forward in session history, or reloads.
   Back/forward are no-ops when `can_back` / `can_forward` (from `get_nav_state`)
@@ -291,18 +291,18 @@ host-side from the shell key map, not over this channel.
 The command bar is a command palette: it shows live suggestions from the local
 favorites + history store (D-0014) and toggles favorites. Same transport and
 error-code space as above (internal `cyberdesk://command/` view only). All local
-— no network.
+- no network.
 
 ### `query_suggestions` (view -> host)
 
 - Request: `{"cmd":"query_suggestions","input":"<str>"}`
-  - `input` is the current command-bar text; a missing `input` is treated as empty.
+ - `input` is the current command-bar text; a missing `input` is treated as empty.
 - Success: a JSON array (0..=`command.max_results` items), best first:
   `[{"url":<str>,"title":<str>,"favorite":<bool>}, …]`
-  - Ranking (host-side): matching favorites first (in their saved order), then
+ - Ranking (host-side): matching favorites first (in their saved order), then
     matching history by frecency (see D-0014). Empty `input` returns the top
     favorites. Matching is a case-insensitive substring on url + title.
-  - CD-08: the bar renders an empty-`input` reply as the favorites **chip** row
+ - CD-08: the bar renders an empty-`input` reply as the favorites **chip** row
     (up to `command.max_results` chips) and a non-empty reply as the suggestion
     **list**. Host-side, the reply length plus whether `input` was empty size the
     bar (`input row + chip row`, or `input row + N suggestion rows`). Only one of
@@ -312,10 +312,10 @@ error-code space as above (internal `cyberdesk://command/` view only). All local
 ### `toggle_favorite` (view -> host)
 
 - Request: `{"cmd":"toggle_favorite","url":"<str>","title":"<str>"}`
-  - A missing `title` defaults to empty. Internal `cyberdesk://` / blank URLs are
+ - A missing `title` defaults to empty. Internal `cyberdesk://` / blank URLs are
     ignored (they are never favorited).
 - Effect: adds the URL to favorites (appended at the end) or removes it.
-- Success: `{"favorite":<bool>}` — the new state (true = now a favorite).
+- Success: `{"favorite":<bool>}` - the new state (true = now a favorite).
 - Failure: code 1 (malformed request), 2 (missing `url`).
 
 The surf-view **Ctrl+D** toggles the current page's favorite host-side (from the
@@ -327,12 +327,12 @@ use `toggle_favorite`.
 The command surface is now a hover-reveal **top bar** (D-0016). Its reveal/hide
 animation is entirely host-side; the page adds one signal so a typing user is not
 interrupted by a mouse-out. Chips reuse the empty-`input` `query_suggestions`
-above — there is no separate favorites command.
+above - there is no separate favorites command.
 
 ### `bar_typing` (view -> host)
 
 - Request: `{"cmd":"bar_typing","active":<bool>}`
-  - `active` = the bar's input is focused **and** holds text (the prefilled URL
+ - `active` = the bar's input is focused **and** holds text (the prefilled URL
     counts). The page reports it on the input's focus / blur / input events, only
     when the value changes.
 - Effect: while `active` is true the host's mouse-out hysteresis will not hide the
@@ -342,7 +342,7 @@ above — there is no separate favorites command.
 - Failure: code 1 (malformed request JSON). A missing `active` defaults to false.
 
 The reveal (hover into the top gap, or Ctrl+L which sets `autofocus`) and the hide
-(mouse-out + ~250 ms hysteresis, a committed `navigate`, or ESC — with the typing
+(mouse-out + ~250 ms hysteresis, a committed `navigate`, or ESC - with the typing
 exception above) are decided host-side; see docs/cyberdesk-decisions.md D-0016.
 
 ## Floating command sets IPC (CD-12, live)
@@ -356,30 +356,30 @@ unknown `cmd`).
 
 ### `cdFrame(json)` (host -> view, push)
 
-Not a `cefQuery` — the host calls `window.cdFrame(<json-string>)` on the band view
+Not a `cefQuery` - the host calls `window.cdFrame(<json-string>)` on the band view
 via `Frame::execute_java_script` whenever the frame state **changes** (engaged slot,
 any column's target x/width, per-column Tor mode, or the Tor engine status), never per
 frame (the CD-11 on-change cadence). The page positions/reveals its ensembles from it
 and glides via CSS (~220 ms).
 
 - Payload: `{"slots":[{"id":<int>,"x":<num>,"w":<num>,"tor":<bool>,"fp":<int>,"fp_inherited":<bool>,"fp_reduced":<bool>}, …],"engaged":<int|null>,"autofocus":<bool>,"tor_status":<int>}`
-  - `slots` — one entry per live column in display order; `x`/`w` are **band-DIP**
+ - `slots` - one entry per live column in display order; `x`/`w` are **band-DIP**
     (the band's origin = the window origin), so the page places each ensemble above
     its column. `id` is the stable slot id (the same id the `slot` field carries back).
-    `tor` — whether this column is on Tor (lights its anonymity icon).
-  - `fp` (CD-25; Ampel CD-30) — this window's EFFECTIVE Ampel level: 0 off /
-    1 green / 2 yellow / 3 red / 4 custom — the code IS the ladder rank for
-    0..3 — driving the per-window mini-Ampel.
-  - `fp_inherited` (CD-25) — `true` if the window follows the global preset, `false`
+    `tor` - whether this column is on Tor (lights its anonymity icon).
+ - `fp` (CD-25; Ampel CD-30) - this window's EFFECTIVE Ampel level: 0 off /
+    1 green / 2 yellow / 3 red / 4 custom - the code IS the ladder rank for
+    0..3 - driving the per-window mini-Ampel.
+ - `fp_inherited` (CD-25) - `true` if the window follows the global preset, `false`
     if it has its own override (the mini-Ampel shows a distinct override marker).
-  - `fp_reduced` (CD-25; CD-30 floor = Green) — `true` when the effective config is
-    below the Green floor (off, or a dropped Green-core vector — Green itself is a
+ - `fp_reduced` (CD-25; CD-30 floor = Green) - `true` when the effective config is
+    below the Green floor (off, or a dropped Green-core vector - Green itself is a
     first-class safe level); the mini-Ampel reads as a warning (honesty rule).
-  - `engaged` — the id of the column whose ensemble is revealed, or `null` (all hidden).
-  - `autofocus` — focus + select the engaged capsule's input on this reveal (Ctrl+L).
+ - `engaged` - the id of the column whose ensemble is revealed, or `null` (all hidden).
+ - `autofocus` - focus + select the engaged capsule's input on this reveal (Ctrl+L).
     A **transient**: it is excluded from the host's change-signature, so a routine
     position-only push cannot clear a pending focus.
-  - `tor_status` — the Tor engine status (0 off / 1 connecting / 2 ready / 3 failed),
+ - `tor_status` - the Tor engine status (0 off / 1 connecting / 2 ready / 3 failed),
     driving the per-window anonymity indicator. **CD-23:** it is part of the host's
     change-signature, and the host also re-pushes the frame when `tor::status()`
     transitions on its background thread (e.g. bootstrapping→ready), so the indicator
@@ -394,17 +394,17 @@ and glides via CSS (~220 ms).
   host **re-stamps the live `tor_status`** into it at pull time (CD-23), so a
   (re)created / reloaded consumer always gets the current engine state, never a stale
   "connecting". Because of that stamp the reply always carries at least a `tor_status`
-  key — before the first real push it is the `{}` seed with the live status stamped in
+  key - before the first real push it is the `{}` seed with the live status stamped in
   (`{"tor_status":<0-3>}`), never a bare `{}` or an empty string.
 - Failure: code 1 (malformed request JSON).
 
 ### `drag_start` (view -> host)
 
 - Request: `{"cmd":"drag_start","url":"<str>","title":"<str>"}`
-  - Fired by a favorites launcher **tile** once the pointer leaves a 6 px threshold
+ - Fired by a favorites launcher **tile** once the pointer leaves a 6 px threshold
     (a plain click still navigates the engaged column). A missing `title` defaults
     to empty.
-- Effect: the host **takes over the drag** — it draws a ghost circle on the cursor
+- Effect: the host **takes over the drag** - it draws a ghost circle on the cursor
   and the control gutters as drop zones, captures the mouse (slot views receive no
   events), and on release inserts + spawns the favorite as a new column at the
   nearest gutter, or (at full capacity) navigates the slot under the ghost. ESC
@@ -413,12 +413,12 @@ and glides via CSS (~220 ms).
 - Failure: code 1 (malformed request), 2 (missing `url`).
 
 The per-slot **close orb** (a shell-drawn ring + cross revealed on top-outer-corner
-hover, a click closes that column) is **no IPC** — it is drawn by the renderer and
+hover, a click closes that column) is **no IPC** - it is drawn by the renderer and
 hit-tested host-side, like the gear button.
 
 ### `toggle_tor` (view -> host, CD-15)
 
-- Request: `{"cmd":"toggle_tor"[,"slot":<int>]}` — the ensemble's Tor shield glyph.
+- Request: `{"cmd":"toggle_tor"[,"slot":<int>]}` - the ensemble's Tor shield glyph.
   `slot` is the column id; omitted → the active slot.
 - Effect: queues a per-window Tor flip for the main thread, which tears the slot's
   browser down and respawns it under the other request context (Tor: a proxied
@@ -429,7 +429,7 @@ hit-tested host-side, like the gear button.
 ### `onion_open_tor` / `onion_switch_tor` (view -> host, CD-35)
 
 - Request: `{"cmd":"onion_open_tor","url":<str>[,"slot":<int>]}` /
-  `{"cmd":"onion_switch_tor","url":<str>[,"slot":<int>]}` — the onion refusal
+  `{"cmd":"onion_switch_tor","url":<str>[,"slot":<int>]}` - the onion refusal
   page's two offers (`cyberdesk://onion/?s=<slot>&u=<strictly-percent-encoded
   target>`; the page reads both params and sends the slot it lives in).
 - Effect: `onion_open_tor` queues opening `url` in a NEW Tor window beside slot
@@ -438,12 +438,12 @@ hit-tested host-side, like the gear button.
   teardown/respawn semantics, fresh identity) spawning at `url` instead of the
   start page. Host re-validates: `url` must be an http(s) `.onion` URL.
 - Success: `{"ok":true}`. Failure: code 1 (malformed request JSON), 2 (missing
-  `url` / not an onion URL), 3 (Tor disabled in Settings — the page shows the
+  `url` / not an onion URL), 3 (Tor disabled in Settings - the page shows the
   message inline; honest, no dead end).
 
 ### `close_slot` (view -> host, CD-18)
 
-- Request: `{"cmd":"close_slot"[,"slot":<int>]}` — the ensemble's close icon. `slot`
+- Request: `{"cmd":"close_slot"[,"slot":<int>]}` - the ensemble's close icon. `slot`
   is the column id; omitted → the active slot.
 - Effect: queues a per-window close for the main thread, which enforces
   last-slot-refuses + neighbor promotion (`close_slot_at`, the single choke point
@@ -452,15 +452,15 @@ hit-tested host-side, like the gear button.
 
 ### `quit` / `quit_save` (view -> host, CD-21)
 
-- Request: `{"cmd":"quit"}` or `{"cmd":"quit_save"}` — the two floating quit buttons
+- Request: `{"cmd":"quit"}` or `{"cmd":"quit_save"}` - the two floating quit buttons
   in the MF-zone view (`cyberdesk://mfzone/`). **Application-level** quit (they end
   the whole shell), deliberately distinct from `close_slot` (one window).
 - Effect: sets a `pending_quit` flag `Some(false)` (`quit`) / `Some(true)`
   (`quit_save`) for the main thread; the drain in `about_to_wait` calls
   `event_loop.exit()` (so `shutdown_cef` runs after `run_app` returns). `quit_save`
   first persists the session (schema v6 `session_slots` + the `session_savequit`
-  restore flag): per slot the mode (Tor/clearnet), width, active, order, and — for
-  clearnet slots only — the URL (Tor-slot and internal/blank URLs are stored empty
+  restore flag): per slot the mode (Tor/clearnet), width, active, order, and - for
+  clearnet slots only - the URL (Tor-slot and internal/blank URLs are stored empty
   for privacy, D-0035). Plain `quit` writes nothing → the next launch is the default
   two-slot layout. The IPC handler runs on the CEF UI thread and never touches the
   event loop directly.
@@ -476,7 +476,7 @@ bootstraps (1), reads a distinct **ready** state (2), and warns on **failed** (3
 ### `tor_status` (view -> host)
 
 - Request: `{"cmd":"tor_status"}` (the settings page + the MF-zone Tor tab poll it).
-- Success: `{"status":<int>,"reason":<str>,"version":<str>}` — `status` 0 off (not
+- Success: `{"status":<int>,"reason":<str>,"version":<str>}` - `status` 0 off (not
   started) / 1 bootstrapping / 2 ready / 3 failed; `reason` the failure reason
   (empty unless failed, CD-15 HOTFIX); `version` the embedded arti-client version
   (CD-18). Failure: code 1 (malformed request JSON).
@@ -485,7 +485,7 @@ bootstraps (1), reads a distinct **ready** state (2), and warns on **failed** (3
 
 - Request: `{"cmd":"tor_new_circuit"}` (the settings "New circuit" button).
 - Effect: bumps a "new identity" epoch so each per-slot SOCKS relay rebuilds its
-  isolated Tor client on its next connection — subsequent streams ride fresh
+  isolated Tor client on its next connection - subsequent streams ride fresh
   circuits under a fresh isolation group (reload a page to use its new circuit). A
   lock-free atomic bump; never touches the proxy or the fail-closed guarantee.
 - Success: `{"ok":true}`. Failure: code 1 (malformed request JSON).
@@ -495,7 +495,7 @@ bootstraps (1), reads a distinct **ready** state (2), and warns on **failed** (3
 Two boolean settings join the `get_settings` reply and are writable via
 `set_setting` (the generic boolean path, D-0014): `tor_enabled` (engine master
 switch, default `true`) and `tor_default` (open new windows on Tor, default
-`false`). No new command — the wire shape is the CD-03 settings channel.
+`false`). No new command - the wire shape is the CD-03 settings channel.
 
 ## MF-zone viewer IPC (CD-18, live)
 
@@ -503,11 +503,11 @@ The MF-zone viewer (`cyberdesk://mfzone/`) uses the same message-router bridge a
 settings/info. Its Tor tab reuses `tor_status`; its Tor + Log tabs stream the log
 ring buffer via one command.
 
-### `mf_tab` (view -> host, CD-30) — RETIRED in CD-31 (D-0048)
+### `mf_tab` (view -> host, CD-30) - RETIRED in CD-31 (D-0048)
 
 The MF zone's width is a property of the ZONE, never of the active tab: Tor,
 Log and Terminal all render at the same width, which sizes in DISCRETE steps
-(large/medium/small — `slots::mf_step_width`) and reduces only when the window
+(large/medium/small - `slots::mf_step_width`) and reduces only when the window
 is too small to hold the step alongside the nominal columns. The viewer no
 longer reports tab switches; the host accepts a stale page's `mf_tab` as a
 harmless no-op (`{"ok":true}`) so a cached document never surfaces an error.
@@ -516,14 +516,14 @@ harmless no-op (`{"ok":true}`) so a cached document never surfaces an error.
 
 - Request: `{"cmd":"get_log_lines"[,"since_seq":<int>][,"filter":{"target_prefix":<str>,"level_min":<str>}]}`.
   `since_seq` returns only records with a **strictly higher** `seq` (incremental
-  polling — the page sends back the highest seq it has seen). **Omit** `since_seq`
+  polling - the page sends back the highest seq it has seen). **Omit** `since_seq`
   for the whole buffer (sending `0` would drop the record with `seq` 0).
   `filter.target_prefix` keeps records whose `tracing` target starts with the prefix
   (e.g. `tor_`, `cyberdesk::tor`); `filter.level_min` is a min severity word
   (`trace`/`debug`/`info`/`warn`/`error`).
 - Success: a JSON array `[{"seq":<int>,"ts":<int ms>,"level":<str>,"target":<str>,"msg":<str>}, ...]`
   oldest→newest, from the in-memory ring buffer (last ~2000 records; the file log is
-  separate). The ring copies only the message field — never other structured fields,
+  separate). The ring copies only the message field - never other structured fields,
   so no secrets leak into the viewer. Failure: code 1 (malformed request JSON).
 
 ## HUD strip IPC (CD-30, live)
@@ -538,24 +538,24 @@ and the countdown locally, off absolute anchors.
 
 - Payload:
   `{"sent_ms":<unix ms>,"tz_offset_min":<int>,"level":<str>,"vectors_on":<int>,"vectors_total":<int>,"reduced":<bool>,"route":{"window":<1-based pos>,"slot":<id>,"tor":<bool>,"onion":<bool>},"rotate":{"auto":<bool>,"interval_min":<int>,"elapsed_ms":<int>},"identity_age_ms":<int>}`
-  - `sent_ms` — the host's send time; the page converts the elapsed-based fields
+ - `sent_ms` - the host's send time; the page converts the elapsed-based fields
     into ABSOLUTE anchors at receive time (`deadline = sent_ms + interval −
     elapsed`, `born = sent_ms − identity_age_ms`), so a re-pulled cache can never
     show a drifted countdown.
-  - `tz_offset_min` — the OS timezone's UTC offset. The process runs under
+ - `tz_offset_min` - the OS timezone's UTC offset. The process runs under
     `TZ=UTC` (CD-16), so the clock derives local time from this, never from the
     clamped C-runtime timezone.
-  - `level` (`off|green|yellow|red|custom`) / `vectors_on` / `vectors_total` /
-    `reduced` — the GLOBAL Ampel level, its honest live vector count (`N/10`),
+ - `level` (`off|green|yellow|red|custom`) / `vectors_on` / `vectors_total` /
+    `reduced` - the GLOBAL Ampel level, its honest live vector count (`N/10`),
     and whether it sits below the Green floor (drives the warn tint). Truthful
     by construction: read from the same resolved config the render processes
     receive. The HUD's Ampel lamps light strictly from `level`.
-  - `route` — the ACTIVE window's route (`tor` bool; window is its 1-based
+ - `route` - the ACTIVE window's route (`tor` bool; window is its 1-based
     display position). Real CD-15 state; there is no other route kind. `onion`
-    (CD-35): the window is a Tor window AND its current page is a `.onion` —
+    (CD-35): the window is a Tor window AND its current page is a `.onion` -
     derived from the live slot URL, shown as "Tor · Onion". Claims exactly
     "connected to an onion service", nothing more.
-  - `rotate` — the CD-29 auto-rotation state driving the countdown field; when
+ - `rotate` - the CD-29 auto-rotation state driving the countdown field; when
     `auto` is false the page shows the identity age instead.
 - Push signature: level, vector count, reduced, active window/route, rotate
   settings, the global rotation EPOCH (bumped per re-roll, so a re-roll
@@ -564,31 +564,31 @@ and the countdown locally, off absolute anchors.
 
 ### `get_hud_state` (view -> host)
 
-- Request: `{"cmd":"get_hud_state"}` — pull-on-load; returns the cached `cdHud`
+- Request: `{"cmd":"get_hud_state"}` - pull-on-load; returns the cached `cdHud`
   payload (`{}` before the first push). Failure: code 1 (malformed request).
 
 ### `open_settings` (view -> host, CD-30)
 
-- Request: `{"cmd":"open_settings"}` — the HUD Ampel's "Custom…" points the user
+- Request: `{"cmd":"open_settings"}` - the HUD Ampel's "Custom…" points the user
   at the per-vector view, which lives in the settings card.
 - Effect: queues an "open the settings overlay" for the main thread (no-op if it
   is already open). Success: `{"ok":true}`.
 
-## Vault IPC (CD-40, D-0058; unlock model CD-42, D-0062 — live)
+## Vault IPC (CD-40, D-0058; unlock model CD-42, D-0062 - live)
 
 The start-authorization gate + envelope key management. **Iron law on the
 wire: no secret ever rides this IPC in either direction.** While a capture is
 active the HOST consumes the window's key events straight into locked memory
 (`vault::SecretInput`); the page renders dots from a pushed character COUNT.
 The lock page is `cyberdesk://lock/` (the only view that exists while the
-gate is closed) — it serves both unlock and the mandatory first-launch
+gate is closed) - it serves both unlock and the mandatory first-launch
 master-password setup. The retired v1 surface (`unlock_recovery`,
 `vault_setup_ack`, `vault_regen_recovery`, the `step2`/`recovery` fields) was
 REMOVED with the recovery key (D-0062).
 
 ### `cdVault(json)` (host -> view, push)
 
-Pushed to the internal view on every vault-state change (keystrokes included —
+Pushed to the internal view on every vault-state change (keystrokes included -
 the count changes). Payload:
 
 ```json
@@ -606,38 +606,38 @@ the count changes). Payload:
 }
 ```
 
-- `chars` — characters currently in the host's capture buffer (dots).
-- `required` — the unlock policy: 1 = password-only, 2 = password + passkey
+- `chars` - characters currently in the host's capture buffer (dots).
+- `required` - the unlock policy: 1 = password-only, 2 = password + passkey
   (2FA). UI metadata mirroring the structural envelope shape.
-- `busy` — a worker (Argon2id derivation / vault creation) is running.
-- `error` — user-facing failure text. Unlock failures are deliberately
-  uniform ("unlock failed" — no wrong-key vs tampered oracle).
-- `bypassed` — debug-build dev bypass active (gate skipped, sealed state stays sealed).
-- `broken` — the vault file exists but failed validation; the gate stays
+- `busy` - a worker (Argon2id derivation / vault creation) is running.
+- `error` - user-facing failure text. Unlock failures are deliberately
+  uniform ("unlock failed" - no wrong-key vs tampered oracle).
+- `bypassed` - debug-build dev bypass active (gate skipped, sealed state stays sealed).
+- `broken` - the vault file exists but failed validation; the gate stays
   closed and unlock cannot succeed (fail-closed). A retired v1
   (recovery-key model) file carries a specific reset message here.
-- `methods` (1c) — the enrolled methods: `[{id, kind, label, created_ms,
+- `methods` (1c) - the enrolled methods: `[{id, kind, label, created_ms,
   removable}]`; `kind` is `passphrase` (the master password) or `passkey`;
   `removable` is true only for the passkey (the master password is the
   mandatory root).
-- `kdf` (1c) — the password envelope's Argon2id cost:
+- `kdf` (1c) - the password envelope's Argon2id cost:
   `{m_cost_kib, t_cost, p_cost}`.
-- `strength` (CD-42 Task B) — the HOST-computed live meter, present only
+- `strength` (CD-42 Task B) - the HOST-computed live meter, present only
   while a NEW master password is typed (`setup_pass` / `change_pass`, else
-  `null`): zxcvbn score 0–4, the length criterion, and zxcvbn's canned
-  feedback strings. The password characters themselves NEVER cross — the
+  `null`): zxcvbn score 0-4, the length criterion, and zxcvbn's canned
+  feedback strings. The password characters themselves NEVER cross - the
   meter runs on the host's locked input.
-- `weak_pending` (CD-42 Task B) — a weak submit (score < 3) is parked on the
+- `weak_pending` (CD-42 Task B) - a weak submit (score < 3) is parked on the
   prominent warning; only `vault_accept_weak` proceeds.
-- `hello` (CD-43) — `"enroll" | "assert" | null`: a Windows Hello modal is
+- `hello` (CD-43) - `"enroll" | "assert" | null`: a Windows Hello modal is
   open on a vault worker (passkey enrollment / the 2FA unlock second
   factor); the pages render a "follow the Windows Hello prompt" hint.
-- `webauthn` (CD-43) — `{ "available": bool, "api": n }`: the OS WebAuthn
+- `webauthn` (CD-43) - `{ "available": bool, "api": n }`: the OS WebAuthn
   capability snapshot for the honest config surface (whether the passkey
   path can be offered at all, and the webauthn.dll API level).
 - `methods[]` passkey entries additionally mirror nothing secret: the
   credential id and PRF eval salt stay host-side in `vault.json` (non-secret
-  there, but the page has no use for them — counts and states only).
+  there, but the page has no use for them - counts and states only).
 - `capture` additionally takes `change_pass` / `change_confirm` /
   `retune_kdf` (1c, unlocked-session flows).
 
@@ -652,28 +652,28 @@ Request `{ "cmd": "vault_begin_capture", "purpose": "unlock_pass | setup_pass | 
 Starts host-side key capture for that purpose. `unlock_pass` only while
 locked; `setup_pass` only while no vault exists (the shell begins it itself
 at the first-launch gate); `change_pass` only while unlocked.
-(`setup_confirm` / `change_confirm` are internal steps — never begun via
+(`setup_confirm` / `change_confirm` are internal steps - never begun via
 IPC.) Reply = the state JSON; also pushed.
 
 ### `vault_cancel_capture` (view -> host)
 
 Request `{ "cmd": "vault_cancel_capture" }`. Aborts the current capture and
 wipes its buffers; behind the closed gate this resets to a fresh prompt for
-the gate's own flow (unlock, or the mandatory setup — Esc cannot orphan it).
+the gate's own flow (unlock, or the mandatory setup - Esc cannot orphan it).
 Reply = the state JSON; also pushed.
 
 ### `vault_accept_weak` (view -> host, CD-42)
 
 Request `{ "cmd": "vault_accept_weak" }`. The informed override: proceed with
 a weak master password after the prominent warning. Valid ONLY while the
-host's own state has a weak submit parked (`weak_pending`) — the page cannot
+host's own state has a weak submit parked (`weak_pending`) - the page cannot
 skip ahead, and Enter never overrides. Advances to the confirm re-type
 exactly like a strong submit. Reply = state JSON; also pushed.
 
 ### `vault_lock` (view -> host)
 
 Request `{ "cmd": "vault_lock" }` → `{ "ok": true }`. Queues "lock now": the
-shell wipes key material and relaunches itself cold (D-0059) — every CEF child
+shell wipes key material and relaunches itself cold (D-0059) - every CEF child
 process dies with it, and the next boot is the gate.
 
 ### `vault_set_policy` (view -> host, 1c; both directions gated since CD-43)
@@ -684,7 +684,7 @@ password-only, 2 = password + passkey (refused without an enrolled passkey).
 BOTH directions are confirm-gated and host-revalidated regardless of what
 the page showed (D-0040 discipline): dropping 2FA is a weakening; ENABLING
 2FA is an informed-consent step (a lost passkey then means an unrecoverable
-vault — no recovery key, by design; D-0063). Reply = state JSON; also pushed.
+vault - no recovery key, by design; D-0063). Reply = state JSON; also pushed.
 
 ### `vault_retune_kdf` (view -> host, 1c)
 
@@ -699,10 +699,10 @@ new password), then re-derived under the staged params on a worker thread.
 ### `vault_remove_method` (view -> host, 1c)
 
 Request `{ "cmd": "vault_remove_method", "id": "passkey-…" }`. The passkey is
-the only removable method — the core refuses removing the master password,
+the only removable method - the core refuses removing the master password,
 and refuses removing the passkey while the 2FA policy requires it (switch to
 password-only first). After the vault commit, the OS-side Hello credential
-is deleted best-effort (CD-43) — the vault never depends on it.
+is deleted best-effort (CD-43) - the vault never depends on it.
 
 ### `vault_enroll_passkey` (view -> host, CD-43)
 
@@ -710,7 +710,7 @@ Request `{ "cmd": "vault_enroll_passkey" }`. Enroll THE passkey via Windows
 Hello. Host-validated: unlocked session only, no passkey enrolled (one max),
 OS WebAuthn available. The modal MakeCredential + first PRF-eval assertion
 run on a vault worker (two Hello prompts); the page sees only
-`busy`/`hello` state — no credential material ever rides the IPC. Success
+`busy`/`hello` state - no credential material ever rides the IPC. Success
 re-wraps `vault.json` with the new method and makes the 2FA policy toggle
 available; failure (including a dismissed prompt) surfaces the honest OS
 error in `error`. Reply = state JSON; also pushed.
@@ -734,36 +734,36 @@ The info panel (`cyberdesk://info/`) uses the same message-router bridge
 vs a build-declared latest-known version), so the panel has ONE command,
 `get_info_items`, and opens no network of its own. The CD-13 `dismiss_item` /
 `check_updates` commands and the live manifest fetch were **retired in CD-22**
-(D-0036) — the app self-update feed returns in its own later ticket. The info glyph
+(D-0036) - the app self-update feed returns in its own later ticket. The info glyph
 itself is **no IPC** (shell-drawn, hit-tested host-side like the gear).
 
 ### `get_info_items` (view -> host)
 
 - Request: `{"cmd":"get_info_items"}`
-- Success: the info snapshot — `{"components":[…]}`.
-  - `components` (CD-22) — the component list, one object per tracked component
+- Success: the info snapshot - `{"components":[…]}`.
+ - `components` (CD-22) - the component list, one object per tracked component
     (`cyberdesk`, `cef`, `tor`), each
     `{"id":<str>,"name":<str>,"version":<str>,"latest":<str|null>,"status":<str>,"detail":<str|null>,"reason":<str?>,"note":<str?>}`:
-    - `version` — the installed/running version, from its single existing source
+ - `version` - the installed/running version, from its single existing source
       (CyberDesk: `CARGO_PKG_VERSION`; CEF: the pinned crate's compile-time constants;
       Tor: the arti-client version injected from `Cargo.lock` by `build.rs`, D-0029).
-    - `latest` — the client-declared **latest-known** version for this component
+ - `latest` - the client-declared **latest-known** version for this component
       (`updates::COMPONENTS`), bumped whenever the dependency is. `null` only for an
       undeclared component.
-    - `status` — the comparison of installed vs `latest`, one of **`current`**
+ - `status` - the comparison of installed vs `latest`, one of **`current`**
       (installed ≥ latest-known → up to date), **`update`** (a newer, non-held-back
       version is known), **`held_back`** (a newer version is known but deliberately
-      NOT installed, with `reason` + `note` — the arti 0.44 case, D-0034), or
+      NOT installed, with `reason` + `note` - the arti 0.44 case, D-0034), or
       **`informational`** (defensive fallback for an *undeclared* component only:
-      bare version, no claim). Every tracked component reports a real status — never
+      bare version, no claim). Every tracked component reports a real status - never
       a bare "INSTALLED".
-    - `detail` — an optional secondary line (e.g. `"Chromium 149.0.7827.201"` for
+ - `detail` - an optional secondary line (e.g. `"Chromium 149.0.7827.201"` for
       CEF), or `null`.
-    - `reason` / `note` — present only on `held_back`. The latest-known and held-back
+ - `reason` / `note` - present only on `held_back`. The latest-known and held-back
       values are client-side (build-time), not from a live server.
 - Failure: code 1 (malformed request JSON).
 
-## Update manifest schema — DEFERRED (CD-13/D-0023, retired in CD-22/D-0036)
+## Update manifest schema - DEFERRED (CD-13/D-0023, retired in CD-22/D-0036)
 
 The live manifest feed (`carvilon.com/updates/...` + hosting) and the app's own
 self-update are **deferred to a dedicated later ticket** and are NOT fetched today
@@ -784,9 +784,9 @@ not consumed by the current build.
 }
 ```
 
-- `schema` (int) — the manifest schema version. `cyberdesk.latest` (str) — the newest
-  published CyberDesk version; `cyberdesk.notes_url` (str, optional) — release notes.
-- `components` (map, optional) — keyed by component id (`cef`, `tor`), each with
+- `schema` (int) - the manifest schema version. `cyberdesk.latest` (str) - the newest
+  published CyberDesk version; `cyberdesk.notes_url` (str, optional) - release notes.
+- `components` (map, optional) - keyed by component id (`cef`, `tor`), each with
   `recommended` (str), `reason` (str, optional), `notes_url` (str, optional).
 - When the feed returns, the app self-update ticket will reconcile it with the
   client-side latest-known table (the client table stays the source of truth for

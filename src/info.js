@@ -1,9 +1,9 @@
 // Info panel logic (CD-13 → CD-22). Talks to the Rust host exclusively over the CEF
-// message router (window.cefQuery) — no network, no fetch, no external resources.
+// message router (window.cefQuery) - no network, no fetch, no external resources.
 // Read-only: it asks the host for the component statuses and renders them. The status
 // for every external dependency is derived CLIENT-SIDE (installed vs a build-declared
 // latest-known version); there is no live manifest fetch and no "Last check failed"
-// footer (retired in CD-22 — the app self-update feed returns in its own later ticket).
+// footer (retired in CD-22 - the app self-update feed returns in its own later ticket).
 // Only command: get_info_items. Wire format in docs/cyberdesk-wire-format.md.
 
 (function () {
@@ -36,7 +36,7 @@
   // --- Component list: real per-component status (CD-22) ---------------------
   // The state map is the single place the vocabulary lives, so the wording stays
   // consistent and never claims more than the host reported. "informational" is only
-  // a defensive fallback for an undeclared component — every tracked one has a real
+  // a defensive fallback for an undeclared component - every tracked one has a real
   // comparison result (up to date / update available / held back).
   var STATE = {
     current:       { cls: "ok",     label: "Up to date" },
@@ -61,11 +61,11 @@
     if (c.detail) ver += " · " + c.detail;
     card.appendChild(el("div", "comp-ver", ver));
 
-    // Upstream line — only where there is something honest to say.
+    // Upstream line - only where there is something honest to say.
     if (status === "update" && c.latest) {
       card.appendChild(el("div", "comp-upstream update", "Version " + c.latest + " available"));
     } else if (status === "held_back" && c.latest) {
-      card.appendChild(el("div", "comp-upstream held", "Newest release " + c.latest + " — deliberately not installed"));
+      card.appendChild(el("div", "comp-upstream held", "Newest release " + c.latest + " - deliberately not installed"));
     }
 
     // Held-back explanation: why we hold it, and what unpins it. Reads as an

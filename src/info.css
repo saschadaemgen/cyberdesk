@@ -1,5 +1,5 @@
 /* Info panel styling (CD-13). Colors come entirely from the injected token
-   custom properties (theme.toml / Theme::to_css_vars) — nothing hardcoded. The
+   custom properties (theme.toml / Theme::to_css_vars) - nothing hardcoded. The
    panel is opaque; the wgpu compositor paints the Pulse Grid behind it. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -77,7 +77,7 @@ h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
 .comp-name { font-size: 14px; font-weight: 600; }
 .comp-ver { font-size: 12px; color: var(--text-dim); }
 
-/* State pill — three visually-distinct states + the neutral informational one. */
+/* State pill - three visually-distinct states + the neutral informational one. */
 .comp-state {
   font-size: 10px;
   font-weight: 700;
@@ -97,7 +97,7 @@ h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
   border-color: var(--brand);
   background: color-mix(in srgb, var(--brand) 10%, transparent);
 }
-/* Held back: a calm, dashed, dim chip — a deliberate hold, NOT an error (never
+/* Held back: a calm, dashed, dim chip - a deliberate hold, NOT an error (never
    amber/red) and NOT a call to action. */
 .comp-state.held {
   color: var(--text-dim);
@@ -121,7 +121,7 @@ h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
 .empty { font-size: 12.5px; color: var(--text-dim); padding: 4px 2px; }
 
 /* --- Footer --------------------------------------------------------------- */
-/* A single honest line naming the source of the statuses — no live fetch (CD-22). */
+/* A single honest line naming the source of the statuses - no live fetch (CD-22). */
 .foot {
   display: flex;
   align-items: center;

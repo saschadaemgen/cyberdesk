@@ -1,5 +1,5 @@
 /* Onion refusal page styling (CD-35 Task B). Colors come entirely from the
-   injected token custom properties (theme.toml / Theme::to_css_vars) — nothing
+   injected token custom properties (theme.toml / Theme::to_css_vars) - nothing
    hardcoded. Opaque panel, same idiom as the info page; the wgpu compositor
    paints the Pulse Grid behind it. */
 
@@ -47,7 +47,7 @@ body {
 h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
 .sub { font-size: 11px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; margin-top: 4px; }
 
-/* The refused target, shown verbatim (textContent — never markup). */
+/* The refused target, shown verbatim (textContent - never markup). */
 .addr {
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 13px;

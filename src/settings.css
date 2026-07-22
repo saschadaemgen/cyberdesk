@@ -1,5 +1,5 @@
 /* Settings page styling. Colors come entirely from the injected token custom
-   properties (see theme.toml / Theme::to_css_vars) — nothing is hardcoded here. */
+   properties (see theme.toml / Theme::to_css_vars) - nothing is hardcoded here. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -239,7 +239,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
   border: 1px solid var(--accent);
   color: color-mix(in srgb, var(--accent) 85%, var(--text));
 }
-/* Tor information block (arti version + isolation note) — CD-18. */
+/* Tor information block (arti version + isolation note) - CD-18. */
 .tor-info { padding: 12px 2px 2px; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .tor-info > div { display: flex; gap: 14px; align-items: baseline; }
 .tor-info dt { flex: none; width: 120px; font-size: 12.5px; color: var(--text-dim); font-weight: 600; }
@@ -298,7 +298,7 @@ h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
 
 /* --- Vault (CD-40, D-0058; unlock model per CD-42, D-0062) -----------------
    The host-driven capture entry: dots render the character COUNT the host
-   pushes — the secret itself never enters this page. */
+   pushes - the secret itself never enters this page. */
 .vault-capture {
   display: flex;
   flex-direction: column;

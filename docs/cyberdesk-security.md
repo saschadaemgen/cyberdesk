@@ -14,11 +14,11 @@ The surf zone (CEF) has no path to CARVILON functions (doors, cameras, time cloc
   sandbox requires the bootstrap.exe launcher model, which breaks the plain
   cargo-run path). This is a **tracked, time-boxed deviation** from the
   "sandbox stays active" doctrine with a hard re-enablement gate before Season
-  5/6 (before daily-use browsing and before crypto lands) — recorded here so
+  5/6 (before daily-use browsing and before crypto lands) - recorded here so
   the security doc never overstates the live posture.
 - IPC exclusively through an explicit allowlist of named commands (the full
   schema is cyberdesk-wire-format.md). The bridge (`window.cefQuery`) exists
-  ONLY on `cyberdesk://` frames — a web page has no IPC surface at all.
+  ONLY on `cyberdesk://` frames - a web page has no IPC surface at all.
 - No generic eval or passthrough channels.
 
 ## Vault: keys and authorization (Season 6 crypto, CD-40 D-0058; unlock model CD-42 D-0062)
@@ -29,13 +29,13 @@ the config surface (1c, D-0060) are live (`src/vault.rs`, `app.rs` gate,
 (D-0062) set the authoritative unlock model on top: a **mandatory master
 password** as the sole root, an optional passkey as the only additional
 factor, **no recovery key**. The passkey is LIVE via Windows Hello /
-WebAuthn PRF (CD-43, D-0063 — see the passkey section below; it supersedes
+WebAuthn PRF (CD-43, D-0063 - see the passkey section below; it supersedes
 the D-0061 deferral). The standing laws
 hold **by construction**: no key material in memory before authentication
-(the app boots into a lock view — no slots, no MF zone, no HUD — and the
+(the app boots into a lock view - no slots, no MF zone, no HUD - and the
 workspace is created only after the VMK exists; on first launch that view IS
 the mandatory master-password setup), and no key material in the WebView,
-ever — while a secret is being entered, the HOST consumes the keyboard
+ever - while a secret is being entered, the HOST consumes the keyboard
 directly into locked memory and the page renders dots from a pushed
 character count; a renderer process never holds a keystroke of a vault
 secret.
@@ -45,56 +45,56 @@ The model, precisely:
 - **Envelope key management.** One random 256-bit Vault Master Key (VMK)
   protects the vault's sensitive data; it is never derived from any single
   factor. The master password wraps the VMK in an XChaCha20-Poly1305
-  envelope via Argon2id (RFC 9106 second recommendation — 64 MiB, t=3, p=4 —
+  envelope via Argon2id (RFC 9106 second recommendation - 64 MiB, t=3, p=4 -
   stored per method, re-tunable); the optional passkey's WebAuthn PRF secret
   joins only as the 2FA pair member. Enroll/remove/rotate re-wraps the VMK;
   the vault data is never re-encrypted.
-- **The unlock policy is structural — and exactly two shapes exist
+- **The unlock policy is structural - and exactly two shapes exist
   (D-0062).** Password-only has the single envelope `{password}`; password +
   passkey (2FA) has the single envelope `{password, passkey}`, keyed by a
   combined (BLAKE2s, domain-separated) key of both members. The master
   password is a member of EVERY envelope, so a passkey alone can never open
-  anything — it is an additional factor, never a replacement. An attacker
-  editing `required` in `vault.json` gains nothing — no other envelope
+  anything - it is an additional factor, never a replacement. An attacker
+  editing `required` in `vault.json` gains nothing - no other envelope
   exists to open. Unlock failure is one uniform error: wrong password and
   tampered blob are indistinguishable (no oracle).
-- **The strength meter is host-computed — the iron law extends to it
+- **The strength meter is host-computed - the iron law extends to it
   (CD-42 Task B, D-0062).** As the master password is typed at setup (and in
-  the change flow), the HOST — which already holds the keystrokes in locked
-  memory — evaluates it with the vetted `zxcvbn` crate (3.1, MIT,
+  the change flow), the HOST - which already holds the keystrokes in locked
+  memory - evaluates it with the vetted `zxcvbn` crate (3.1, MIT,
   license-checked D-0005; no hand-rolled strength rules) over a 64-char
-  prefix cap. Only the score (0–4), a met/unmet length criterion (12+) and
+  prefix cap. Only the score (0-4), a met/unmet length criterion (12+) and
   zxcvbn's canned feedback strings (fixed enum texts that never echo input)
   cross to the renderer; the meter never requires the plaintext in the
   WebView. Submitting below zxcvbn's own weak line (score < 3) parks the
   flow on a prominent warning; the ONLY way forward is the page's explicit
-  "use it anyway" IPC — the informed override — which the host validates
+  "use it anyway" IPC - the informed override - which the host validates
   against its own staged state. Respecting the final choice is deliberate:
   warn honestly, never hard-block (above the 8-char NIST floor). Honest
   residual (same tier as the crypto-crate internals): the estimator
   processes a transient copy of the password in regular, unlockable heap
   memory during each evaluation; the copy the vault owns is zeroized after.
-- **No recovery key, no backdoor — the honest consequence (D-0062).** The
+- **No recovery key, no backdoor - the honest consequence (D-0062).** The
   master password is the sole 1-factor recovery. A forgotten master password
-  — or a lost passkey while 2FA is required — makes the vault
+ - or a lost passkey while 2FA is required - makes the vault
   **unrecoverable, by design**: a deliberate no-backdoor stance, not a bug,
   and it is stated plainly on the setup screen so the choice is informed.
-  (The CD-40 "never-brick" rule — a mandatory non-hardware fallback — was
+  (The CD-40 "never-brick" rule - a mandatory non-hardware fallback - was
   retired with the recovery key; under 2FA the user has explicitly accepted
-  hardware loss as vault loss.) The structural invariants — exactly one
+  hardware loss as vault loss.) The structural invariants - exactly one
   master password, at most one passkey, the envelope shape matching the
-  policy — are enforced on every re-wrap AND on every load; a violating
+  policy - are enforced on every re-wrap AND on every load; a violating
   (hand-edited, corrupted) file is refused. The offline brute-force surface
   of `vault.json` is the password envelope at the stored Argon2id cost.
 - **Escrows.** Each method's wrapping key is also stored wrapped *under the
   VMK*, so enrolling a passkey / changing the policy works from an unlocked
   session without re-prompting every factor. (At password-only an enrolled
-  passkey exists ONLY as an escrow — no envelope — ready for the 2FA
+  passkey exists ONLY as an escrow - no envelope - ready for the 2FA
   switch.) Honest assessment: an attacker who obtains the VMK could also
-  read the current wrapping keys — but the VMK already decrypts everything
+  read the current wrapping keys - but the VMK already decrypts everything
   the vault protects, so this adds no capability; rotating a method replaces
   its escrow.
-- **Memory hygiene — the CD-33-deferred Tasks C/D are CLOSED for vault
+- **Memory hygiene - the CD-33-deferred Tasks C/D are CLOSED for vault
   keys.** All key material lives in dedicated `VirtualAlloc`ed,
   `VirtualLock`ed pages (never the pagefile), zeroized before unlock/free on
   drop; allocation fails closed if the pages cannot be locked. AEAD runs
@@ -113,98 +113,98 @@ The model, precisely:
   authenticator (Windows Hello / security-key gate inside WebAuthn) or, at
   most, to a later in-session quick-unlock that keeps the VMK in protected
   memory.
-- **Passkey via Windows Hello — SHIPPED (CD-43, D-0063; supersedes the
+- **Passkey via Windows Hello - SHIPPED (CD-43, D-0063; supersedes the
   D-0061 deferral and CD-41).** WebAuthn PRF maps to CTAP2 `hmac-secret`;
   the PRF-derived 32-byte secret is the passkey's wrapping key, strictly the
-  **2FA second factor** (one passkey max, never a standalone unlock — no
+  **2FA second factor** (one passkey max, never a standalone unlock - no
   envelope without the password exists, structurally). The integration
   (`src/webauthn.rs`):
-  - **Task-0 determination:** the assertion-time PRF path is API v4-era and
-    complete in the pinned `windows-sys 0.61.2` (v7 header) — API v8 added
+ - **Task-0 determination:** the assertion-time PRF path is API v4-era and
+    complete in the pinned `windows-sys 0.61.2` (v7 header) - API v8 added
     create-time eval only, so **no v8 FFI and no crate bump** were needed.
     `windows-sys` became a direct dependency (exact in-tree version, feature
     enable only, raw-dylib linking). The installed `webauthn.dll` on the
     target reports API v9.
-  - **No custom cryptography:** the DLL itself applies the WebAuthn-spec
+ - **No custom cryptography:** the DLL itself applies the WebAuthn-spec
     salt hashing (`SHA-256("WebAuthn PRF" || 0x00 || value)`) to the
-    per-passkey random eval value — CyberDesk passes the stored value and
+    per-passkey random eval value - CyberDesk passes the stored value and
     never touches a hash. The eval value and the credential id are
     persisted on the passkey method, non-secret by design (they gate
     nothing; the secret only exists inside the authenticator's response
     after Hello user verification).
-  - **Enrollment** (unlocked session only): modal MakeCredential (platform
+ - **Enrollment** (unlocked session only): modal MakeCredential (platform
     attachment, user verification REQUIRED, hmac-secret extension +
-    `bEnablePrf`) followed by the first PRF eval assertion — two Hello
+    `bEnablePrf`) followed by the first PRF eval assertion - two Hello
     prompts by CTAP design (the PRF output only exists at assertion time).
     The eval assertion is the AUTHORITATIVE capability check: on a build
     without Hello hmac-secret (pre-KB5077181) enrollment fails closed with
-    an honest error — the module's explicit no-PRF-output message naming
+    an honest error - the module's explicit no-PRF-output message naming
     the KB (the OS call succeeds but returns a downlevel assertion / no
     `pHmacSecret`), or the OS error name on an HRESULT failure. Never a
     half-enrolled state, on either side: a failed enrollment best-effort-
     deletes the OS credential it just created, so retries cannot accumulate
     orphaned passkeys in Windows Settings.
-  - **2FA unlock:** host-captured password, then the Hello assertion; both
+ - **2FA unlock:** host-captured password, then the Hello assertion; both
     factors combined open the `{password, passkey}` pair envelope. A
-    failed/cancelled Hello step reports honestly (no password was checked —
+    failed/cancelled Hello step reports honestly (no password was checked -
     no oracle) and preserves the typed entry in locked memory for a
     one-Enter retry. A factor mismatch after a successful assertion stays
     the uniform "unlock failed".
-  - **Memory hygiene extends to the PRF secret (CD-43 Task D):** it lands
+ - **Memory hygiene extends to the PRF secret (CD-43 Task D):** it lands
     directly in a `VirtualLock`ed `SecretBuf`; the DLL's output buffer is
     zeroized in place before `WebAuthNFreeAssertion`; the eval-value stack
     copy is zeroized after the call. Bounded residuals (same internal-scope
     honesty as the crypto crates): copies inside `webauthn.dll` / the
     credential broker during the call, and the credential's CredRandom
-    inside the authenticator (that one is the design — it is what makes the
+    inside the authenticator (that one is the design - it is what makes the
     factor device-bound). Attestation blobs are not validated: the PRF
     output is the payload, and the vault's security rests on the AEAD
     envelope.
-  - **Removal never bricks:** removing the passkey (refused while the 2FA
-    policy requires it; drop to password-only first — a confirm-gated
+ - **Removal never bricks:** removing the passkey (refused while the 2FA
+    policy requires it; drop to password-only first - a confirm-gated
     weakening) re-mints the `{password}` envelope, then best-effort-deletes
     the OS credential. Output-struct reads are gated on the RETURNED
     `dwVersion` (a Hello-specific downlevel-struct crash documented in the
-    field — kanidm/webauthn-rs #262).
-  - **Verification split (Task E):** headless self-checks cover the DLL
+    field - kanidm/webauthn-rs #262).
+ - **Verification split (Task E):** headless self-checks cover the DLL
     link + API level, marshalling helpers, cred-id/salt persistence, the
     pair-envelope round-trip with a mock PRF secret, and every invariant;
     the live enroll + 2FA unlock (real Hello prompts, user presence) is the
-    maintainer's — the modal call cannot run headless by design.
-  - **Roadmap on the same seam:** hardware security keys (CTAP2
+    maintainer's - the modal call cannot run headless by design.
+ - **Roadmap on the same seam:** hardware security keys (CTAP2
     hmac-secret, the very same v7 salt path with attachment widened) after
     Hello; Google/Android passkeys via Credential Manager in the CARVILON
     Android app when the vault reaches Android; Linux platform
     authenticators (libfido2) if/when CyberDesk ships there.
 - **The gate, precisely (1b, D-0059; mandatory setup, CD-42).** A closed
-  gate creates ONLY the lock view — unlocking an existing vault, or the
+  gate creates ONLY the lock view - unlocking an existing vault, or the
   mandatory first-launch master-password setup when none exists (no skip, no
   default: the workspace cannot boot before the vault does). Unlock/setup
   derivations run on worker threads; "Lock now" wipes key material and
-  relaunches the process cold (provable teardown of every renderer — no
+  relaunches the process cold (provable teardown of every renderer - no
   in-process CEF lifecycle edge cases). A vault file that fails validation
   keeps the gate CLOSED with an honest message: corruption or tampering must
   never bypass authorization (a retired v1 recovery-key-model file gets a
-  specific reset message — dev data only, sanctioned by the CD-42 briefing).
+  specific reset message - dev data only, sanctioned by the CD-42 briefing).
   Every deliberate exit path wipes key material explicitly. The identity
   seed (fingerprint linkage material) is the sealed store's first tenant:
   with a vault present it exists only inside `vault.seal`, migrated out of
-  plaintext at setup, and is never readable — with no plaintext fallback —
+  plaintext at setup, and is never readable - with no plaintext fallback -
   before unlock.
 - **Config surface (1c, D-0060; restricted by CD-42).** Every knob is
   visible and settable in settings: enrolled methods, the password-only /
   password+passkey policy, the Argon2id cost, change-master-password, Lock
   now; the HUD tile shows the vault state (a dev bypass is loudly warned).
-  No recovery-key control exists anywhere. Weakening — dropping 2FA, or an
-  Argon2id cost below the RFC default or the current setting — is
+  No recovery-key control exists anywhere. Weakening - dropping 2FA, or an
+  Argon2id cost below the RFC default or the current setting - is
   HOST-refused without a confirmation flag; a page bug cannot quietly
   cheapen the offline brute-force surface. A KDF re-tune verifies the
   captured password against the existing envelope before re-deriving, so a
   typo can never silently become the new password. Change-master-password is
-  VMK-authorized (session possession = vault control — recorded reasoning in
+  VMK-authorized (session possession = vault control - recorded reasoning in
   D-0060).
 - **Dev bypass honesty.** `CYBERDESK_VAULT_BYPASS=1` exists only under
-  `cfg(debug_assertions)` — a release artifact contains no bypass code path.
+  `cfg(debug_assertions)` - a release artifact contains no bypass code path.
   It skips the gate for the dev loop; it cannot produce the VMK, so sealed
   state stays sealed even under the bypass.
 
@@ -221,11 +221,11 @@ component updater, variations/Finch seed fetch, connectivity/captive-portal
 probes, network prediction, search suggest, domain reliability/NEL, translate,
 enhanced spell check, autofill + password leak-check, navigation-error
 link-doctor, optimization hints, GCM/push - is disabled via CEF command-line
-switches and preferences, applied to **clearnet and Tor slots alike** — since CD-33
+switches and preferences, applied to **clearnet and Tor slots alike** - since CD-33
 (D-0050) that means the shared ephemeral context and every per-slot Tor context, as
 the preferences are per-context and clearnet no longer uses the global one. Secure DNS
 (DoH) is pinned `off` so clearnet uses the OS resolver deterministically; Tor
-slots resolve DNS remotely through the tunnel (CD-15) — the proxy is a
+slots resolve DNS remotely through the tunnel (CD-15) - the proxy is a
 `socks5://` server, the Chromium proxy scheme that hands the **hostname** to the
 proxy rather than resolving it locally, so a Tor slot's visited domains never enter
 the OS DNS cache. `dns_over_https.mode` lives in local state, not the profile, so the
@@ -249,7 +249,7 @@ analyzer epic: host silent + engine silenced + proven.
 `.onion` addresses open in **Tor windows** via arti's embedded onion-service
 client (the stable `onion-service-client` feature of the pinned 0.43). The
 property, worth stating plainly: **onion sites are resolved inside Tor, never
-through clearnet DNS** — onion resolution is the hidden-service rendezvous
+through clearnet DNS** - onion resolution is the hidden-service rendezvous
 protocol, there is no DNS query of any kind and no exit node, so onion browsing
 has no exit-node exposure. Per-window circuit isolation carries over to onion
 circuits (arti keys the HS tunnel by the client's isolation).
@@ -260,19 +260,19 @@ is consulted; the per-slot request handler cancels `.onion` navigations
 (including top-level redirects; the FQDN trailing-dot spelling is caught too);
 and a context-level guard on the ephemeral clearnet context cancels any
 remaining `.onion` request on the IO thread and rewrites redirect-targets to an
-inert `about:` URL — covering subresources, XHR, and worker requests that have
+inert `about:` URL - covering subresources, XHR, and worker requests that have
 no per-browser handler. Chromium itself implements no RFC 7686 special-casing;
 CyberDesk enforces the split. The refusal page offers the Tor path (new Tor
-window / switch this window) — no dead end, no silent failure.
+window / switch this window) - no dead end, no silent failure.
 
 Ephemerality (CD-33/34) applies unchanged: Tor contexts are in-memory, the
 refusal page is excluded from the RAM-only history, and `cyberdesk://` URLs are
-never persisted — onion browsing leaves no disk trace.
+never persisted - onion browsing leaves no disk trace.
 
 Shipped scope is **open `.onion` addresses** (client only). Later phases, named
 and deferred: Onion-Location auto-switch, client authentication, `.onion`
 certificate/TLS handling. Onion-service **hosting** (serving a `.onion`, not
-just visiting) was out of scope through CD-35 and is now **under evaluation** —
+just visiting) was out of scope through CD-35 and is now **under evaluation** -
 an isolated, env-gated feasibility probe (CD-37; the formal decision lands with
 that ticket's D-number). It remains client-only in shipped builds.
 
@@ -312,7 +312,7 @@ implementation boundaries recorded for engineering, not product limitations.
   the same answer. **Remaining step:** bundle the actual font bytes so the guarantee
   holds on a stripped Windows install or a future non-Win11 target (today it relies on
   those fonts being OS-present). A page's own `@font-face` web font (served from its
-  origin) is intentionally untouched — only the user's LOCAL fonts are hidden.
+  origin) is intentionally untouched - only the user's LOCAL fonts are hidden.
 - **Automatic rotation is presentation + basis re-seed, not a live-page reset.** It
   re-seeds the global identity for subsequent loads / new windows and drives the Pulse
   Grid countdown, but does not reload live pages (mid-page re-rolling is cosmetic; a
@@ -321,7 +321,7 @@ implementation boundaries recorded for engineering, not product limitations.
   stated accurately in the UI's honesty copy, so it is not a hidden limit.
 - **Screen size cannot be smaller than the real viewport.** An unusually large
   single-column layout on a large monitor reports a larger common ladder rung
-  (1440p/2160p) rather than the preset — the exact monitor pixels are withheld, but a
+  (1440p/2160p) rather than the preset - the exact monitor pixels are withheld, but a
   very large window cannot be made to look small (that would be a detectable decoy).
 
 ## CD-32 window-size residual (internal engineering scope, D-0049)
@@ -331,15 +331,15 @@ implementation boundaries recorded for engineering, not product limitations.
 
 - **Below Red, reported inner size ≠ the real render area.** The real window is
   deliberately never moved (the user's layout stays free), so the inner-size cluster
-  — `innerWidth`/`innerHeight`, the root `clientWidth`/`clientHeight`,
+ - `innerWidth`/`innerHeight`, the root `clientWidth`/`clientHeight`,
   `visualViewport`, `outerWidth`/`outerHeight`, and the viewport-derived
-  `matchMedia` features — is *reported* as the nearest common step of the CD-29
+  `matchMedia` features - is *reported* as the nearest common step of the CD-29
   ladder. The cluster is internally coherent (one shared delta, so no member can
-  contradict another — the Brave trap), but **CSS layout still uses the real
+  contradict another - the Brave trap), but **CSS layout still uses the real
   viewport**: a page that measures the rendered pixels of a full-width element, or
   reads `documentElement.scrollWidth`, can still tell reported from real. This is a
-  deliberate, bounded tradeoff — a weak, transient, low-entropy vector (users resize
-  constantly) traded for layout freedom — and it is **fully closed at Red**, where
+  deliberate, bounded tradeoff - a weak, transient, low-entropy vector (users resize
+  constantly) traded for layout freedom - and it is **fully closed at Red**, where
   the real window snaps to a common resolution and reported == real.
 - **A JS-driven layout can disagree with the page's own CSS breakpoints.** The same
   root cause: `matchMedia` answers for the reported size (it must, or it would
@@ -349,27 +349,27 @@ implementation boundaries recorded for engineering, not product limitations.
   Accepted below Red; absent at Red, where the delta is zero.
 - **Media-query units we do not shift.** `px`/`em`/`rem` and the absolute units are
   converted and shifted. `vw`/`vh` are left alone and are coherent by nature on their
-  own axis (self-referential — the same answer for real and reported); `ch`/`ex` and
+  own axis (self-referential - the same answer for real and reported); `ch`/`ex` and
   `calc()` thresholds are left unshifted, a vanishingly rare incoherence recorded
   rather than guessed at.
 
 ## CD-33 anti-forensic residuals (internal engineering scope, D-0050)
 
 **Never surface in product UI, marketing, or demos** (D-0044). What CyberDesk may
-accurately say is that it **leaves no browsing trace on disk** — that is now
+accurately say is that it **leaves no browsing trace on disk** - that is now
 substantively true for the realistic (Tier-1) attacker and is verified, not asserted.
 What follows is what it must **not** claim.
 
 The tiered model this ticket was built against:
 
-- **Tier 1 — the realistic attacker**: someone who later uses the machine, or a
+- **Tier 1 - the realistic attacker**: someone who later uses the machine, or a
   user-level forensic tool; no kernel or physical tricks. **Defeated**, by two
   independent properties: browsing content is never written to disk, and the OS zeroes
   freed physical pages before any other process can read them. This is the tier that
   matters and the one CD-33 targets.
-- **Tier 2 — kernel-privileged or physical live-machine attacker** (kernel driver, raw
+- **Tier 2 - kernel-privileged or physical live-machine attacker** (kernel driver, raw
   physical-RAM read, cold-boot, DMA): **not closable by any userspace application**,
-  ours included. Stated honestly, never oversold — and note the same attacker reads
+  ours included. Stated honestly, never oversold - and note the same attacker reads
   live memory *during* use anyway, so this is not a gap CD-33 could have closed. The
   process-isolated security core (separate epic) shrinks the window; it does not
   remove it.
@@ -387,13 +387,13 @@ Residuals, precisely:
   profile regardless of what our views use. During a session it is **empty scaffolding**:
   a `History` file with zero rows, a `Cookies` file with zero rows, and no occurrence of
   any visited host anywhere beneath it (measured). It is not browsing content, but it
-  is not *nothing* — a scan mid-session will still show Chromium-shaped filenames. **CD-34
+  is not *nothing* - a scan mid-session will still show Chromium-shaped filenames. **CD-34
   (D-0051) wipes the whole directory on every launch**, so across launches even this
   scaffolding does not persist.
-- **Pre-existing residue — CLOSED by CD-34 (D-0051).** CD-33 stopped the writing but did
+- **Pre-existing residue - CLOSED by CD-34 (D-0051).** CD-33 stopped the writing but did
   not delete what earlier builds already wrote (on the development machine, 79 MB of
   cache, 21 URLs / 254 visits, 36 cookies). `state.db`'s history was purged by the v7
-  migration; the CEF profile residue is now cleared by the **standing on-launch purge** —
+  migration; the CEF profile residue is now cleared by the **standing on-launch purge** -
   allowlisted to the one `cyberdesk-cache` directory, never touching Tor state, session,
   or config. It is also a regression backstop: any future accidental disk leak survives
   at most one session. The purge runs before `init_cef` (the only moment CEF does not
@@ -403,21 +403,21 @@ Residuals, precisely:
   Disk encryption is transparent on a running, unlocked machine and is therefore *not*
   the control against a running-system attacker; the control is that sensitive data
   never reaches the disk in the first place. Since CD-40 (D-0058) the vault's key
-  material is additionally `VirtualLock`ed out of the pagefile and zeroized on drop —
+  material is additionally `VirtualLock`ed out of the pagefile and zeroized on drop -
   the CD-33-deferred Tasks C/D, closed against a real secret. See the vault section
   above.
 - **Tor state persists by design** (`%LOCALAPPDATA%\CyberDesk\tor\state`). Entry-guard
-  persistence is an anonymity *feature* — rotating guards every session raises exposure
+  persistence is an anonymity *feature* - rotating guards every session raises exposure
   to a malicious guard. It is Tor's own security state, deliberately distinct from
   browsing content, and is not a forensic defect. It does, however, evidence *that* Tor
   was used (not where you went).
 - **Session restore is opt-in and honest.** "Quit & Save" persists layout, per-slot
-  mode, and — for **clearnet windows only** — URLs; a Tor window's URL is **never**
+  mode, and - for **clearnet windows only** - URLs; a Tor window's URL is **never**
   written (it returns as a real Tor window on the start page, D-0035). Never cookies,
-  cache, or content — a restored session brings back the tabs but **not** the login
+  cache, or content - a restored session brings back the tabs but **not** the login
   state; you come back logged out. Plain Quit persists nothing. Storing this metadata
   encrypted-at-rest is open (it is currently plaintext `state.db`), and it is the one
-  place a visited URL can reach disk — by explicit user action.
+  place a visited URL can reach disk - by explicit user action.
 - **`favorites` is on disk by intent**, and a favorite is a URL. It records what the
   user chose to keep, not where they have been; this is the bookmark/history split every
   ephemeral browser makes. Worth knowing it is there.

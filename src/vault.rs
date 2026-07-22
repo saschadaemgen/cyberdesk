@@ -1,24 +1,24 @@
-//! CyberDesk Vault — crypto core. CD-40 (D-0058) built the envelope layer;
+//! CyberDesk Vault - crypto core. CD-40 (D-0058) built the envelope layer;
 //! CD-42 (D-0062) set the authoritative unlock model.
 //!
 //! Envelope key management: one random 256-bit **Vault Master Key (VMK)**
 //! protects the vault's sensitive data; the VMK itself is never derived from
-//! any single factor. Independent **envelopes** each wrap the VMK — enrolling
+//! any single factor. Independent **envelopes** each wrap the VMK - enrolling
 //! or removing an unlock method re-wraps the VMK, never re-encrypts the
 //! protected data.
 //!
 //! ## The authoritative unlock model (CD-42, D-0062)
 //!
-//! * **Master password** — mandatory at first launch, the sole root. Argon2id
+//! * **Master password** - mandatory at first launch, the sole root. Argon2id
 //!   (explicit tuned params, stored per method) → 32-byte wrapping key.
 //!   Always enrolled, never removable, always a required factor.
-//! * **Passkey (WebAuthn PRF)** — the only optional additional factor (at
+//! * **Passkey (WebAuthn PRF)** - the only optional additional factor (at
 //!   most one). The PRF-derived secret is the wrapping key; the core treats
 //!   it as an opaque 32-byte method secret (the WebAuthn layer follows the
 //!   D-0061 go-live gate).
 //! * **No recovery key, no backdoor.** The master password is the sole
-//!   1-factor recovery. A forgotten master password — or a lost passkey while
-//!   2FA is required — makes the vault unrecoverable, by design.
+//!   1-factor recovery. A forgotten master password - or a lost passkey while
+//!   2FA is required - makes the vault unrecoverable, by design.
 //!
 //! ## Unlock policy is structural, not a checked flag
 //!
@@ -26,8 +26,8 @@
 //! exist**: password-only has the single envelope `{password}`; password +
 //! passkey (2FA) has the single envelope `{password, passkey}`, wrapped by a
 //! key combined (BLAKE2s, domain-separated) from both methods' wrapping keys.
-//! A passkey alone can never open anything — no envelope exists that does not
-//! include the master password — and editing the `required` field in
+//! A passkey alone can never open anything - no envelope exists that does not
+//! include the master password - and editing the `required` field in
 //! `vault.json` changes nothing, because the mutable field is UI metadata;
 //! the cryptography is in the envelope set.
 //!
@@ -35,7 +35,7 @@
 //!
 //! Every method's wrapping key is also stored wrapped **under the VMK** (an
 //! "escrow"). Enrolling a passkey / changing the policy from an unlocked
-//! session needs every method's wrapping key to build the new envelope set —
+//! session needs every method's wrapping key to build the new envelope set -
 //! the escrows provide them without re-prompting for each factor. This adds
 //! nothing an attacker could use: whoever holds the VMK has already won the
 //! current vault (the escrows are decryptable only *with* the VMK), and
@@ -47,15 +47,15 @@
 //! includes the password, and the envelope set matches the policy shape.
 //! [`VaultFile::load_from`] refuses a file violating the invariants, so a
 //! hand-edited or corrupted vault fails closed instead of booby-trapping a
-//! later unlock. (The CD-40 "never-brick" rule — a mandatory non-hardware
-//! fallback — was deliberately retired with the recovery key: under 2FA a
+//! later unlock. (The CD-40 "never-brick" rule - a mandatory non-hardware
+//! fallback - was deliberately retired with the recovery key: under 2FA a
 //! lost passkey bricks the vault BY DESIGN, D-0062.)
 //!
 //! ## Memory hygiene (closes the CD-33-deferred Tasks C/D for vault keys)
 //!
 //! All key material lives in [`SecretBuf`]s: dedicated `VirtualAlloc`ed pages,
 //! `VirtualLock`ed out of the pagefile, zeroized then unlocked and released on
-//! drop. Allocation **fails closed** — if the pages cannot be locked (after
+//! drop. Allocation **fails closed** - if the pages cannot be locked (after
 //! one working-set bump), no key material is produced at all. AEAD runs
 //! through the `*_in_place_detached` APIs so plaintext keys never transit an
 //! allocation the cipher crate owns; Argon2 runs with an explicitly provided
@@ -66,7 +66,7 @@
 //!
 //! No custom cryptography: Argon2id (`argon2`), XChaCha20-Poly1305
 //! (`chacha20poly1305`), BLAKE2s (`blake2`), OS CSPRNG (`getrandom`), volatile
-//! erasure (`zeroize`) — all pinned, license-checked (D-0005), verified at
+//! erasure (`zeroize`) - all pinned, license-checked (D-0005), verified at
 //! source against the exact crate versions.
 
 // The passkey half of the model (enroll/unlock plumbing) waits on the D-0061
@@ -90,7 +90,7 @@ use zeroize::Zeroize;
 /// Key sizes. Everything is 256-bit: the VMK, every wrapping key, and the
 /// combined envelope keys.
 pub const KEY_LEN: usize = 32;
-/// XChaCha20-Poly1305 extended nonce (24 bytes — safe to draw at random per
+/// XChaCha20-Poly1305 extended nonce (24 bytes - safe to draw at random per
 /// wrap; the birthday bound on 192 bits is unreachable).
 const NONCE_LEN: usize = 24;
 /// Poly1305 authentication tag.
@@ -99,13 +99,13 @@ const TAG_LEN: usize = 16;
 const SALT_LEN: usize = 16;
 /// Minimum master-password length in bytes (NIST SP 800-63B's floor for
 /// user-chosen secrets; the strength meter targets far higher, but the
-/// informed-override stops here — below 8 there is no vault to speak of).
+/// informed-override stops here - below 8 there is no vault to speak of).
 pub const MIN_PASSPHRASE_LEN: usize = 8;
 /// The strength meter's "weak" line: zxcvbn's own documentation says any
 /// score below 3 should be considered too weak. Submitting below it stages
-/// the informed override (CD-42 Task B) — never a hard block.
+/// the informed override (CD-42 Task B) - never a hard block.
 const WEAK_SCORE_FLOOR: u8 = 3;
-/// The meter's length criterion ("very complex" target — advisory, shown as
+/// The meter's length criterion ("very complex" target - advisory, shown as
 /// a met/unmet criterion, never enforced).
 const TARGET_LEN: usize = 12;
 /// The strength estimator evaluates at most this many leading characters.
@@ -114,7 +114,7 @@ const TARGET_LEN: usize = 12;
 /// score can only UNDER-state the full secret's strength.
 const STRENGTH_EVAL_CAP: usize = 64;
 /// The vault file format version this build reads and writes. Version 1 was
-/// the CD-40 recovery-key model — retired by D-0062; v1 files are refused
+/// the CD-40 recovery-key model - retired by D-0062; v1 files are refused
 /// with a reset message (dev data only, sanctioned by the CD-42 briefing).
 const VAULT_VERSION: u32 = 2;
 
@@ -124,7 +124,7 @@ const VAULT_VERSION: u32 = 2;
 /// method set that keys it.
 const AAD_ENVELOPE: &str = "cyberdesk.vault.v1.envelope:";
 const AAD_ESCROW: &str = "cyberdesk.vault.v1.escrow:";
-/// Sealed app-state container magic — also its AAD.
+/// Sealed app-state container magic - also its AAD.
 const SEAL_MAGIC: &[u8; 8] = b"CDSEAL01";
 /// Domain prefix for combining method wrapping keys into an envelope key.
 /// Single-method envelopes run through the same PRF (uniform code path and
@@ -135,7 +135,7 @@ const COMBINE_DOMAIN: &[u8] = b"cyberdesk.vault.v1.combine";
 // Errors
 // ---------------------------------------------------------------------------
 
-/// Vault errors. `Crypto` is deliberately uniform — a wrong passphrase, a
+/// Vault errors. `Crypto` is deliberately uniform - a wrong passphrase, a
 /// wrong recovery key and a tampered envelope are indistinguishable to the
 /// caller (no oracle; the attacker holding `vault.json` learns nothing from
 /// the failure mode).
@@ -172,7 +172,7 @@ impl std::fmt::Display for VaultError {
 type Result<T> = std::result::Result<T, VaultError>;
 
 // ---------------------------------------------------------------------------
-// SecretBuf — locked, zeroized key memory
+// SecretBuf - locked, zeroized key memory
 // ---------------------------------------------------------------------------
 
 /// Owner of key material: dedicated whole pages (`VirtualAlloc`), locked out
@@ -301,7 +301,7 @@ impl Drop for SecretBuf {
     }
 }
 
-/// Non-Windows fallback (dev/CI portability only — the product target is
+/// Non-Windows fallback (dev/CI portability only - the product target is
 /// Windows, D-0001): zeroize-on-drop without a page lock.
 #[cfg(not(windows))]
 pub struct SecretBuf {
@@ -348,14 +348,14 @@ impl SecretBuf {
         Ok(b)
     }
 
-    /// A locked duplicate (locked → locked copy) — hands a worker thread its
+    /// A locked duplicate (locked → locked copy) - hands a worker thread its
     /// own VMK copy while the runtime keeps the session's.
     pub fn try_clone(&self) -> Result<Self> {
         Self::copy_of(self.as_slice())
     }
 
     /// A fresh CSPRNG-filled locked buffer (VMK, recovery key, salts live
-    /// elsewhere — this is for keys).
+    /// elsewhere - this is for keys).
     pub fn random(len: usize) -> Result<Self> {
         let mut b = Self::zeroed(len)?;
         getrandom::fill(b.as_mut_slice())
@@ -364,7 +364,7 @@ impl SecretBuf {
     }
 }
 
-/// Redacted — key material must never reach a log line.
+/// Redacted - key material must never reach a log line.
 impl std::fmt::Debug for SecretBuf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SecretBuf({} bytes, redacted)", self.len())
@@ -406,7 +406,7 @@ fn rand_array<const N: usize>() -> Result<[u8; N]> {
 
 /// Argon2id cost parameters, stored per passphrase method so they can be
 /// tuned/migrated later without breaking older envelopes. The product default
-/// is RFC 9106's second recommended configuration (64 MiB, t=3, p=4) — the
+/// is RFC 9106's second recommended configuration (64 MiB, t=3, p=4) - the
 /// memory-constrained profile; the pure-Rust `argon2` crate computes lanes
 /// sequentially, which changes wall-clock, never the output or the security
 /// parameters. Exposed as settings in the config surface (CD-40 Task 7).
@@ -424,7 +424,7 @@ impl KdfParams {
 
 /// What kind of factor a method is. Exactly two exist (D-0062): the master
 /// password (mandatory root, `id = "passphrase"` for file stability) and the
-/// optional passkey. `hardware()` marks the device-bound one — the only
+/// optional passkey. `hardware()` marks the device-bound one - the only
 /// removable kind.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -439,7 +439,7 @@ impl MethodKind {
     }
 }
 
-/// One enrolled unlock method. The wrapping key itself is never stored here —
+/// One enrolled unlock method. The wrapping key itself is never stored here -
 /// it is re-derived at unlock (master password), re-presented (passkey PRF),
 /// or recovered from its escrow (mutations from an unlocked session).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -460,7 +460,7 @@ pub struct Method {
     /// WebAuthn spec (CD-43, D-0063). Non-secret either way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub salt: Option<String>,
-    /// Passkey methods only: the WebAuthn credential id (hex, non-secret) —
+    /// Passkey methods only: the WebAuthn credential id (hex, non-secret) -
     /// the allowlist entry for the unlock-time Hello assertion (CD-43).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cred_id: Option<String>,
@@ -488,13 +488,13 @@ pub struct Escrow {
 
 /// The persisted vault metadata (`vault.json`). Contains no secret an
 /// attacker could use without a factor: salts, nonces and AEAD blobs only.
-/// `required` is UI metadata — the policy itself is structural (see module
+/// `required` is UI metadata - the policy itself is structural (see module
 /// docs); [`VaultFile::load_from`] re-validates every invariant on read.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VaultFile {
     pub version: u32,
     /// 1 = password-only, 2 = password + passkey (2FA). UI metadata mirroring
-    /// the envelope shape — the policy itself is structural.
+    /// the envelope shape - the policy itself is structural.
     pub required: u8,
     pub methods: Vec<Method>,
     pub envelopes: Vec<Envelope>,
@@ -507,7 +507,7 @@ pub struct NewVault {
     pub vmk: SecretBuf,
 }
 
-/// A factor presented at unlock time. Secrets are borrowed — the caller keeps
+/// A factor presented at unlock time. Secrets are borrowed - the caller keeps
 /// them in locked memory ([`SecretBuf`]) and drops them right after.
 pub enum Factor<'a> {
     /// The master password, raw bytes (resolved to the enrolled method).
@@ -517,7 +517,7 @@ pub enum Factor<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// Crypto primitives (thin, on vetted crates — no custom constructions)
+// Crypto primitives (thin, on vetted crates - no custom constructions)
 // ---------------------------------------------------------------------------
 
 /// Argon2id: passphrase + salt + params → 32-byte wrapping key in locked
@@ -566,7 +566,7 @@ fn aead_wrap(key: &SecretBuf, aad: &[u8], plaintext: &SecretBuf) -> Result<([u8;
         .encrypt_in_place_detached(XNonce::from_slice(&nonce), aad, work.as_mut_slice())
         .map_err(|_| VaultError::Crypto)?;
     let mut blob = Vec::with_capacity(work.len() + TAG_LEN);
-    blob.extend_from_slice(work.as_slice()); // ciphertext — public
+    blob.extend_from_slice(work.as_slice()); // ciphertext - public
     blob.extend_from_slice(&tag);
     Ok((nonce, blob))
 }
@@ -612,11 +612,11 @@ fn escrow_aad(method_id: &str) -> Vec<u8> {
 
 /// Build the full vault file from the VMK, every enrolled method WITH its
 /// wrapping key, and the policy. This is the single place envelopes and
-/// escrows are minted — every mutation (enroll, remove, policy change,
+/// escrows are minted - every mutation (enroll, remove, policy change,
 /// rotation) funnels through here, and the structural invariants are enforced
 /// before anything is returned. The policy is exactly one of two shapes
 /// (D-0062): `required = 1` mints the single envelope `{password}`;
-/// `required = 2` mints the single envelope `{password, passkey}` — the
+/// `required = 2` mints the single envelope `{password, passkey}` - the
 /// master password is a member of EVERY envelope, so a passkey alone can
 /// never open anything.
 fn rebuild(
@@ -639,7 +639,7 @@ fn rebuild(
     let combo: Vec<usize> = match required {
         // Password-only: the password's envelope, nothing else.
         1 => vec![pw],
-        // 2FA: password + passkey together — both, or it's a policy error.
+        // 2FA: password + passkey together - both, or it's a policy error.
         2 => {
             if !mk.iter().any(|m| m.0.kind == MethodKind::Passkey) {
                 return Err(VaultError::Policy(
@@ -688,7 +688,7 @@ fn rebuild(
 
 /// The structural invariants of the D-0062 model: exactly one master-password
 /// method, at most one passkey, no other kinds; the policy is 1 or 2; exactly
-/// one envelope whose member set matches the policy shape — and the password
+/// one envelope whose member set matches the policy shape - and the password
 /// is a member of it (a passkey alone can never unlock); every method has
 /// exactly one escrow. Checked on every rebuild and on every load, so a
 /// violating (hand-edited, corrupted) file is refused before it can lie about
@@ -758,7 +758,7 @@ pub fn assert_model(file: &VaultFile) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Set up a fresh vault: generate the VMK and enroll the master password
-/// (Argon2id, `kdf`) — the sole mandatory root (D-0062). The policy starts at
+/// (Argon2id, `kdf`) - the sole mandatory root (D-0062). The policy starts at
 /// password-only; a passkey may join later as the only additional factor.
 pub fn create(passphrase: &[u8], kdf: &KdfParams, now_ms: u64) -> Result<NewVault> {
     if passphrase.len() < MIN_PASSPHRASE_LEN {
@@ -827,7 +827,7 @@ fn resolve_factors(file: &VaultFile, factors: &[Factor<'_>]) -> Result<Vec<(Stri
 }
 
 /// Unlock: try every envelope whose full method set was presented. The policy
-/// needs no checking here — at 2FA only the pair envelope exists, so a single
+/// needs no checking here - at 2FA only the pair envelope exists, so a single
 /// factor finds no candidate and CANNOT open anything, whatever the mutable
 /// `required` field claims. Failure is uniform ([`VaultError::Crypto`]).
 pub fn unlock(file: &VaultFile, factors: &[Factor<'_>]) -> Result<SecretBuf> {
@@ -872,7 +872,7 @@ fn unwrap_all_escrows(file: &VaultFile, vmk: &SecretBuf) -> Result<Vec<(Method, 
 }
 
 /// Enroll THE passkey (at most one, D-0062) from an unlocked session. At
-/// password-only the envelope set is unchanged — the passkey gains an escrow
+/// password-only the envelope set is unchanged - the passkey gains an escrow
 /// so a later switch to 2FA can mint the pair envelope; it opens nothing on
 /// its own. Re-wraps the VMK; the vault data is untouched. `cred_id` and
 /// `prf_salt` (both hex, non-secret) are the Hello assertion inputs (CD-43);
@@ -891,7 +891,7 @@ pub fn enroll_passkey(
     }
     if file.methods.iter().any(|m| m.kind == MethodKind::Passkey) {
         return Err(VaultError::Policy(
-            "a passkey is already enrolled — remove it before adding another".into(),
+            "a passkey is already enrolled - remove it before adding another".into(),
         ));
     }
     let id: [u8; 4] = rand_array()?;
@@ -911,8 +911,8 @@ pub fn enroll_passkey(
     rebuild(vmk, &mk, file.required)
 }
 
-/// Remove an enrolled method. Only the passkey is removable — the master
-/// password is the mandatory root — and not while the 2FA policy requires it
+/// Remove an enrolled method. Only the passkey is removable - the master
+/// password is the mandatory root - and not while the 2FA policy requires it
 /// (switch to password-only first; that weakening carries its own confirm
 /// gate, so the policy step is never silently skipped).
 pub fn remove_method(file: &VaultFile, vmk: &SecretBuf, id: &str) -> Result<VaultFile> {
@@ -926,7 +926,7 @@ pub fn remove_method(file: &VaultFile, vmk: &SecretBuf, id: &str) -> Result<Vaul
     }
     if file.required >= 2 {
         return Err(VaultError::Policy(
-            "the passkey is required by the two-factor policy — switch to password-only first"
+            "the passkey is required by the two-factor policy - switch to password-only first"
                 .into(),
         ));
     }
@@ -1008,12 +1008,12 @@ pub fn open_state(vmk: &SecretBuf, data: &[u8]) -> Result<SecretBuf> {
 // Persistence
 // ---------------------------------------------------------------------------
 
-/// `vault.json` — envelope metadata (public by design; see [`VaultFile`]).
+/// `vault.json` - envelope metadata (public by design; see [`VaultFile`]).
 pub fn vault_file_path() -> PathBuf {
     crate::store::data_dir().join("vault.json")
 }
 
-/// `vault.seal` — the sealed sensitive app state (Stage 1b wires tenants in).
+/// `vault.seal` - the sealed sensitive app state (Stage 1b wires tenants in).
 pub fn sealed_state_path() -> PathBuf {
     crate::store::data_dir().join("vault.seal")
 }
@@ -1021,7 +1021,7 @@ pub fn sealed_state_path() -> PathBuf {
 impl VaultFile {
     /// Load and validate a vault file. `Ok(None)` when none exists (no vault
     /// set up). A file that parses but violates the format version or the
-    /// never-brick invariant is refused — fail closed, never boot into a
+    /// never-brick invariant is refused - fail closed, never boot into a
     /// state that could strand the user deeper in.
     pub fn load_from(path: &Path) -> Result<Option<VaultFile>> {
         let raw = match std::fs::read_to_string(path) {
@@ -1058,7 +1058,7 @@ impl VaultFile {
 
     /// Atomic save: write a sibling temp file, then rename over the target
     /// (`std::fs::rename` replaces on Windows). A crash mid-write leaves the
-    /// previous consistent file in place — key management must never be
+    /// previous consistent file in place - key management must never be
     /// half-written.
     pub fn save_to(&self, path: &Path) -> Result<()> {
         assert_model(self)?;
@@ -1072,12 +1072,12 @@ impl VaultFile {
 }
 
 // ---------------------------------------------------------------------------
-// SecretInput — host-captured secret entry (Stage 1b)
+// SecretInput - host-captured secret entry (Stage 1b)
 // ---------------------------------------------------------------------------
 
 /// A typed-in secret being assembled in locked memory. This is the iron-law
 /// mechanism: while the vault captures input, the HOST consumes the window's
-/// key events and appends them here — the lock/settings page never receives a
+/// key events and appends them here - the lock/settings page never receives a
 /// keystroke, only a masked character COUNT to render. Fixed capacity (one
 /// page); UTF-8 by construction.
 pub struct SecretInput {
@@ -1155,7 +1155,7 @@ impl SecretInput {
 // One process-wide runtime behind one Mutex, following the store.rs precedent.
 // Called from the main thread (key routing, boot transitions in about_to_wait)
 // and the CEF UI thread (the vault IPC commands); the worker threads lock only
-// to COMMIT results — the Argon2 derivation itself runs without any lock held
+// to COMMIT results - the Argon2 derivation itself runs without any lock held
 // (CD-38 threading law: nothing here is ever awaited on the router's dispatch
 // stack, and no vault lock is held across a CEF call).
 
@@ -1163,7 +1163,7 @@ impl SecretInput {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CaptureKind {
     /// The master password, to unlock. (Under 2FA the passkey assertion joins
-    /// as a host-driven WebAuthn step after the password — D-0061 go-live.)
+    /// as a host-driven WebAuthn step after the password - D-0061 go-live.)
     UnlockPass,
     /// The new master password during first-launch vault setup…
     SetupPass,
@@ -1193,7 +1193,7 @@ impl CaptureKind {
 }
 
 /// A host-computed strength snapshot of the password being typed (CD-42
-/// Task B, D-0062). This — and ONLY this — crosses to the renderer: a coarse
+/// Task B, D-0062). This - and ONLY this - crosses to the renderer: a coarse
 /// score, a met/unmet length criterion and zxcvbn's canned feedback strings
 /// (fixed enum texts that never echo input). The password characters stay in
 /// host-locked memory; the meter is honest without breaking the iron law.
@@ -1210,10 +1210,10 @@ struct Strength {
 }
 
 /// Evaluate the typed secret with the vetted `zxcvbn` estimator (MIT,
-/// license-checked per D-0005 — no hand-rolled strength rules). Runs in the
+/// license-checked per D-0005 - no hand-rolled strength rules). Runs in the
 /// HOST only. Bounded residual (documented in cyberdesk-security.md): the
 /// estimator processes a transient copy of the password in regular heap
-/// memory during evaluation — same tier as the crypto crates' internal
+/// memory during evaluation - same tier as the crypto crates' internal
 /// state; the copy this function owns is zeroized before returning.
 fn eval_strength(input: &SecretInput) -> Strength {
     let s = input.as_str();
@@ -1233,15 +1233,15 @@ fn eval_strength(input: &SecretInput) -> Strength {
 }
 
 /// A finished background operation, taken by the shell (`about_to_wait`) to
-/// drive the UI transition. The VMK itself never rides an outcome — the worker
+/// drive the UI transition. The VMK itself never rides an outcome - the worker
 /// commits it straight into the runtime.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Outcome {
-    /// The vault unlocked — boot the workspace.
+    /// The vault unlocked - boot the workspace.
     Unlocked,
     /// An unlock attempt failed (the uniform error is already in the state).
     UnlockFailed,
-    /// Setup finished — the vault exists and the session is unlocked.
+    /// Setup finished - the vault exists and the session is unlocked.
     SetupDone,
     /// Setup failed (error in the state).
     SetupFailed,
@@ -1257,7 +1257,7 @@ struct Runtime {
     dir: PathBuf,
     file: Option<VaultFile>,
     /// A vault file exists but could not be validated (tamper/corruption).
-    /// Fail-closed: the gate stays locked and unlock cannot succeed — booting
+    /// Fail-closed: the gate stays locked and unlock cannot succeed - booting
     /// as "no vault" on a broken file would let corruption bypass the gate.
     broken: Option<String>,
     vmk: Option<SecretBuf>,
@@ -1269,12 +1269,12 @@ struct Runtime {
     /// The first entry held between a setup/change step and its confirm
     /// re-type.
     pending_pass: Option<SecretInput>,
-    /// Live strength snapshot of the entry — present only while a NEW master
+    /// Live strength snapshot of the entry - present only while a NEW master
     /// password is being typed (setup/change), recomputed per keystroke.
     strength: Option<Strength>,
     /// A weak entry was submitted: the flow is parked on the prominent
     /// warning until the page's explicit "use it anyway" IPC (the informed
-    /// override) — Enter never overrides, and further typing re-evaluates.
+    /// override) - Enter never overrides, and further typing re-evaluates.
     weak_pending: bool,
     /// A Windows Hello modal is up on a worker: `"enroll"` (passkey
     /// enrollment, two prompts) or `"assert"` (the 2FA unlock step). Drives
@@ -1328,7 +1328,7 @@ fn captures_new_password(kind: Option<CaptureKind>) -> bool {
 
 // --- Windows Hello bridge (CD-43, D-0063) -----------------------------------
 
-/// The shell's top-level window handle, registered once at boot — the Hello
+/// The shell's top-level window handle, registered once at boot - the Hello
 /// modal's parent. Workers read it without the runtime lock.
 static SHELL_HWND: AtomicIsize = AtomicIsize::new(0);
 
@@ -1350,13 +1350,13 @@ fn test_prf() -> &'static Mutex<Option<Vec<u8>>> {
     PRF.get_or_init(|| Mutex::new(None))
 }
 
-/// The credential id the test mock "mints" — asserted back at unlock so the
+/// The credential id the test mock "mints" - asserted back at unlock so the
 /// cred-id plumbing is exercised end to end.
 #[cfg(test)]
 const TEST_CRED_ID: &[u8] = b"mock-hello-credential";
 
 /// Platform enroll: create the Hello credential and derive the PRF secret
-/// (two modal prompts — see webauthn.rs). Returns (credential id, secret).
+/// (two modal prompts - see webauthn.rs). Returns (credential id, secret).
 fn platform_enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> std::result::Result<(Vec<u8>, SecretBuf), String> {
     #[cfg(test)]
     {
@@ -1381,7 +1381,7 @@ fn platform_enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> std::result::Result<(Ve
     }
 }
 
-/// Platform assert: the unlock-time Hello step — one modal prompt, returns
+/// Platform assert: the unlock-time Hello step - one modal prompt, returns
 /// the PRF-derived method secret for the stored (cred id, salt).
 fn platform_assert(
     hwnd: isize,
@@ -1445,12 +1445,12 @@ fn refresh_strength(r: &mut Runtime) {
 
 /// Load the vault state at boot (after `settings::init`, before any view).
 /// With a valid vault present the app starts LOCKED; with NO vault it starts
-/// in mandatory first-launch setup (CD-42, D-0062) — either way the gate is
+/// in mandatory first-launch setup (CD-42, D-0062) - either way the gate is
 /// closed until a worker outcome opens it. The dev bypass
-/// (`CYBERDESK_VAULT_BYPASS=1`) exists ONLY in debug builds — the check is
+/// (`CYBERDESK_VAULT_BYPASS=1`) exists ONLY in debug builds - the check is
 /// `cfg(debug_assertions)`-gated, so a release artifact contains no bypass
 /// code path at all; it skips the GATE (unlock or mandatory setup), never
-/// the cryptography (the sealed state stays sealed — the VMK cannot be
+/// the cryptography (the sealed state stays sealed - the VMK cannot be
 /// conjured).
 pub fn init() {
     let mut r = rt().lock().unwrap();
@@ -1458,7 +1458,7 @@ pub fn init() {
     match VaultFile::load_from(&path) {
         Ok(file) => r.file = file,
         Err(e) => {
-            tracing::error!("vault.json failed to load — staying locked: {e}");
+            tracing::error!("vault.json failed to load - staying locked: {e}");
             r.broken = Some(e.to_string());
         }
     }
@@ -1471,9 +1471,9 @@ pub fn init() {
     }
     if !r.bypassed {
         if r.file.is_some() {
-            tracing::info!("vault present — starting locked");
+            tracing::info!("vault present - starting locked");
         } else if r.broken.is_none() {
-            tracing::info!("no vault — starting in mandatory first-launch setup");
+            tracing::info!("no vault - starting in mandatory first-launch setup");
         }
     }
 }
@@ -1485,7 +1485,7 @@ pub fn has_vault() -> bool {
 
 /// Is the start-authorization gate closed? True until an unlock or a
 /// completed first-launch setup puts the VMK in memory (or the debug bypass
-/// skips the gate) — the workspace never boots before it (CD-42 Task A).
+/// skips the gate) - the workspace never boots before it (CD-42 Task A).
 pub fn gate_closed() -> bool {
     let r = rt().lock().unwrap();
     r.vmk.is_none() && !r.bypassed
@@ -1505,7 +1505,7 @@ pub fn is_unlocked() -> bool {
 }
 
 /// Begin capturing a secret on the host. Valid purposes from the IPC:
-/// `unlock_pass` (locked only), `setup_pass` (no vault — the mandatory
+/// `unlock_pass` (locked only), `setup_pass` (no vault - the mandatory
 /// first-launch gate), `change_pass` (unlocked only).
 pub fn begin_capture(purpose: &str) -> std::result::Result<(), String> {
     let mut r = rt().lock().unwrap();
@@ -1549,7 +1549,7 @@ pub fn begin_capture(purpose: &str) -> std::result::Result<(), String> {
 }
 
 /// Cancel the current capture. Behind the closed gate this resets to a fresh
-/// prompt for the gate's own flow (unlock, or first-launch setup — the setup
+/// prompt for the gate's own flow (unlock, or first-launch setup - the setup
 /// is mandatory, Esc must not orphan it); elsewhere it ends the flow.
 pub fn cancel_capture() {
     let mut r = rt().lock().unwrap();
@@ -1582,7 +1582,7 @@ pub fn capture_active() -> bool {
 }
 
 /// Route typed text into the capture buffer (also the paste path). Editing
-/// re-evaluates the live strength meter and clears a parked weak override —
+/// re-evaluates the live strength meter and clears a parked weak override -
 /// the warning always describes the CURRENT entry.
 pub fn key_text(text: &str) {
     let mut r = rt().lock().unwrap();
@@ -1660,7 +1660,7 @@ pub fn key_escape() {
 }
 
 /// Enter: advance the capture state machine. Cheap validations happen here;
-/// anything with an Argon2 in it goes to a worker thread — the render loop
+/// anything with an Argon2 in it goes to a worker thread - the render loop
 /// must never stall on a derivation.
 pub fn key_submit() {
     let mut r = rt().lock().unwrap();
@@ -1674,7 +1674,7 @@ pub fn key_submit() {
             }
             // The password is the always-required factor; under 2FA the
             // Windows Hello assertion joins as the host-driven second step
-            // (CD-43) — both factors together open the pair envelope.
+            // (CD-43) - both factors together open the pair envelope.
             let pass = r.input.take();
             if r.file.as_ref().map(|f| f.required).unwrap_or(1) >= 2 {
                 spawn_unlock_2fa(&mut r, pass);
@@ -1691,7 +1691,7 @@ pub fn key_submit() {
                 return;
             }
             // A weak entry parks on the prominent warning (CD-42 Task B): the
-            // ONLY way forward is the page's explicit accept_weak IPC —
+            // ONLY way forward is the page's explicit accept_weak IPC -
             // repeated Enter never overrides. Editing re-evaluates.
             if r.strength.as_ref().map(|s| s.score).unwrap_or(0) < WEAK_SCORE_FLOOR {
                 r.weak_pending = true;
@@ -1709,7 +1709,7 @@ pub fn key_submit() {
             let first = r.pending_pass.take();
             let (Some(first), Some(confirm)) = (first, confirm) else { return };
             if first.as_slice() != confirm.as_slice() {
-                r.error = Some("the two entries do not match — start again".into());
+                r.error = Some("the two entries do not match - start again".into());
                 r.capture = Some(CaptureKind::SetupPass);
                 r.input = SecretInput::new().ok();
                 refresh_strength(&mut r);
@@ -1726,7 +1726,7 @@ pub fn key_submit() {
                 ));
                 return;
             }
-            // Same informed-override gate as setup — a change IS setting the
+            // Same informed-override gate as setup - a change IS setting the
             // master password.
             if r.strength.as_ref().map(|s| s.score).unwrap_or(0) < WEAK_SCORE_FLOOR {
                 r.weak_pending = true;
@@ -1744,7 +1744,7 @@ pub fn key_submit() {
             let first = r.pending_pass.take();
             let (Some(first), Some(confirm)) = (first, confirm) else { return };
             if first.as_slice() != confirm.as_slice() {
-                r.error = Some("the two entries do not match — start again".into());
+                r.error = Some("the two entries do not match - start again".into());
                 r.capture = Some(CaptureKind::ChangePass);
                 r.input = SecretInput::new().ok();
                 refresh_strength(&mut r);
@@ -1775,8 +1775,8 @@ pub fn key_submit() {
 
 /// The informed override (CD-42 Task B): the user deliberately proceeds with
 /// a weak master password after the prominent warning. Only valid while a
-/// weak submit is parked — the host trusts its OWN staged state, never the
-/// page's claim — and advances to the confirm re-type exactly like a strong
+/// weak submit is parked - the host trusts its OWN staged state, never the
+/// page's claim - and advances to the confirm re-type exactly like a strong
 /// submit would have.
 pub fn accept_weak() -> std::result::Result<(), String> {
     let mut r = rt().lock().unwrap();
@@ -1801,12 +1801,12 @@ pub fn accept_weak() -> std::result::Result<(), String> {
 }
 
 /// A background re-wrap job from an unlocked session (CD-40 1c). Every job
-/// re-wraps the VMK — the vault data is never re-encrypted.
+/// re-wraps the VMK - the vault data is never re-encrypted.
 enum RewrapJob {
     /// Replace the master password (fresh salt, `kdf` params).
     ChangePass { pass: SecretInput, kdf: KdfParams },
     /// Re-derive the password envelope under new cost params. The captured
-    /// entry must VERIFY against the current envelope first — this flow tunes
+    /// entry must VERIFY against the current envelope first - this flow tunes
     /// the cost, it must never silently change the password.
     RetuneKdf { pass: SecretInput, kdf: KdfParams },
 }
@@ -1890,7 +1890,7 @@ pub fn retune_kdf(m_cost_kib: u32, t_cost: u32, p_cost: u32, confirm: bool) -> s
         return Err("lanes must be between 1 and 8".into());
     }
     // Weakening = dropping below the RFC 9106 product default (the vetted
-    // floor) OR below the user's own current cost — either way the offline
+    // floor) OR below the user's own current cost - either way the offline
     // brute-force surface of vault.json gets cheaper, so the D-0040 gate
     // applies. Strengthening is always free.
     let current = r
@@ -1920,12 +1920,12 @@ pub fn retune_kdf(m_cost_kib: u32, t_cost: u32, p_cost: u32, confirm: bool) -> s
 }
 
 /// Change the unlock policy from the unlocked session: 1 = password-only,
-/// 2 = password + passkey (2FA; needs the passkey enrolled — the core
+/// 2 = password + passkey (2FA; needs the passkey enrolled - the core
 /// refuses otherwise). Structural (a full envelope re-mint); BOTH directions
 /// are confirm-gated and host-revalidated (D-0040 discipline): dropping 2FA
-/// is a weakening, and ENABLING it is an informed-consent step — from then
+/// is a weakening, and ENABLING it is an informed-consent step - from then
 /// on a lost Hello credential means an unrecoverable vault (no recovery
-/// key, by design — the D-0062 stance, extended by D-0063). Cheap (AEAD
+/// key, by design - the D-0062 stance, extended by D-0063). Cheap (AEAD
 /// only, no KDF), so it runs synchronously.
 pub fn set_policy(required: u8, confirm: bool) -> std::result::Result<(), String> {
     let mut r = rt().lock().unwrap();
@@ -1940,7 +1940,7 @@ pub fn set_policy(required: u8, confirm: bool) -> std::result::Result<(), String
     }
     if required >= 2 && file.required < 2 && !confirm {
         return Err(
-            "enabling two-factor unlock requires confirmation — if the passkey is ever \
+            "enabling two-factor unlock requires confirmation - if the passkey is ever \
              lost, the vault cannot be opened (there is no recovery key, by design)"
                 .into(),
         );
@@ -1952,11 +1952,11 @@ pub fn set_policy(required: u8, confirm: bool) -> std::result::Result<(), String
     Ok(())
 }
 
-/// Remove the enrolled passkey (the only removable method — the core refuses
+/// Remove the enrolled passkey (the only removable method - the core refuses
 /// removing the password, and refuses removing the passkey while the 2FA
 /// policy requires it). Synchronous like `set_policy` (AEAD only). The
 /// OS-side Hello credential is deleted best-effort AFTER the vault state is
-/// committed — the vault never depends on the OS credential store.
+/// committed - the vault never depends on the OS credential store.
 pub fn remove_enrolled_method(id: &str) -> std::result::Result<(), String> {
     let mut r = rt().lock().unwrap();
     if r.busy {
@@ -1976,7 +1976,7 @@ pub fn remove_enrolled_method(id: &str) -> std::result::Result<(), String> {
         && let Ok(cred) = hex_decode(&hex)
     {
         // Detached best-effort cleanup: this fn runs on the CEF UI thread
-        // (the IPC handler) and still holds the runtime lock — the broker
+        // (the IPC handler) and still holds the runtime lock - the broker
         // call must block neither (CD-38 law). The vault result committed
         // above never depends on it.
         std::thread::spawn(move || crate::webauthn::delete_platform_credential(&cred));
@@ -1987,9 +1987,9 @@ pub fn remove_enrolled_method(id: &str) -> std::result::Result<(), String> {
 /// Begin Windows Hello passkey enrollment from the unlocked session (CD-43
 /// Task A). Host-validated: unlocked, no passkey yet (one max), platform
 /// available. The modal MakeCredential + first PRF eval run on a worker
-/// (two Hello prompts, by CTAP design — the PRF output only exists at
+/// (two Hello prompts, by CTAP design - the PRF output only exists at
 /// assertion time); success re-wraps the vault file with the new method.
-/// At password-only the envelope set is unchanged — enrolling is what makes
+/// At password-only the envelope set is unchanged - enrolling is what makes
 /// the 2FA policy switch AVAILABLE, it never changes the policy itself.
 pub fn begin_hello_enroll() -> std::result::Result<(), String> {
     let mut r = rt().lock().unwrap();
@@ -2053,7 +2053,7 @@ pub fn begin_hello_enroll() -> std::result::Result<(), String> {
                 Ok(new) => Ok(new),
                 Err(e) => {
                     // The OS credential was minted but the vault could not
-                    // commit it — delete the orphan best-effort, so a failed
+                    // commit it - delete the orphan best-effort, so a failed
                     // enrollment leaves no half-enrolled state on either side.
                     #[cfg(all(not(test), windows))]
                     crate::webauthn::delete_platform_credential(&cred_id);
@@ -2069,7 +2069,7 @@ pub fn begin_hello_enroll() -> std::result::Result<(), String> {
                 r.file = Some(new);
                 r.error = None;
                 r.outcome = Some(Outcome::Rewrapped);
-                tracing::info!("hello passkey enrolled — 2FA is now available");
+                tracing::info!("hello passkey enrolled - 2FA is now available");
             }
             Err(e) => {
                 r.error = Some(e);
@@ -2129,7 +2129,7 @@ fn spawn_unlock(r: &mut Runtime, pass: Option<SecretInput>) {
 /// Hello assertion, combined to open the `{password, passkey}` pair
 /// envelope. The Hello modal shows while `hello = "assert"`. A failed or
 /// cancelled Hello step returns to the password prompt WITH the typed entry
-/// preserved (it stays in locked memory throughout) — retrying costs one
+/// preserved (it stays in locked memory throughout) - retrying costs one
 /// Enter, not a re-type; and since no password was checked yet, the message
 /// is honest without being an oracle. There is NO Hello-only unlock: without
 /// the password no envelope can open, structurally.
@@ -2192,7 +2192,7 @@ fn spawn_unlock_2fa(r: &mut Runtime, pass: Option<SecretInput>) {
                     }
                     Err(_) => {
                         // Uniform by design (VaultError::Crypto carries no
-                        // oracle) — the Hello step succeeded, so this is a
+                        // oracle) - the Hello step succeeded, so this is a
                         // factor mismatch, indistinguishable which.
                         r.error = Some("unlock failed".into());
                         r.capture = Some(CaptureKind::UnlockPass);
@@ -2202,7 +2202,7 @@ fn spawn_unlock_2fa(r: &mut Runtime, pass: Option<SecretInput>) {
                 }
             }
             Err(e) => {
-                // The Hello step itself failed — before any password check.
+                // The Hello step itself failed - before any password check.
                 let mut r = rt().lock().unwrap();
                 r.busy = false;
                 r.hello = None;
@@ -2246,11 +2246,11 @@ fn spawn_setup(r: &mut Runtime, pass: SecretInput) {
             }
         };
         // Migrate what is sensitive TODAY into the sealed state: the persisted
-        // identity seed (it keys the fingerprint farbling — linkage material),
+        // identity seed (it keys the fingerprint farbling - linkage material),
         // then remove the plaintext rows. Session/layout metadata stays in
         // state.db per the ticket (do not seal what doesn't need sealing).
         // Not under test: the unit suite must never open (or delete rows from)
-        // the developer's real state.db — the runtime test drives the sealed
+        // the developer's real state.db - the runtime test drives the sealed
         // tenants through sealed_set/sealed_get instead.
         let mut sealed = serde_json::json!({});
         #[cfg(not(test))]
@@ -2280,11 +2280,11 @@ fn spawn_setup(r: &mut Runtime, pass: SecretInput) {
         r.strength = None;
         r.weak_pending = false;
         r.outcome = Some(Outcome::SetupDone);
-        tracing::info!("vault created — session unlocked");
+        tracing::info!("vault created - session unlocked");
     });
 }
 
-/// Queue "lock now": the shell relaunches the process cold (D-0059) — every
+/// Queue "lock now": the shell relaunches the process cold (D-0059) - every
 /// renderer dies with it, and the next boot IS the gate.
 pub fn request_lock() {
     rt().lock().unwrap().relaunch = true;
@@ -2301,7 +2301,7 @@ pub fn take_outcome() -> Option<Outcome> {
 
 /// Best-effort zeroize of everything secret before a deliberate exit/relaunch
 /// (statics never drop on process exit, so this is called explicitly; an
-/// abnormal termination is covered by the OS zeroing freed pages — the CD-33
+/// abnormal termination is covered by the OS zeroing freed pages - the CD-33
 /// tier model).
 pub fn wipe_for_exit() {
     let mut r = rt().lock().unwrap();
@@ -2313,7 +2313,7 @@ pub fn wipe_for_exit() {
 
 /// The vault state snapshot the lock/settings pages render (pushed on change
 /// via `browser::set_vault_state`, pulled on load via `get_vault_state`).
-/// Carries counts and states — NEVER a secret (the iron law: the typed
+/// Carries counts and states - NEVER a secret (the iron law: the typed
 /// password stays in host-locked memory; the page renders dots from `chars`).
 pub fn state_json() -> String {
     let r = rt().lock().unwrap();
@@ -2326,7 +2326,7 @@ pub fn state_json() -> String {
     } else {
         "none"
     };
-    // The config surface (CD-40 1c): enrolled methods, policy, KDF cost —
+    // The config surface (CD-40 1c): enrolled methods, policy, KDF cost -
     // honest metadata, no secrets.
     let methods: Vec<serde_json::Value> = r
         .file
@@ -2356,7 +2356,7 @@ pub fn state_json() -> String {
         .and_then(|m| m.kdf)
         .map(|k| serde_json::json!({ "m_cost_kib": k.m_cost_kib, "t_cost": k.t_cost, "p_cost": k.p_cost }));
     // The live meter (CD-42 Task B): present only while a NEW master password
-    // is being typed. Score, criteria and zxcvbn's canned feedback strings —
+    // is being typed. Score, criteria and zxcvbn's canned feedback strings -
     // the password characters themselves never cross (the iron law).
     let strength = r.strength.as_ref().map(|s| {
         serde_json::json!({
@@ -2417,7 +2417,7 @@ fn save_sealed(dir: &Path, vmk: &SecretBuf, value: &serde_json::Value) -> Result
     Ok(())
 }
 
-/// Read a sealed string tenant (unlocked sessions only — a locked or
+/// Read a sealed string tenant (unlocked sessions only - a locked or
 /// bypassed vault yields None, never a plaintext fallback).
 pub fn sealed_get(key: &str) -> Option<String> {
     let r = rt().lock().unwrap();
@@ -2427,7 +2427,7 @@ pub fn sealed_get(key: &str) -> Option<String> {
 }
 
 /// Write a sealed string tenant and persist the sealed state (unlocked
-/// sessions only; a no-op otherwise — fail-closed, nothing falls back to
+/// sessions only; a no-op otherwise - fail-closed, nothing falls back to
 /// plaintext).
 pub fn sealed_set(key: &str, value: &str) {
     let mut r = rt().lock().unwrap();
@@ -2485,7 +2485,7 @@ fn test_reset_runtime(dir: &Path, kdf: KdfParams) {
 mod tests {
     use super::*;
 
-    /// Fast Argon2 params for tests only — the code path is identical (params
+    /// Fast Argon2 params for tests only - the code path is identical (params
     /// are stored data), the cost is not what these tests assert.
     const TEST_KDF: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
     const NOW: u64 = 1_753_000_000_000;
@@ -2496,7 +2496,7 @@ mod tests {
 
     // --- SecretBuf ----------------------------------------------------------
 
-    /// Locked allocation arrives zeroed, holds data, wipes on demand — and
+    /// Locked allocation arrives zeroed, holds data, wipes on demand - and
     /// construction succeeding IS the lock guarantee (zeroed() fails closed
     /// when VirtualLock refuses).
     #[test]
@@ -2517,7 +2517,7 @@ mod tests {
     // --- Setup + unlock ------------------------------------------------------
 
     /// CD-42 acceptance 3 (headless half): setup creates a VMK wrapped by the
-    /// master password alone — one method, one envelope, password-only policy.
+    /// master password alone - one method, one envelope, password-only policy.
     #[test]
     fn create_unlocks_with_master_password_only() {
         let nv = fresh();
@@ -2531,7 +2531,7 @@ mod tests {
     }
 
     /// Wrong factors and tampered blobs all fail with the uniform crypto
-    /// error — no oracle distinguishes them.
+    /// error - no oracle distinguishes them.
     #[test]
     fn wrong_password_and_tampered_envelope_fail_closed() {
         let nv = fresh();
@@ -2553,7 +2553,7 @@ mod tests {
         );
     }
 
-    /// CD-42 Task D (headless half): the 2FA policy is enforced STRUCTURALLY —
+    /// CD-42 Task D (headless half): the 2FA policy is enforced STRUCTURALLY -
     /// the only envelope is {password, passkey}, single factors find no
     /// candidate, and hand-editing the `required` field back to 1 changes
     /// nothing because no password-only envelope exists.
@@ -2578,7 +2578,7 @@ mod tests {
         assert!(unlock(&two, &[Factor::Passphrase(b"correct horse battery staple")]).is_err());
         assert!(
             unlock(&two, &[Factor::MethodSecret { id: &pk_id, secret: prf.as_slice() }]).is_err(),
-            "the passkey alone opens nothing — the password is always required"
+            "the passkey alone opens nothing - the password is always required"
         );
         let vmk = unlock(
             &two,
@@ -2599,7 +2599,7 @@ mod tests {
         );
 
         // The AAD transplant: relabel the pair envelope as password-only.
-        // Untouched ciphertext + the right password still fail — the AAD
+        // Untouched ciphertext + the right password still fail - the AAD
         // binds the exact method set.
         let mut renamed = two.clone();
         renamed.required = 1;
@@ -2618,7 +2618,7 @@ mod tests {
     }
 
     /// CD-42 Task C (core half): the passkey enrolls from an unlocked session
-    /// as the ONLY additional factor — it gains an escrow, never its own
+    /// as the ONLY additional factor - it gains an escrow, never its own
     /// envelope; a second passkey is refused; removal follows the policy.
     #[test]
     fn passkey_is_additional_never_a_replacement() {
@@ -2668,7 +2668,7 @@ mod tests {
         assert_eq!(removed.methods.len(), 1);
     }
 
-    /// CD-42 Task D/E: the structural invariants hold — the master password
+    /// CD-42 Task D/E: the structural invariants hold - the master password
     /// cannot be removed, the policy accepts only 1 and 2, 2FA needs the
     /// passkey, and pathological files are refused.
     #[test]
@@ -2836,7 +2836,7 @@ mod tests {
     }
 
     /// The product Argon2id parameters are the documented RFC 9106 second
-    /// recommendation — a regression guard against silent weakening.
+    /// recommendation - a regression guard against silent weakening.
     #[test]
     fn product_kdf_params_match_rfc_9106_second_recommendation() {
         assert_eq!(KdfParams::PRODUCT.m_cost_kib, 65536, "64 MiB");
@@ -2847,7 +2847,7 @@ mod tests {
     // --- Stage 1b: host capture + runtime -----------------------------------
 
     /// SecretInput edits correctly across multi-byte characters and wipes on
-    /// clear — the host-captured entry buffer behind the iron law.
+    /// clear - the host-captured entry buffer behind the iron law.
     #[test]
     fn secret_input_edits_utf8_and_wipes() {
         let mut i = SecretInput::new().unwrap();
@@ -2917,7 +2917,7 @@ mod tests {
     /// through the host-capture state machine (mismatch retry included), a
     /// sealed tenant surviving a simulated relaunch, and a failed then
     /// successful master-password unlock. ONE test drives the whole flow
-    /// because the runtime is a process-wide singleton — two parallel tests
+    /// because the runtime is a process-wide singleton - two parallel tests
     /// would interleave.
     #[test]
     fn runtime_setup_lock_unlock_flow() {
@@ -2930,7 +2930,7 @@ mod tests {
         assert!(gate_closed(), "no vault → the gate is CLOSED on mandatory setup (CD-42)");
         assert!(begin_capture("unlock_pass").is_err(), "nothing to unlock yet");
 
-        // The master password used through the flow — random-looking, so the
+        // The master password used through the flow - random-looking, so the
         // meter scores it strong AND the iron-law tripwire below can assert
         // it never appears in the state JSON.
         const STRONG: &str = "vB7#kePq9wRx2xLm";
@@ -2956,8 +2956,8 @@ mod tests {
             key_backspace();
         }
 
-        // Strong entry: the iron-law tripwire — the typed characters never
-        // appear in the state JSON — then a mismatching confirm (retry), then
+        // Strong entry: the iron-law tripwire - the typed characters never
+        // appear in the state JSON - then a mismatching confirm (retry), then
         // a clean create.
         key_text(STRONG);
         assert!(
@@ -3018,7 +3018,7 @@ mod tests {
         begin_capture("unlock_pass").unwrap();
         assert!(
             state_json().contains("\"strength\":null"),
-            "no meter on the unlock prompt — it exists only while SETTING a password"
+            "no meter on the unlock prompt - it exists only while SETTING a password"
         );
         key_text("wrong horse battery staple");
         key_submit();
@@ -3036,7 +3036,7 @@ mod tests {
 
         // --- The config surface, driven end to end while unlocked -----------
 
-        // Policy: 2FA needs an enrolled passkey — none exists, so the switch
+        // Policy: 2FA needs an enrolled passkey - none exists, so the switch
         // refuses even WITH the consent flag (CD-42 Task D).
         assert!(set_policy(2, true).is_err(), "2FA without a passkey is refused");
         assert!(state_json().contains("\"required\":1"));
@@ -3044,7 +3044,7 @@ mod tests {
         // Change the master password to a WEAK one via the informed override
         // (CD-42 acceptance 1: a weak password CAN be set deliberately).
         begin_capture("change_pass").unwrap();
-        assert!(accept_weak().is_err(), "nothing parked yet — the IPC cannot skip ahead");
+        assert!(accept_weak().is_err(), "nothing parked yet - the IPC cannot skip ahead");
         key_text("password");
         key_submit();
         assert!(state_json().contains("\"weak_pending\":true"));
@@ -3068,7 +3068,7 @@ mod tests {
         // KDF re-tune: bounds + weakening gate enforced, the captured entry is
         // VERIFIED against the current envelope (a wrong entry must not
         // silently become the new password), then the cost really changes.
-        // No meter here — the CURRENT password is being entered, not a new one.
+        // No meter here - the CURRENT password is being entered, not a new one.
         assert!(retune_kdf(1024, 1, 1, true).is_err(), "below the memory floor");
         assert!(
             retune_kdf(16 * 1024, 1, 1, false).is_err(),
@@ -3109,7 +3109,7 @@ mod tests {
             .unwrap()
             .to_string();
 
-        // The persisted method carries the assertion inputs — non-secret
+        // The persisted method carries the assertion inputs - non-secret
         // credential id + PRF eval salt, hex (CD-43 plumbing check).
         {
             let r = rt().lock().unwrap();
@@ -3125,7 +3125,7 @@ mod tests {
             assert_eq!(hex_decode(m.salt.as_deref().unwrap()).unwrap().len(), KEY_LEN);
         }
 
-        // 2FA on: enabling is an informed-consent step (D-0063 — a lost
+        // 2FA on: enabling is an informed-consent step (D-0063 - a lost
         // passkey then means an unrecoverable vault), so the bare switch is
         // host-refused; with the acknowledgment it applies. The passkey is
         // then locked in by the policy.
@@ -3148,7 +3148,7 @@ mod tests {
         assert_eq!(wait_outcome(), Outcome::Unlocked);
         assert!(is_unlocked(), "password + passkey assertion together open the pair envelope");
 
-        // Wrong password + a VALID assertion still fails — uniform error.
+        // Wrong password + a VALID assertion still fails - uniform error.
         test_reset_runtime(&dir, TEST_KDF);
         begin_capture("unlock_pass").unwrap();
         key_text("not the password");
@@ -3172,7 +3172,7 @@ mod tests {
         assert_eq!(wait_outcome(), Outcome::Unlocked);
 
         // Dropping back: 2FA→password-only is a weakening (confirm-gated);
-        // then the passkey removes cleanly — no brick (CD-43 Task C).
+        // then the passkey removes cleanly - no brick (CD-43 Task C).
         assert!(set_policy(1, false).is_err(), "dropping 2FA needs confirmation");
         set_policy(1, true).unwrap();
         remove_enrolled_method(&pk_id).expect("passkey removable at password-only");

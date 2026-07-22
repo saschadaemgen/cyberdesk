@@ -1,4 +1,4 @@
-# CARVILON CyberDesk — the "cyber" template.
+# CARVILON CyberDesk - the "cyber" template.
 #
 # Templates are DATA, not code. Every style value (color, radius, period,
 # amplitude) in the shell lives here and is resolved into wgpu uniforms and the
@@ -15,7 +15,7 @@ panel_border = "#123246"
 text         = "#DCE9F2"
 text_dim     = "#7C9CB4"
 accent       = "#009FE3"
-warn         = "#E8A23D"  # amber — insecure/plain-http hint
+warn         = "#E8A23D"  # amber - insecure/plain-http hint
 ampel_green  = "#35D07F"  # the Ampel lamps (CD-30): graded protection control
 ampel_yellow = "#E8C542"
 ampel_red    = "#FF5D5D"
@@ -32,12 +32,12 @@ glow            = 0.22    # relative glow intensity
 [page]
 corner_radius = 16.0  # device px (also the OFF-state hard corner)
 feather_width = 12.0  # device px, edge softness band in the ON state (CD-06:
-                      # narrow, was 34 — the wide band read as a 3D vignette)
+                      # narrow, was 34 - the wide band read as a 3D vignette)
 feather_exp   = 0.45  # falloff curve exponent (CD-06): pow applied to the edge
                       # coverage so the page stays fully opaque except the
-                      # outermost pixels — steep, not creamy (< 1 = steeper)
+                      # outermost pixels - steep, not creamy (< 1 = steeper)
 
-# Deep Field — Season-1 CD-03 background, now DEMOTED to the future "Calm"
+# Deep Field - Season-1 CD-03 background, now DEMOTED to the future "Calm"
 # template variant (D-0012). Kept fully intact and token-selectable via
 # background.kind = "deep_field"; Pulse Grid is the Cyber default.
 [deep_field]
@@ -52,7 +52,7 @@ sweep_period_min    = 45.0  # s, rare scan sweep window
 sweep_period_max    = 90.0
 sweep_amplitude     = 0.06
 
-# Pulse Grid — background v2 (CD-05, D-0012), depth overhaul (CD-06, D-0013). A
+# Pulse Grid - background v2 (CD-05, D-0012), depth overhaul (CD-06, D-0013). A
 # fine circuit-board weave with light pulses travelling routed traces. Unlike the
 # Deep Field, this layer is ALLOWED to glow (the amplitude cap is superseded);
 # content readability is protected by the zone shadow instead of global darkness.
@@ -102,7 +102,7 @@ far_width_scale = 0.5   # far line width vs near (thinnest)
 mid_bright      = 0.6   # mid brightness vs near
 far_bright      = 0.36  # far brightness vs near (faintest)
 
-# Component vocabulary (CD-06) — breaks the uniform random-walk predictability.
+# Component vocabulary (CD-06) - breaks the uniform random-walk predictability.
 # Counts are per megapixel; sizes are in lattice cells or logical px.
 chip_density      = 3.0  # chip footprints per megapixel (near + mid layers)
 chip_min_cells    = 3    # chip body extent in lattice cells (min)
@@ -115,7 +115,7 @@ via_density       = 6.0  # via clusters per megapixel per layer
 via_min           = 3    # filled dots per via cluster (min)
 via_max           = 8    # filled dots per via cluster (max)
 
-# Life layer — travelling pulses and node flares (CD-05 Stage B), across all
+# Life layer - travelling pulses and node flares (CD-05 Stage B), across all
 # three depth layers (CD-06): near bright/fast, mid fewer/dimmer, far sparse/
 # slow/faint. Flares stay on the near layer.
 [background.pulse]
@@ -145,16 +145,16 @@ flare_thickness    = 1.3    # flare ring half-thickness
 flare_life         = 1.1    # flare lifetime (s)
 flare_glow         = 0.7    # flare brightness
 
-# Command palette (CD-07, D-0014) — the command bar plus its live suggestion
+# Command palette (CD-07, D-0014) - the command bar plus its live suggestion
 # list. One source of truth for BOTH the page CSS and the host-side view sizing:
 # the palette view is resized to fit exactly `input_height + N rows`, so these
 # dimensions must match on both sides (no hardcoded values in the page).
 [command]
-input_height = 76.0   # logical px — the input-bar area (unchanged from CD-04)
+input_height = 76.0   # logical px - the input-bar area (unchanged from CD-04)
 row_height   = 46.0   # logical px per suggestion row
-list_pad     = 8.0    # logical px — padding above/below the suggestion list
+list_pad     = 8.0    # logical px - padding above/below the suggestion list
 max_results  = 6      # maximum suggestions shown at once (also the chip cap)
-chip_row     = 54.0   # logical px — the favorites chip row (CD-08 top bar)
+chip_row     = 54.0   # logical px - the favorites chip row (CD-08 top bar)
 # Floating command sets (CD-12, D-0021). The bar dissolves into N per-window
 # ensembles + a shared favorites-tile launcher, floating transparently in a top
 # band. All logical px; shared host<->page via CSS vars (Theme::to_css_vars).
@@ -166,46 +166,46 @@ orb_size      = 34.0   # back/forward/reload orb diameter
 tile_size     = 46.0   # favorites launcher tile diameter
 tile_gap      = 12.0   # gap between launcher tiles
 
-# Slot engine (CD-09, D-0017) — fixed-width content columns instead of a single
+# Slot engine (CD-09, D-0017) - fixed-width content columns instead of a single
 # proportional surf zone. A slot is `width` logical px wide, as tall as the surf
-# zone (the window minus the explicit `zone_top`/`zone_bottom` margins — CD-30
+# zone (the window minus the explicit `zone_top`/`zone_bottom` margins - CD-30
 # Task A retired the old centered `height_frac`, whose 15%+15% dead space was
 # wasted), with `gutter` between slots. CD-11 (D-0020) framed the group with side
-# zones; the REVISED law (D-0022) makes the frame ASYMMETRIC — the RIGHT is the
+# zones; the REVISED law (D-0022) makes the frame ASYMMETRIC - the RIGHT is the
 # permanent Multifunctional (MF) zone (never rails; 2× wide while its Terminal
 # tab is active, CD-30), the LEFT (future Spine) is the flexible one (full ↔ rail
 # per the CD-11 reflow), and the slot maximum drops to THREE. The whole frame
 # (left zone + gutters + slot group + right MF zone) is centered in the window;
 # when the frame would overflow (the wide terminal), slot columns COMPRESS toward
 # `slot_min_width` instead of closing (CD-30). `gutter` rose 40 → 56 ("more space
-# between the screens"); the budget holds — three 1200px slots + both zones full
+# between the screens"); the budget holds - three 1200px slots + both zones full
 # + all four gutters at 5120: 320 + 56 + (3·1200 + 2·56) + 56 + 320 = 4464 ≤ 5120
 # (656 px margin). All sizes are logical px (scaled by DPI).
 [slots]
 width            = 1200.0  # fixed content-column width
 gutter           = 56.0    # gap between slots AND between the group and each zone (D-0022: 40 → 56)
 min_margin       = 48.0    # legacy edge margin (still used by max_slots; the frame centers in the window)
-zone_top         = 118.0   # top margin above the slots — the gear row + floating info strip (CD-30)
-zone_bottom      = 44.0    # bottom margin below the slots — a slim glow gutter (CD-30)
+zone_top         = 118.0   # top margin above the slots - the gear row + floating info strip (CD-30)
+zone_bottom      = 44.0    # bottom margin below the slots - a slim glow gutter (CD-30)
 slot_min_width   = 480.0   # compression floor per column when the frame must squeeze (CD-30)
 max_count        = 4       # legacy max_slots cap (the product cap is slot_max below)
 slot_max         = 3       # D-0022: product slot maximum (must be <= slots::MAX_SLOTS)
 active_line      = 2.0     # active-slot bottom accent line thickness
 placeholder_fill = 0.05    # placeholder fill lift above the base color (additive)
 placeholder_glyph = 0.18   # placeholder core-glyph brightness (0..1 of brand)
-side_zone_width  = 320.0   # LEFT (Spine) zone width, Full state (D-0022) — flexes to the rail below
-side_rail_width  = 48.0    # LEFT (Spine) zone width, Rail state — the retreated thin strip
+side_zone_width  = 320.0   # LEFT (Spine) zone width, Full state (D-0022) - flexes to the rail below
+side_rail_width  = 48.0    # LEFT (Spine) zone width, Rail state - the retreated thin strip
 # RIGHT Multifunctional zone (D-0022: permanent, never rails). CD-31 (D-0048):
 # its width is a property of the ZONE (identical for the Tor / Log / Terminal
-# tabs — never tab-dependent) and sizes in DISCRETE prefab steps, large /
+# tabs - never tab-dependent) and sizes in DISCRETE prefab steps, large /
 # medium / small (groß / mittel / klein), stepping down only when the window is
-# too small to hold the step alongside the nominal columns — never fluidly.
+# too small to hold the step alongside the nominal columns - never fluidly.
 mf_zone_large    = 640.0
 mf_zone_medium   = 480.0
 mf_zone_small    = 320.0
 
 # Update awareness (CD-13, D-0023). `feed_url` is the host's ONE allowlisted
-# outbound endpoint — the pinned CARVILON update manifest (public product config,
+# outbound endpoint - the pinned CARVILON update manifest (public product config,
 # not a secret; NetGuard exception D-0023). No other host traffic exists. The
 # `CYBERDESK_UPDATE_FEED` env var overrides it for testing (documented like the
 # capture knobs). The rest are the info glyph's token-driven appearance.

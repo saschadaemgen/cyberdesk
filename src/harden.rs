@@ -2,22 +2,22 @@
 //!
 //! CD-16 (D-0039) ships the hardening MECHANICS (`src/hardening.js`); this module is
 //! the CONFIGURATION *over* them: the graded Ampel levels (CD-30: Off / Green /
-//! Yellow / Red — Yellow and Red being the former Standard and Strict), the
+//! Yellow / Red - Yellow and Red being the former Standard and Strict), the
 //! per-vector custom flags, resolution of an effective per-window config, and the
 //! weaken/strengthen classification the safety gate keys on. It never introduces a
-//! new spoofing vector — the config only ENABLES/DISABLES and tunes the existing
+//! new spoofing vector - the config only ENABLES/DISABLES and tunes the existing
 //! coherent vectors, so EC-01 (no OS/UA/platform spoofing, coherence) holds for
 //! every reachable configuration.
 //!
 //! CD-29 completes the vector surface: every measurable fingerprint vector is its
-//! own visible, settable flag — the CD-16 six (canvas, WebGL readback, audio,
+//! own visible, settable flag - the CD-16 six (canvas, WebGL readback, audio,
 //! layout/text metrics, device profile, fonts) plus GPU identity (WebGL vendor /
 //! renderer strings + WebGPU adapter, split out of `webgl` so readback noise and
 //! identity clamp are independently controllable), clock/timing precision, media /
 //! codec / voice profile, and math (transcendental-rounding) normalization. CD-32
-//! (D-0049) adds the eleventh: window size — the inner-size read cluster reported
+//! (D-0049) adds the eleventh: window size - the inner-size read cluster reported
 //! as the nearest common step of the CD-29 screen ladder. Old persisted CD-25
-//! configs deserialize with the new vectors DEFAULTED ON (serde defaults) — an
+//! configs deserialize with the new vectors DEFAULTED ON (serde defaults) - an
 //! upgrade never silently weakens protection.
 //!
 //! The [`Config`] is serialized to the exact JSON `hardening.js` reads at its
@@ -25,15 +25,15 @@
 //! `extra_info` dictionary that carries a slot's effective config to its render
 //! process (per-window; the seed stays session-global). Timezone normalization
 //! (`TZ=UTC`, CD-16 `main.rs`) is process-global and is deliberately NOT part of this
-//! config — it stays always-on and is surfaced honestly as such.
+//! config - it stays always-on and is surfaced honestly as such.
 
 use serde::{Deserialize, Serialize};
 
 /// A hardening preset level. CD-30 (Task C) turns the presets into the graded
 /// **Ampel** (traffic light): `Green` < `Yellow` < `Red` is a strict protection
-/// order — moving DOWN it is a weakening (gated), moving UP is immediate.
+/// order - moving DOWN it is a weakening (gated), moving UP is immediate.
 /// `Yellow` is the former `Standard` (every vector, moderate buckets) and `Red`
-/// the former `Strict` (every vector, tight buckets — plus, at the shell level,
+/// the former `Strict` (every vector, tight buckets - plus, at the shell level,
 /// the CD-30 window-size lock); `Green` is the new everyday floor (the coherent
 /// core without the aggressive clock/media/math clamps). The old names parse as
 /// aliases so persisted CD-25/CD-29 configs keep their exact protection.
@@ -53,7 +53,7 @@ impl Level {
             "off" => Some(Level::Off),
             "green" => Some(Level::Green),
             // Aliases (pre-CD-30 persisted values / older pages): the CONTENT is
-            // identical, only the product name changed — never a silent weakening.
+            // identical, only the product name changed - never a silent weakening.
             "yellow" | "standard" => Some(Level::Yellow),
             "red" | "strict" => Some(Level::Red),
             "custom" => Some(Level::Custom),
@@ -73,7 +73,7 @@ impl Level {
 }
 
 /// serde default for vectors added after CD-25: an old persisted config that
-/// predates a vector gets it ON — never a silent weakening on upgrade.
+/// predates a vector gets it ON - never a silent weakening on upgrade.
 fn on_by_default() -> bool {
     true
 }
@@ -134,7 +134,7 @@ pub const VECTOR_KEYS: [&str; 11] = [
 ];
 
 impl Config {
-    /// The all-vectors, moderate-buckets config — the **Yellow** Ampel level
+    /// The all-vectors, moderate-buckets config - the **Yellow** Ampel level
     /// (CD-30; formerly the `Standard` preset, const name kept for the fail-safe
     /// plumbing). This is the fail-safe default everywhere: an unconfigured
     /// browser is always protected at least this much.
@@ -154,7 +154,7 @@ impl Config {
         viewport: true,
     };
 
-    /// The **Green** Ampel level (CD-30): the coherent everyday core — WITHOUT
+    /// The **Green** Ampel level (CD-30): the coherent everyday core - WITHOUT
     /// the three aggressive clamps (clock/timing precision, media/codec
     /// normalization, math rounding) that can cause minor site quirks. Moderate
     /// buckets. Window-size reporting IS part of Green (CD-32, D-0049): it is the
@@ -167,12 +167,12 @@ impl Config {
         ..Config::STANDARD
     };
 
-    /// The all-vectors, tight-buckets config — the **Red** Ampel level (CD-30;
+    /// The all-vectors, tight-buckets config - the **Red** Ampel level (CD-30;
     /// formerly the `Strict` preset). The CD-30 window-size lock rides on the
     /// LEVEL at the shell layer, not on this config.
     pub const STRICT: Config = Config { strict: true, ..Config::STANDARD };
 
-    /// Off — no injection at all.
+    /// Off - no injection at all.
     pub const OFF: Config = Config {
         on: false,
         strict: false,
@@ -287,7 +287,7 @@ pub fn resolve(level: Level, custom: Config) -> Config {
 /// on) is ungated. A weakening is any of:
 /// * turning protection off,
 /// * dropping any active vector (e.g. Yellow → Green drops timing/media/math), or
-/// * loosening the tight `strict` buckets (Red → Yellow). CD-30 revised this —
+/// * loosening the tight `strict` buckets (Red → Yellow). CD-30 revised this -
 ///   the Ampel makes Green < Yellow < Red a strict protection ORDER, so every
 ///   step down the ladder is gated, including leaving Red.
 pub fn is_weakening(current: &Config, target: &Config) -> bool {
@@ -340,7 +340,7 @@ mod tests {
         assert!(g.canvas && g.webgl && g.gpu && g.audio && g.metrics && g.nav && g.fonts);
         assert!(!g.timing && !g.media && !g.math);
         // CD-32 (D-0049): reporting a common inner size is the level rule for
-        // everything below Red, so Green and Yellow report alike — only the real
+        // everything below Red, so Green and Yellow report alike - only the real
         // window snapping is Red's.
         assert!(g.viewport, "Green reports a common window size too");
     }
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn pre_cd30_level_names_parse_as_the_same_protection() {
         // A persisted "standard"/"strict" keeps its exact content under the new
-        // Ampel names — an upgrade never silently changes protection.
+        // Ampel names - an upgrade never silently changes protection.
         assert_eq!(Level::parse("standard"), Some(Level::Yellow));
         assert_eq!(Level::parse("strict"), Some(Level::Red));
         assert_eq!(Level::parse("green"), Some(Level::Green));
@@ -408,7 +408,7 @@ mod tests {
             assert!(!is_weakening(&dropped, &Config::STANDARD), "{key} on must not weaken");
         }
         // Yellow -> Red = strengthen; Red -> Yellow = a weakening since CD-30
-        // (the Ampel ladder is a strict protection order — leaving Red is gated).
+        // (the Ampel ladder is a strict protection order - leaving Red is gated).
         assert!(!is_weakening(&Config::STANDARD, &Config::STRICT));
         assert!(is_weakening(&Config::STRICT, &Config::STANDARD));
         // Off -> Yellow = strengthen.
@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn cd25_era_json_upgrades_with_new_vectors_on() {
         // A persisted CD-25 custom config (six vectors, canvas dropped) must parse
-        // with every CD-29 vector ON — an upgrade never silently weakens.
+        // with every CD-29 vector ON - an upgrade never silently weakens.
         let old = "{\"on\":true,\"strict\":false,\"canvas\":false,\"webgl\":true,\"audio\":true,\"metrics\":true,\"nav\":true,\"fonts\":true}";
         let cfg = Config::from_json(old);
         assert!(!cfg.canvas && cfg.webgl);
@@ -454,7 +454,7 @@ mod tests {
     #[test]
     fn vector_keys_and_flags_stay_in_lockstep() {
         // Every key round-trips through set_vector -> vector_flags at the same
-        // index — the invariant the UI/IPC walk relies on.
+        // index - the invariant the UI/IPC walk relies on.
         for (i, key) in VECTOR_KEYS.iter().enumerate() {
             let mut cfg = Config::STANDARD;
             cfg.set_vector(key, false);

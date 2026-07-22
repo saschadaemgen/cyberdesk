@@ -6,14 +6,14 @@
 //! updater, variations/Finch, connectivity probes, network prediction, search
 //! suggest, domain reliability/NEL, translate, spell check, autofill, the
 //! password leak-check, secure-DNS auto-upgrade, optimization hints, GCM,
-//! and — found by the CD-26 idle re-audit — the eager signin ListAccounts
+//! and - found by the CD-26 idle re-audit - the eager signin ListAccounts
 //! poll and the AI-Mode eligibility fetch). This module is the single,
-//! auditable TABLE of every vector we close and HOW — command-line switches
+//! auditable TABLE of every vector we close and HOW - command-line switches
 //! for the process-global levers, preferences for the per-profile ones, one
 //! global (local-state) preference for secure DNS.
 //!
 //! **Every switch and preference NAME here was verified against the pinned
-//! Chromium `149.0.7827.201` source (CEF `149.0.6`), not guessed** — the
+//! Chromium `149.0.7827.201` source (CEF `149.0.6`), not guessed** - the
 //! `source:` field on each entry cites the defining file. The application code
 //! (the CEF calls) lives in `browser.rs`; this module is deliberately pure data
 //! plus the one bit of testable logic (the `--disable-features` merge), so the
@@ -21,7 +21,7 @@
 //!
 //! Honest bound (D-0041): this silences the engine's UNSOLICITED Google/telemetry
 //! traffic. It does NOT hide the user's own navigation, and it does not disable
-//! necessary TLS security (certificate verification stays on — OCSP/CRL to a
+//! necessary TLS security (certificate verification stays on - OCSP/CRL to a
 //! visited site's own CA is necessary infrastructure, not phone-home).
 
 /// A preference value to force. The three variants map onto CEF's
@@ -47,15 +47,15 @@ pub struct Pref {
     pub closes: &'static str,
 }
 
-/// PROFILE preferences, applied to EVERY request context — the global (clearnet)
+/// PROFILE preferences, applied to EVERY request context - the global (clearnet)
 /// context in `BrowserProcessHandler::on_context_initialized` and each per-slot
-/// Tor context in `TorContextHandler::on_request_context_initialized` — so
+/// Tor context in `TorContextHandler::on_request_context_initialized` - so
 /// clearnet and Tor slots are de-Googled alike (CD-17 §1).
 ///
 /// These are all user-modifiable profile prefs registered by Chromium, settable
 /// via `CefRequestContext::SetPreference`. Each application is logged; a name that
 /// ever fails to apply surfaces as an error in the rolling log (never a silent
-/// no-op — the CD-15-HOTFIX lesson).
+/// no-op - the CD-15-HOTFIX lesson).
 pub const CONTEXT_PREFS: &[Pref] = &[
     Pref {
         name: "safebrowsing.enabled",
@@ -122,7 +122,7 @@ pub const CONTEXT_PREFS: &[Pref] = &[
 ];
 
 /// GLOBAL (local-state) preferences, set through the global
-/// `CefPreferenceManager` and guarded by `CanSetPreference` — these live in
+/// `CefPreferenceManager` and guarded by `CanSetPreference` - these live in
 /// local state, not the profile, so `CefRequestContext::SetPreference` can't
 /// reach them.
 ///
@@ -143,24 +143,24 @@ pub const GLOBAL_PREFS: &[Pref] = &[Pref {
 /// or behaviour toggle must agree browser<->renderer). `disable-quic` (CD-15,
 /// D-0027) is appended separately and stays.
 ///
-/// `disable-background-networking` is the UMBRELLA — in Chromium 149 it gates the
+/// `disable-background-networking` is the UMBRELLA - in Chromium 149 it gates the
 /// component-updater fetch, the variations/Finch seed fetch, GCM/push, the Safe
 /// Browsing update fetch, and more. It does NOT cover the per-navigation levers
-/// (Safe Browsing lookups, search suggest, translate, …) — those are closed
+/// (Safe Browsing lookups, search suggest, translate, …) - those are closed
 /// explicitly above. The remaining switches are belt-and-suspenders over the
 /// umbrella (component updater, NEL beacons, account sync).
 pub const SWITCHES: &[&str] = &[
     // kDisableBackgroundNetworking = "disable-background-networking"
-    // — chrome/common/chrome_switches.cc
+    // - chrome/common/chrome_switches.cc
     "disable-background-networking",
     // kDisableComponentUpdate = "disable-component-update"
-    // — chrome/common/chrome_switches.cc (CRLSet, Widevine, … from Google)
+    // - chrome/common/chrome_switches.cc (CRLSet, Widevine, … from Google)
     "disable-component-update",
     // kDisableDomainReliability = "disable-domain-reliability"
-    // — chrome/common/chrome_switches.cc (Domain Reliability / NEL beacons)
+    // - chrome/common/chrome_switches.cc (Domain Reliability / NEL beacons)
     "disable-domain-reliability",
     // kDisableSync = "disable-sync"
-    // — components/sync/base/command_line_switches.h (Google account sync)
+    // - components/sync/base/command_line_switches.h (Google account sync)
     "disable-sync",
 ];
 
@@ -185,24 +185,24 @@ pub struct ValuedSwitch {
 /// Background (CD-26): the idle net-log still showed one deterministic
 /// `POST accounts.google.com/ListAccounts` ~90 ms after startup. Its net-log
 /// traffic annotation (`gaia_auth_list_accounts`) traces to `AccountInvestigator`
-/// — a per-profile KeyedService that Chromium creates EAGERLY
+/// - a per-profile KeyedService that Chromium creates EAGERLY
 /// (`AccountInvestigatorFactory::ServiceIsCreatedWithBrowserContext() == true`,
 /// chrome/browser/signin/account_investigator_factory.cc) and whose persistent
 /// daily timer fires IMMEDIATELY on a fresh or stale profile
 /// (components/signin/public/base/persistent_repeating_timer.cc:
 /// `if (desired_run_time <= clock_->Now()) { OnTimerFired(); }`). That path
-/// checks NO preference, NO policy and NO feature — it cannot be disabled,
+/// checks NO preference, NO policy and NO feature - it cannot be disabled,
 /// only redirected. Hence `gaia-url`: every GAIA endpoint URL is derived from
 /// one origin that this switch overrides, so the whole signin endpoint set
 /// (ListAccounts/Logout/multilogin) resolves to a dead loopback origin.
 /// TCP RST on 127.0.0.1:9 (discard port, nothing listens); zero bytes leave
 /// the machine. The audit may see a few refused loopback attempts (bounded
-/// GaiaCookieManagerService backoff) — that is the neutered stack, documented
+/// GaiaCookieManagerService backoff) - that is the neutered stack, documented
 /// in docs/cyberdesk-degoogle-audit.md.
 pub const VALUED_SWITCHES: &[ValuedSwitch] = &[
     ValuedSwitch {
         // kAllowBrowserSigninArgument = "allow-browser-signin"; parsed by
-        // IsBrowserSigninAllowedByCommandLine — only the literal "true"
+        // IsBrowserSigninAllowedByCommandLine - only the literal "true"
         // enables, so "=false" pins signin.allowed=false at every profile
         // init → AccountConsistencyModeManager returns kDisabled → the
         // AccountReconcilor gets the base delegate whose IsReconcileEnabled()
@@ -210,11 +210,11 @@ pub const VALUED_SWITCHES: &[ValuedSwitch] = &[
         name: "allow-browser-signin",
         value: "false",
         source: "chrome/browser/signin/account_consistency_mode_manager.cc",
-        closes: "browser signin / DICE account consistency — every reconcilor-driven \
+        closes: "browser signin / DICE account consistency - every reconcilor-driven \
                  accounts.google.com ListAccounts (token/cookie-change triggered)",
     },
     ValuedSwitch {
-        // kGaiaUrl = "gaia-url" — google_apis/gaia/gaia_switches.cc; consumed
+        // kGaiaUrl = "gaia-url" - google_apis/gaia/gaia_switches.cc; consumed
         // once in GaiaUrls::InitializeDefault (google_apis/gaia/gaia_urls.cc):
         // SetDefaultOriginIfOpaqueOrInvalidScheme(&gaia_origin_, kGaiaUrl, …)
         // then list_accounts_url_ etc. are all resolved against that origin.
@@ -222,7 +222,7 @@ pub const VALUED_SWITCHES: &[ValuedSwitch] = &[
         name: "gaia-url",
         value: "http://127.0.0.1:9/",
         source: "google_apis/gaia/gaia_switches.cc",
-        closes: "the ENTIRE GAIA endpoint set — above all AccountInvestigator's eager \
+        closes: "the ENTIRE GAIA endpoint set - above all AccountInvestigator's eager \
                  startup/daily ListAccounts POST, which no pref/policy/feature gates",
     },
 ];
@@ -257,7 +257,7 @@ pub const DISABLE_FEATURES: &[&str] = &[
     // each individually gated in aim_eligibility_service.cc.
     "AimServerRequestOnStartupEnabled",
     "AimServerRequestOnIdentityChangeEnabled",
-    // CD-26 (D-0042): the GENERIC Reporting API + Network Error Logging —
+    // CD-26 (D-0042): the GENERIC Reporting API + Network Error Logging -
     // NOT covered by `disable-domain-reliability` (a different feature). Both
     // default-enabled (`kReporting`, `kNetworkErrorLogging`,
     // services/network/public/cpp/features.cc) and gated per network context
@@ -270,7 +270,7 @@ pub const DISABLE_FEATURES: &[&str] = &[
 ];
 
 /// Env var (set to a writable path) that turns on the net-log capture used for
-/// the CD-17 §2 audit. OFF by default — nothing lands on disk in a normal run
+/// the CD-17 §2 audit. OFF by default - nothing lands on disk in a normal run
 /// (anti-forensic tenet). Read in `on_before_command_line_processing`, which then
 /// appends `--log-net-log=<path>` on the browser process only.
 pub const AUDIT_NETLOG_ENV: &str = "CYBERDESK_AUDIT_NETLOG";
@@ -280,7 +280,7 @@ pub const AUDIT_NETLOG_ENV: &str = "CYBERDESK_AUDIT_NETLOG";
 /// each of ours only if absent. Idempotent: merging an already-merged value is a
 /// no-op. Returns `""` only when there is nothing to disable at all.
 ///
-/// This matters because `base::CommandLine` stores switches in a map — appending
+/// This matters because `base::CommandLine` stores switches in a map - appending
 /// a second `--disable-features` would CLOBBER whatever CEF/Chromium already put
 /// there, so we read, merge, and re-set instead.
 pub fn merge_disable_features(existing: &str) -> String {
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn gaia_redirect_stays_on_loopback() {
-        // The gaia-url override must NEVER point at a routable origin — the
+        // The gaia-url override must NEVER point at a routable origin - the
         // point of the dead origin is that the neutered GAIA stack cannot
         // leave the machine (CD-26, D-0042).
         let gaia = VALUED_SWITCHES

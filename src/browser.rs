@@ -1,11 +1,11 @@
-//! CEF (Chromium Embedded Framework) integration — the CyberDesk views.
+//! CEF (Chromium Embedded Framework) integration - the CyberDesk views.
 //!
 //! The off-screen (OSR) browser views live here, distinguished by a [`Role`]:
 //!
-//!   * [`Role::Slot`]`(i)` — one of the surf columns (CD-09), full web browsing.
+//!   * [`Role::Slot`]`(i)` - one of the surf columns (CD-09), full web browsing.
 //!     A new/empty slot loads the own start page (CD-14, `cyberdesk://start/`);
 //!     no Google, no restored websites.
-//!   * [`Role::Internal`] — the settings / command-bar page, locked to the
+//!   * [`Role::Internal`] - the settings / command-bar page, locked to the
 //!     internal `cyberdesk://` scheme (see docs/cyberdesk-decisions.md, D-0010).
 //!
 //! Both render into CPU buffers (`RenderHandler::on_paint`); the renderer
@@ -16,7 +16,7 @@
 //! The internal view is hard-isolated from the web: its `RequestHandler` cancels
 //! any navigation whose scheme is not `cyberdesk://` (NetGuard principle,
 //! D-0004), and the settings document is served entirely in-process from
-//! embedded assets — it performs no network requests at all. Native<->page
+//! embedded assets - it performs no network requests at all. Native<->page
 //! settings traffic goes over the CEF message router (`window.cefQuery`), which
 //! is registered ONLY on `cyberdesk://` contexts, so the IPC bridge exists only
 //! on the internal view.
@@ -43,7 +43,7 @@ use winit::window::CursorIcon;
 use crate::slots::MAX_SLOTS;
 
 /// The internal custom scheme and its document URLs (D-0010). The **start page**
-/// (CD-14, D-0025) is the default content of every empty slot — Google is gone.
+/// (CD-14, D-0025) is the default content of every empty slot - Google is gone.
 const SCHEME: &str = "cyberdesk";
 const SETTINGS_URL: &str = "cyberdesk://settings/";
 const COMMAND_URL: &str = "cyberdesk://command/";
@@ -53,9 +53,9 @@ const MFZONE_URL: &str = "cyberdesk://mfzone/";
 const HUD_URL: &str = "cyberdesk://hud/";
 const ONION_URL: &str = "cyberdesk://onion/";
 /// The start-authorization lock page (CD-40, D-0058): the ONLY view that exists
-/// while the vault gate is closed — unlock over an existing vault, or the
+/// while the vault gate is closed - unlock over an existing vault, or the
 /// mandatory first-launch master-password setup (CD-42, D-0062). Purely
-/// presentational — the host captures the keystrokes; the page renders masked
+/// presentational - the host captures the keystrokes; the page renders masked
 /// counts from the vault-state push.
 pub const LOCK_URL: &str = "cyberdesk://lock/";
 
@@ -71,7 +71,7 @@ pub const EVENTFLAG_RIGHT_MOUSE_BUTTON: u32 = 1 << 6;
 /// surf columns (CD-09); `Internal` is the single shared overlay view (settings
 /// card / command bar / info / start); `MfZone` is the permanent right
 /// Multifunctional-zone content view (CD-18, `cyberdesk://mfzone/`); `Hud` is the
-/// permanent transparent top-right info strip (CD-30, `cyberdesk://hud/` — clock
+/// permanent transparent top-right info strip (CD-30, `cyberdesk://hud/` - clock
 /// + live protection fields). `i` is always `< MAX_SLOTS` (the shell clamps the
 /// live slot count), so the indices never collide.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -236,7 +236,7 @@ pub fn take_pending_spawn() -> Option<(usize, String)> {
 }
 
 /// User-gesture popups (a real click on `target=_blank`, or a Ctrl-/middle-click
-/// on a link — Chromium routes these through `on_before_popup` as tab
+/// on a link - Chromium routes these through `on_before_popup` as tab
 /// dispositions with a gesture) queued by the CEF UI thread for the main thread
 /// to open in a new slot beside the source slot (D-0018). Holds
 /// `(source_slot_id, target_url)`.
@@ -340,7 +340,7 @@ pub fn init_cef() {
     let mut app = CyberApp::new();
 
     // The root_cache_path is derived in ONE place (CD-34): the anti-forensic launch
-    // purge must target exactly what CEF writes to, so both read the same function —
+    // purge must target exactly what CEF writes to, so both read the same function -
     // they can never drift. Note browsing content itself is RAM-only (CD-33); this
     // directory holds only the CEF profile scaffolding the purge wipes each launch.
     let cache_path = crate::forensic::browsing_cache_root()
@@ -394,11 +394,11 @@ pub fn create_browser(role: Role, parent_hwnd: isize) {
 
 /// Create a windowless (OSR) browser for `role`, loading `url` immediately. Used
 /// both for the eager slot 0 / internal view and for lazy slots on their first
-/// navigation. `parent_hwnd` is used only for monitor / DPI info — no child
+/// navigation. `parent_hwnd` is used only for monitor / DPI info - no child
 /// window. The view geometry must be set (see [`set_view_geometry`]) first.
 pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
     // A Tor slot's browser must be created under its OWN proxied request context,
-    // and `set_preference` is UI-thread-only (MTML) — so post the whole creation to
+    // and `set_preference` is UI-thread-only (MTML) - so post the whole creation to
     // the CEF UI thread (CD-15 Stage B). Clearnet slots / the internal view use the
     // direct global context on the current thread, unchanged.
     // Capture the slot generation now (CD-25): for a respawn, the preceding
@@ -419,7 +419,7 @@ pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
     let window_info =
         WindowInfo::default().set_as_windowless(sys::HWND(parent_hwnd as *mut sys::HWND__));
 
-    // This path is clearnet (the global/direct context) — the Tor path is
+    // This path is clearnet (the global/direct context) - the Tor path is
     // spawn_tor_browser. Tag the browser clearnet so on_after_created can reject it
     // if the slot has since been toggled to Tor.
     let mut client = CyberClient::new(role, false, generation);
@@ -427,13 +427,13 @@ pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
     let background_color = match role {
         // Slot: opaque white backing (the page paints its own background).
         Role::Slot(_) => 0xFFFF_FFFFu32,
-        // Internal: TRANSPARENT backing (CD-12, D-0021) — the command band paints
+        // Internal: TRANSPARENT backing (CD-12, D-0021) - the command band paints
         // only its floating elements over the Pulse Grid; the settings page draws
         // its own opaque panel background in CSS. OSR delivers premultiplied BGRA
         // with alpha, which the compositor blends OVER. The HUD strip (CD-30) is
         // the same floating idiom: transparent, only its capsules paint.
         Role::Internal | Role::Hud => 0x0000_0000u32,
-        // MF zone: OPAQUE — it is permanent content filling its rect (CD-18), not a
+        // MF zone: OPAQUE - it is permanent content filling its rect (CD-18), not a
         // floating overlay; an opaque backing keeps the Pulse Grid from bleeding.
         Role::MfZone => 0xFFFF_FFFFu32,
     };
@@ -453,7 +453,7 @@ pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
     // CD-33 (D-0050): create under the ONE ephemeral clearnet context, NEVER the
     // global one (`None` here would select the global context = the on-disk profile,
     // which is exactly the leak this ticket closes). FAIL-CLOSED, like the Tor path:
-    // if the ephemeral context is missing we do NOT fall back to the global context —
+    // if the ephemeral context is missing we do NOT fall back to the global context -
     // that fallback would silently write browsing content to disk, the one thing
     // CyberDesk promises it never does. No browser is better than a leaking one.
     let Some(mut ctx) = ephemeral_context() else {
@@ -477,7 +477,7 @@ pub fn create_browser_url(role: Role, parent_hwnd: isize, url: &str) {
 // --- Per-window Tor (CD-15 Stage B, D-0027) ---------------------------------
 // Each slot tracks its connection mode. A Tor slot's browser is created under its
 // OWN CefRequestContext whose `proxy` pref points at that slot's local SOCKS5 port
-// (per-slot circuit, CD-15 Stage A) plus the WebRTC leak prefs — NEVER the global
+// (per-slot circuit, CD-15 Stage A) plus the WebRTC leak prefs - NEVER the global
 // context (the classic "proxy changes for all windows" bug). Clearnet slots keep
 // the global (direct) context. The toggle tears the browser down and respawns it
 // under the other context at the start page (a fresh identity, no state bleed).
@@ -565,7 +565,7 @@ pub fn take_pending_closes() -> Vec<usize> {
 /// An APPLICATION-level quit requested by the MF-zone quit buttons (CD-21, CEF UI
 /// thread). `Some(true)` = "Quit & Save" (persist the session first), `Some(false)`
 /// = plain "Quit" (default layout next launch). Drained on the main thread, which
-/// owns the winit event loop — the IPC handler must never touch it directly. This
+/// owns the winit event loop - the IPC handler must never touch it directly. This
 /// is distinct from `pending_close` (which closes ONE slot).
 fn pending_quit() -> &'static Mutex<Option<bool>> {
     static P: OnceLock<Mutex<Option<bool>>> = OnceLock::new();
@@ -603,14 +603,14 @@ wrap_task! {
 /// Create slot `slot`'s browser under a Tor request context (runs on the CEF UI
 /// thread). FAIL-CLOSED: the browser is bound to a proxied request context and only
 /// that context; the proxy is applied on the context before it serves any request
-/// (TorContextHandler), and if context creation fails NO browser is created — a
+/// (TorContextHandler), and if context creation fails NO browser is created - a
 /// "Tor" browser must never fall back to a direct connection and leak the real IP.
 ///
 /// The browser is created IMMEDIATELY (CD-15-HOTFIX Stage B): it does NOT wait on
 /// arti's bootstrap. Its first URL is the local `cyberdesk://start` page (no
 /// network); real navigation happens long after the context is initialized and the
 /// proxy applied, and until arti is ready a real fetch simply cannot complete
-/// (safe — fail-closed), never a direct one.
+/// (safe - fail-closed), never a direct one.
 fn spawn_tor_browser(slot: usize, url: &str, hwnd: isize, generation: u32) {
     let port = crate::tor::socks_port(slot);
     tracing::info!(slot, port, "spawn_tor_browser: begin (CEF UI thread)");
@@ -628,7 +628,7 @@ fn spawn_tor_browser(slot: usize, url: &str, hwnd: isize, generation: u32) {
         ..Default::default()
     };
     // CD-25: this slot's effective hardening config rides extra_info (5th arg),
-    // independent of the Tor proxy on the request context (6th arg) — they compose.
+    // independent of the Tor proxy on the request context (6th arg) - they compose.
     let mut extra = harden_extra_info(slot);
     let created = browser_host_create_browser(
         Some(&window_info),
@@ -652,7 +652,7 @@ wrap_request_context_handler! {
         ///
         /// A freshly created `CefRequestContext` initializes ASYNCHRONOUSLY:
         /// `SetPreference` fails silently (empty error string) until this callback
-        /// fires (the CD-15-HOTFIX root cause — the old synchronous set never
+        /// fires (the CD-15-HOTFIX root cause - the old synchronous set never
         /// applied, so every Tor slot fell to the fail-closed exit and looked
         /// frozen). Setting the prefs here is also exactly on time for fail-closed:
         /// the browser's network requests wait for context initialization, so the
@@ -666,7 +666,7 @@ wrap_request_context_handler! {
             // WebRTC forced through the proxy so it can't surface the real IP:
             // `disable_non_proxied_udp` blocks any UDP path that bypasses the proxy.
             // (The legacy `webrtc.multiple_routes_enabled` / `nonproxied_udp_enabled`
-            // prefs are unregistered in CEF 149 — this single policy supersedes them.)
+            // prefs are unregistered in CEF 149 - this single policy supersedes them.)
             let webrtc_ok = set_pref_string(ctx, "webrtc.ip_handling_policy", "disable_non_proxied_udp");
             // CD-17 (D-0041): the same phone-home preference silencing as the global
             // context, so a Tor slot is de-Googled exactly like clearnet.
@@ -680,7 +680,7 @@ wrap_request_context_handler! {
             );
             if !proxy_ok {
                 // Must not happen on an initialized context (proxy is a settable
-                // pref), but if it ever did the slot would NOT be protected — close
+                // pref), but if it ever did the slot would NOT be protected - close
                 // it rather than let it reach the network directly (fail-closed).
                 tracing::error!(
                     slot = self.slot,
@@ -699,7 +699,7 @@ wrap_request_context_handler! {
 //   CefSettings.cache_path is documented as "if empty ... browsers will be created
 //   in incognito mode where in-memory caches are used for storage and no
 //   profile-specific data is persisted to disk". We already ran with cache_path
-//   empty — and CEF 149's Chrome runtime does NOT honour that for the GLOBAL
+//   empty - and CEF 149's Chrome runtime does NOT honour that for the GLOBAL
 //   context, which resolves to the on-disk primary Profile under root_cache_path.
 //   Measured (headless probe, one load of a single page): the URL and title landed
 //   in Default/History, plus Cache_Data, Top Sites, Network Action Predictor and
@@ -708,13 +708,13 @@ wrap_request_context_handler! {
 // A context obtained from CefRequestContext::CreateContext with an empty cache_path
 // DOES honour it: the same probe recorded ZERO History rows and zero occurrences of
 // the visited host anywhere under root_cache_path. That is why every view is created
-// under a context we create — Tor slots have had their own since CD-15 (so their
+// under a context we create - Tor slots have had their own since CD-15 (so their
 // browsing content was already RAM-only); this closes the clearnet side, which was
 // the one on the global context.
 //
 // ONE shared context (not one per slot) keeps today's clearnet semantics exactly:
 // all clearnet slots share a cookie jar, so a login in one window is still valid in
-// another — only its persistence to disk goes away. Per-window isolation is a
+// another - only its persistence to disk goes away. Per-window isolation is a
 // separate feature, not an ephemerality change.
 //
 // Threading (verified against the pinned crate + CEF headers, not assumed):
@@ -722,13 +722,13 @@ wrap_request_context_handler! {
 // UI-thread-only, so the context is built and configured in `on_context_initialized`
 // (browser-process UI thread) before CONTEXT_READY gates any browser creation. The
 // async `CefBrowserHost::CreateBrowser` "can be called on any browser process thread"
-// (cef_browser.h — the UI-thread-only restriction is on CreateBrowserSync), and the
+// (cef_browser.h - the UI-thread-only restriction is on CreateBrowserSync), and the
 // crate declares `RefGuard` Send + Sync, so handing the stored context to the shell's
 // main thread is sound.
 static EPHEMERAL_CTX: OnceLock<RequestContext> = OnceLock::new();
 
 /// The shared in-memory context every non-Tor view is created under. `None` only
-/// before `on_context_initialized` has run or if CEF refused to create it — callers
+/// before `on_context_initialized` has run or if CEF refused to create it - callers
 /// must fail closed rather than fall back to the global (on-disk) context.
 fn ephemeral_context() -> Option<RequestContext> {
     EPHEMERAL_CTX.get().cloned()
@@ -749,7 +749,7 @@ fn init_ephemeral_context() {
     };
 
     // A created context does NOT inherit the global context's scheme-handler factory,
-    // so register the in-process cyberdesk:// factory here too — otherwise every
+    // so register the in-process cyberdesk:// factory here too - otherwise every
     // internal page (start, settings, HUD, MF zone) returns ERR_UNKNOWN_URL_SCHEME.
     // Same lesson the Tor context learned in CD-21 Task A.
     let mut factory = InternalSchemeFactory::new();
@@ -760,7 +760,7 @@ fn init_ephemeral_context() {
     );
 
     // CD-17 (D-0041) / CD-26 (D-0042): the phone-home preferences are per-context, so
-    // they must be applied HERE — clearnet browsing moved off the global context, and
+    // they must be applied HERE - clearnet browsing moved off the global context, and
     // the de-Google work would silently stop covering it otherwise.
     apply_degoogle_context_prefs(&ctx);
 
@@ -773,7 +773,7 @@ fn init_ephemeral_context() {
 /// Build a Tor request context: a fresh context whose `proxy` + WebRTC leak prefs
 /// are applied asynchronously by `TorContextHandler` once CEF finishes
 /// initializing it (see the callback above). Returns `None` only if context
-/// CREATION itself fails — that synchronous null is the fail-closed gate here; the
+/// CREATION itself fails - that synchronous null is the fail-closed gate here; the
 /// proxy application is deferred (and self-closes the slot if it ever fails).
 ///
 /// Leak checklist (D-0027): `proxy` = fixed SOCKS5 to the slot's Tor port; QUIC is
@@ -793,7 +793,7 @@ fn build_tor_context(slot: usize, port: u16) -> Option<RequestContext> {
             // CD-21 Task A: a per-slot Tor context is a PRIVATE `CefRequestContext`
             // and does NOT inherit the global scheme-handler-factory (registered on
             // the global context in `on_context_initialized`). Without this, the
-            // slot's very first page — `cyberdesk://start/` — returns
+            // slot's very first page - `cyberdesk://start/` - returns
             // ERR_UNKNOWN_URL_SCHEME in a Tor slot (the "no usable start page in the
             // Tor window" bug). Register the same in-process factory on THIS context
             // so the own start page renders with ZERO network egress, before/without
@@ -822,7 +822,7 @@ fn build_tor_context(slot: usize, port: u16) -> Option<RequestContext> {
 ///
 /// CD-15-HOTFIX ROOT CAUSE: CEF's `SetPreference` returns false (0) when handed a
 /// NULL `error` pointer, and `CefString::default()` is `Borrowed(None)` which
-/// marshals to null — so EVERY pref set silently failed. The proxy never applied,
+/// marshals to null - so EVERY pref set silently failed. The proxy never applied,
 /// so the fail-closed guard destroyed the Tor browser: that is the "front-end
 /// frozen, no browser opens" symptom Sascha saw. A `BorrowedMut` over a stack
 /// `cef_string_t` gives CEF a place to write, and the set succeeds; on genuine
@@ -903,7 +903,7 @@ fn log_degoogle_manifest() {
     }
 }
 
-/// Apply every PROFILE de-Google preference to a request context — the global
+/// Apply every PROFILE de-Google preference to a request context - the global
 /// (clearnet) context and each per-slot Tor context alike. Each set is logged;
 /// a name that fails to apply is an error line, never a silent no-op.
 fn apply_degoogle_context_prefs(ctx: &RequestContext) {
@@ -924,7 +924,7 @@ fn apply_degoogle_context_prefs(ctx: &RequestContext) {
 }
 
 /// Apply the GLOBAL (local-state) de-Google preferences (e.g. secure-DNS mode)
-/// through the global preference manager, guarded by `CanSetPreference` — these
+/// through the global preference manager, guarded by `CanSetPreference` - these
 /// live in local state, out of reach of per-context `SetPreference`. UI thread.
 fn apply_degoogle_global_prefs() {
     let Some(pm) = preference_manager_get_global() else {
@@ -935,7 +935,7 @@ fn apply_degoogle_global_prefs() {
         let name = CefString::from(p.name);
         if pm.can_set_preference(Some(&name)) != 1 {
             // Command-line/policy-controlled, or unregistered in this build.
-            tracing::warn!(pref = p.name, "global pref not settable here — skipped (documented)");
+            tracing::warn!(pref = p.name, "global pref not settable here - skipped (documented)");
             continue;
         }
         let Some(mut val) = degoogle_value(p.value) else {
@@ -952,8 +952,8 @@ fn apply_degoogle_global_prefs() {
 }
 
 /// Close slot `i`'s browser cleanly (Ctrl+W, or a resize that drops columns).
-/// The slot becomes lazy again — browser taken and force-closed, nav state and
-/// frame reset — so a later navigation re-spawns it. No-op if it has no browser.
+/// The slot becomes lazy again - browser taken and force-closed, nav state and
+/// frame reset - so a later navigation re-spawns it. No-op if it has no browser.
 pub fn close_slot(i: usize) {
     if i >= MAX_SLOTS {
         return;
@@ -983,7 +983,7 @@ fn frame_state() -> &'static Mutex<String> {
 /// status re-stamped (CD-23). The engine reaches READY on a background thread, so the
 /// cached payload's `tor_status` could be stale; re-stamping it here means any
 /// (re)created / (re)subscribing consumer (a reloaded command band, a new ensemble)
-/// gets the CURRENT state on demand — never a latched "connecting". Falls back to the
+/// gets the CURRENT state on demand - never a latched "connecting". Falls back to the
 /// raw cache if it is not a JSON object.
 fn current_frame_state() -> String {
     restamp_tor_status(&frame_state().lock().unwrap(), crate::tor::status())
@@ -1005,7 +1005,7 @@ fn restamp_tor_status(cached: &str, status: u8) -> String {
 /// Store the frame state and push it to the command band page: calls
 /// `window.cdFrame(json)` on the internal view (`json` = {slots, engaged,
 /// autofocus}, embedded as a JS string literal). Pushed on change (not per frame)
-/// — the page glides its ensembles via CSS transitions (CD-11 cadence).
+/// - the page glides its ensembles via CSS transitions (CD-11 cadence).
 pub fn set_frame_state(json: &str) {
     *frame_state().lock().unwrap() = json.to_string();
     let browser = view(Role::Internal).browser.lock().unwrap().clone();
@@ -1043,7 +1043,7 @@ pub fn set_hud_state(json: &str) {
 
 /// The current vault state JSON (CD-40, D-0058), so the lock/settings pages can
 /// pull it on load (`get_vault_state`) in addition to the host's on-change push.
-/// Counts and states only — never a secret (the host captures every keystroke
+/// Counts and states only - never a secret (the host captures every keystroke
 /// of a passphrase itself; the page renders dots from `chars`).
 fn vault_state() -> &'static Mutex<String> {
     static F: OnceLock<Mutex<String>> = OnceLock::new();
@@ -1082,15 +1082,15 @@ pub fn load_url(role: Role, url: &str) {
 }
 
 // --- Fingerprinting hardening (CD-16, D-0039) -------------------------------
-// Coherent, per-session TRACKING-RESISTANCE (not anonymity, no OS/UA spoofing —
+// Coherent, per-session TRACKING-RESISTANCE (not anonymity, no OS/UA spoofing -
 // EC-01). A fresh random seed per browser LAUNCH keys deterministic readback
 // farbling (canvas/WebGL/audio/rects) injected at document-start into every WEB
 // frame, so a site cannot link one session to the next while everything stays
 // stable within a session. The seed is generated once in the browser process and
 // handed to every child process via a command-line switch, so all render
 // processes derive identical per-origin noise. The injected script (hardening.js)
-// is the sole mechanism: Chromium exposes no stable pref for these vectors, so —
-// like Brave, which patches Blink/C++ — we patch the JS surface an embedder owns.
+// is the sole mechanism: Chromium exposes no stable pref for these vectors, so -
+// like Brave, which patches Blink/C++ - we patch the JS surface an embedder owns.
 
 /// Command-line switch carrying the per-session hardening seed to child processes.
 const FP_SEED_SWITCH: &str = "cyberdesk-fp-seed";
@@ -1128,11 +1128,11 @@ fn fresh_seed_hex() -> String {
 // --- CD-29: per-session identity ROTATION (D-0046) --------------------------
 // The farble seed is the IDENTITY. CD-16 fixed it once per launch; CD-29 makes it
 // ROTATABLE so a user can produce a fresh, unlinkable fingerprint on demand:
-//   * ON RESTART  — a fresh global seed each launch (default; the persisted-seed
+//   * ON RESTART - a fresh global seed each launch (default; the persisted-seed
 //     path keeps a stable identity across launches when the user turns it off);
-//   * MANUAL      — a per-window "new identity now" re-rolls that slot's seed and
+//   * MANUAL - a per-window "new identity now" re-rolls that slot's seed and
 //     respawns it (the "burn it now" cross-session-linkage killer);
-//   * AUTOMATIC   — a global re-roll every N minutes (the Pulse Grid countdown
+//   * AUTOMATIC - a global re-roll every N minutes (the Pulse Grid countdown
 //     showpiece), re-seeding every window.
 // The EFFECTIVE per-slot seed (override else global) rides the CreateBrowser
 // `extra_info` dict alongside the hardening config, so a respawn applies it. The
@@ -1178,7 +1178,7 @@ pub fn rotation_epoch() -> u64 {
 
 /// Initialize the global identity seed at startup (browser process, after settings
 /// load). Fresh each launch when "new identity on restart" is on (the default), else
-/// the persisted seed (a stable cross-launch identity) — minting + storing one the
+/// the persisted seed (a stable cross-launch identity) - minting + storing one the
 /// first time. The seed's mint time is tracked (and persisted with a persisted
 /// seed), so the HUD's "identity age" is real in both modes.
 pub fn init_identity_seed() {
@@ -1188,7 +1188,7 @@ pub fn init_identity_seed() {
         match crate::settings::persisted_identity_seed() {
             Some(s) if !s.is_empty() => {
                 // A persisted seed's age spans launches: prefer its stored mint
-                // time; a pre-CD-30 store has none, so stamp (and persist) now —
+                // time; a pre-CD-30 store has none, so stamp (and persist) now -
                 // an age UNDER-statement once, never an overstatement.
                 let born = crate::settings::persisted_identity_born().unwrap_or_else(|| {
                     let b = now_unix_ms();
@@ -1252,7 +1252,7 @@ pub fn rotate_global_identity() {
     let born = now_unix_ms();
     IDENTITY_BORN_MS.store(born, Ordering::Relaxed);
     ROTATION_EPOCH.fetch_add(1, Ordering::Relaxed);
-    // A stable cross-launch identity that gets rotated is a NEW identity — keep
+    // A stable cross-launch identity that gets rotated is a NEW identity - keep
     // the persisted seed + mint time in step so the next launch restores it.
     if !crate::settings::rotate_on_restart() {
         crate::settings::store_identity_seed(&identity_seed_snapshot());
@@ -1264,7 +1264,7 @@ pub fn rotate_global_identity() {
     tracing::info!("identity: global rotation (all windows re-seeded)");
 }
 
-/// Clear slot `i`'s identity-seed override (on slot reuse — a fresh window follows
+/// Clear slot `i`'s identity-seed override (on slot reuse - a fresh window follows
 /// the global identity, never a closed window's rotated seed).
 pub fn clear_slot_identity(i: usize) {
     if i < MAX_SLOTS {
@@ -1274,7 +1274,7 @@ pub fn clear_slot_identity(i: usize) {
 
 /// Persist the CURRENT global identity seed (called when the user turns OFF "new
 /// identity on restart", so the very identity they are using now is the one restored
-/// next launch — not a fresh one). Its mint time rides along so the restored
+/// next launch - not a fresh one). Its mint time rides along so the restored
 /// identity reports its real age (CD-30).
 pub fn persist_current_identity() {
     crate::settings::store_identity_seed(&identity_seed_snapshot());
@@ -1283,7 +1283,7 @@ pub fn persist_current_identity() {
 
 /// The hardening seed as seen by a RENDER process: read from the command-line switch
 /// the browser appended (parsed from argv directly, so it does not depend on any CEF
-/// callback ordering). This is the FALLBACK only — a hardened slot's authoritative
+/// callback ordering). This is the FALLBACK only - a hardened slot's authoritative
 /// seed rides `extra_info` (`cd_seed`). Falls back to a fresh per-process random seed
 /// if the switch is somehow absent.
 fn render_seed() -> &'static str {
@@ -1302,7 +1302,7 @@ fn render_seed() -> &'static str {
 /// The document-start injection payload for a given per-window EFFECTIVE config
 /// (CD-25) and identity seed (CD-29): the embedded hardening script with the seed AND
 /// the config JSON substituted. Rebuilt per injection (both vary per window / per
-/// rotation) — cheap next to a navigation.
+/// rotation) - cheap next to a navigation.
 fn hardening_payload(config_json: &str, seed: &str) -> String {
     include_str!("hardening.js")
         .replace("__CYBERDESK_FP_SEED__", seed)
@@ -1341,11 +1341,11 @@ fn inject_hardening(frame: &mut Frame, config_json: &str, seed: &str) {
 
 // --- CD-25 / CD-29: per-window hardening override (D-0040 / D-0045) ----------
 // The GLOBAL preset lives in settings.rs; each slot may hold a per-window OVERRIDE
-// (session-ephemeral — not persisted). Since CD-29 the override can be a full
+// (session-ephemeral - not persisted). Since CD-29 the override can be a full
 // per-vector CUSTOM config, not just a preset, so every vector is settable
 // per-window as well as globally (Task C). The EFFECTIVE config (override else
 // global) is resolved at browser-CREATE time and carried to the render process via
-// the CreateBrowser `extra_info` dictionary — per-window, alongside the
+// the CreateBrowser `extra_info` dictionary - per-window, alongside the
 // session-global seed switch. A level change RESPAWNS the slot's browser so the
 // fresh document injects under the new config: a live context can't be re-hardened
 // (the patches are irreversible, applied before page scripts). The dict rides
@@ -1389,7 +1389,7 @@ pub fn slot_effective_config(i: usize) -> crate::harden::Config {
 }
 
 /// The EFFECTIVE Ampel level for slot `i` (its override's level, else the global).
-/// CD-30: the shell keys the red bunker mode — viewport lock + transition — on
+/// CD-30: the shell keys the red bunker mode - viewport lock + transition - on
 /// this, so the lock can only ever accompany a level that is actually applied.
 pub fn slot_effective_level(i: usize) -> crate::harden::Level {
     slot_hardening_override(i)
@@ -1403,7 +1403,7 @@ pub fn slot_effective_level(i: usize) -> crate::harden::Level {
 /// Every `close_slot` bumps the slot's generation; a browser captures the generation
 /// at CREATE time and, on arrival, closes itself if the slot has since moved on. This
 /// closes the double-respawn orphan (two same-slot respawns in one drain) AND the
-/// respawn-then-close ghost (a live page/circuit registered for a closed slot) — the
+/// respawn-then-close ghost (a live page/circuit registered for a closed slot) - the
 /// `tor`-mode guard alone missed both because a hardening respawn does not flip Tor.
 static SLOT_GEN: [AtomicU32; MAX_SLOTS] = [const { AtomicU32::new(0) }; MAX_SLOTS];
 
@@ -1413,7 +1413,7 @@ fn slot_gen(i: usize) -> u32 {
 
 /// Build the CreateBrowser `extra_info` dict carrying slot `i`'s effective hardening
 /// config to its render process. `None` only if the dict can't be created (the render
-/// side then fails safe to Standard — never silently Off).
+/// side then fails safe to Standard - never silently Off).
 fn harden_extra_info(i: usize) -> Option<DictionaryValue> {
     let dict = dictionary_value_create()?;
     dict.set_string(
@@ -1432,7 +1432,7 @@ fn harden_extra_info(i: usize) -> Option<DictionaryValue> {
 // --- CD-29: reported screen-size preset, per-window override ----------------
 // Web slots report a COMMON, real monitor resolution for `screen.*` (default
 // 1920x1080), so every machine looks ordinary. The reported size is never smaller
-// than the actual column viewport — `common_screen_for` buckets the real display
+// than the actual column viewport - `common_screen_for` buckets the real display
 // up a common-resolution ladder with the user's preset as a floor, so the VIEWPORT
 // (view_rect / innerWidth, left untouched) never contradicts `screen.*` (a
 // reported/measured contradiction is itself a fingerprint). A change respawns the
@@ -1479,7 +1479,7 @@ pub fn slot_effective_screen_code(i: usize) -> u8 {
 /// The common-resolution ladder: the small set of real desktop sizes a slot's
 /// `screen.*` may report. Anything larger than 1080p is only ever reported when the
 /// actual viewport genuinely needs it (a big single-column layout on a large
-/// monitor) — bucketed to a common value, never the exact pixel size.
+/// monitor) - bucketed to a common value, never the exact pixel size.
 const SCREEN_LADDER: [(u32, u32); 5] =
     [(1280, 720), (1600, 900), (1920, 1080), (2560, 1440), (3840, 2160)];
 
@@ -1487,7 +1487,7 @@ const SCREEN_LADDER: [(u32, u32); 5] =
 /// Pure + unit-tested. Reported ≥ max(preset, viewport) on BOTH axes (so it never
 /// contradicts what the page measures of its real viewport), snapped UP to the
 /// smallest common ladder entry that fits; if the viewport exceeds the whole ladder,
-/// the real viewport size is reported (coherent — an unusually large window can't be
+/// the real viewport size is reported (coherent - an unusually large window can't be
 /// hidden, only the exact monitor size is withheld).
 pub fn common_screen_for(preset: (u32, u32), viewport: (u32, u32)) -> (u32, u32) {
     let need_w = preset.0.max(viewport.0);
@@ -1550,7 +1550,7 @@ pub fn take_pending_global_screen() -> bool {
 // Render-side per-browser hardening config, keyed by Browser::identifier() (the
 // stable cross-process id). Populated in on_browser_created from extra_info, read in
 // on_context_created, cleared in on_browser_destroyed. Thread-local like the render
-// router — every render callback runs on the render main thread.
+// router - every render callback runs on the render main thread.
 #[derive(Clone)]
 struct RenderHardenCfg {
     inject: bool,
@@ -1568,7 +1568,7 @@ fn render_store_cfg(id: c_int, json: String, seed: String) {
     RENDER_HARDEN.with(|m| m.borrow_mut().insert(id, RenderHardenCfg { inject, json, seed }));
 }
 /// The render config for browser `id`. Fail-safe: an unknown browser (extra_info was
-/// absent / a create path we did not cover) defaults to Standard — always PROTECTED,
+/// absent / a create path we did not cover) defaults to Standard - always PROTECTED,
 /// never silently Off.
 fn render_get_cfg(id: c_int) -> RenderHardenCfg {
     RENDER_HARDEN.with(|m| {
@@ -1771,7 +1771,7 @@ fn settings_document() -> String {
 }
 
 /// The command-bar HTML, built once (same inlining discipline as the settings
-/// page — one self-contained document, no sub-resource requests).
+/// page - one self-contained document, no sub-resource requests).
 fn command_document() -> String {
     static DOC: OnceLock<String> = OnceLock::new();
     DOC.get_or_init(|| {
@@ -1786,7 +1786,7 @@ fn command_document() -> String {
 
 /// The own start page HTML, built once (same self-contained inlining discipline
 /// as the settings / command / info pages). It is the default content of every
-/// empty slot (CD-14); zero network — no fonts, images, or remote resources.
+/// empty slot (CD-14); zero network - no fonts, images, or remote resources.
 fn start_document() -> String {
     static DOC: OnceLock<String> = OnceLock::new();
     DOC.get_or_init(|| {
@@ -1814,7 +1814,7 @@ fn info_document() -> String {
 }
 
 /// The vault lock page (CD-40, D-0058): the start-authorization gate's face.
-/// Same self-contained inlining discipline; zero network, zero secrets — it
+/// Same self-contained inlining discipline; zero network, zero secrets - it
 /// renders masked counts and states pushed by the host.
 fn lock_document() -> String {
     static DOC: OnceLock<String> = OnceLock::new();
@@ -1859,8 +1859,8 @@ fn hud_document() -> String {
 
 /// The onion refusal page (CD-35 Task B): shown in a CLEARNET slot that was
 /// pointed at a `.onion` address. States the fact (onion addresses resolve
-/// inside Tor) and offers the Tor path — a new Tor window, or switching this
-/// window — instead of a dead end. Same self-contained inlining discipline as
+/// inside Tor) and offers the Tor path - a new Tor window, or switching this
+/// window - instead of a dead end. Same self-contained inlining discipline as
 /// every internal page; zero network.
 fn onion_document() -> String {
     static DOC: OnceLock<String> = OnceLock::new();
@@ -1903,16 +1903,16 @@ fn urlencode(s: &str) -> String {
 // --- Onion routing (CD-35, D-0052) ------------------------------------------
 // `.onion` is a Tor feature (RFC 7686): it must resolve inside Tor via arti's
 // onion-service client, and it must NEVER reach a clearnet DNS resolver.
-// Chromium implements no RFC 7686 special-casing — in a clearnet context it
+// Chromium implements no RFC 7686 special-casing - in a clearnet context it
 // would resolve `.onion` like any hostname (the exact leak the RFC warns
-// about) — so CyberDesk enforces the split itself: Tor slots route `.onion`
+// about) - so CyberDesk enforces the split itself: Tor slots route `.onion`
 // through the per-slot SOCKS relay (tor.rs), clearnet slots refuse it before
 // any resolver is consulted (address-bar refusal here + the request-level
 // fail-closed guard in SlotRequestHandler below).
 
 /// Extract the host of a URL: the authority between `://` and the first
 /// `/?#`, minus any userinfo (`user@`) and any `:port` suffix. Byte-level and
-/// allocation-free on purpose — it runs on every request in clearnet slots.
+/// allocation-free on purpose - it runs on every request in clearnet slots.
 fn host_of(url: &str) -> &str {
     let rest = match url.find("://") {
         Some(i) => &url[i + 3..],
@@ -1925,7 +1925,7 @@ fn host_of(url: &str) -> &str {
         Some(i) => &authority[i + 1..],
         None => authority,
     };
-    // A bracketed IPv6 literal ends at its bracket — anything after it (a
+    // A bracketed IPv6 literal ends at its bracket - anything after it (a
     // `:port`) is dropped with it. Otherwise strip a trailing `:port` when the
     // tail is all digits (a lone extra colon means an unbracketed IPv6-ish
     // authority; leave it whole rather than truncate a hextet).
@@ -1947,7 +1947,7 @@ fn host_of(url: &str) -> &str {
 }
 
 /// Is `host` a `.onion` special-use name (RFC 7686)? Case-insensitive; a
-/// trailing FQDN dot (`example.onion.`) counts too — that spelling would
+/// trailing FQDN dot (`example.onion.`) counts too - that spelling would
 /// otherwise slip past the guard and reach a clearnet resolver.
 fn is_onion_host(host: &str) -> bool {
     let h = host.trim_end_matches('.');
@@ -1973,7 +1973,7 @@ pub fn is_onion_url(url: &str) -> bool {
 
 /// Strict percent-encoding for a URL embedded as a query-param value (the
 /// refusal page's `u=`). Unlike [`urlencode`], a space becomes `%20` (never
-/// `+` — a literal `+` in an onion URL's path must round-trip).
+/// `+` - a literal `+` in an onion URL's path must round-trip).
 fn urlencode_component(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
@@ -1996,8 +1996,8 @@ fn onion_refusal_url(slot: usize, url: &str) -> String {
 }
 
 /// Where a classified navigation actually goes (CD-35): a `.onion` target in a
-/// clearnet slot is rerouted to the refusal page — the address never reaches
-/// any resolver — while every other target (and every Tor-slot target) passes
+/// clearnet slot is rerouted to the refusal page - the address never reaches
+/// any resolver - while every other target (and every Tor-slot target) passes
 /// through unchanged. Pure, so the unit tests can pin the routing table.
 fn route_navigation(slot: usize, tor: bool, url: &str) -> String {
     if !tor && is_onion_url(url) {
@@ -2010,7 +2010,7 @@ fn route_navigation(slot: usize, tor: bool, url: &str) -> String {
 /// The query→search-URL mapping for one engine (CD-07; the engine allowlist
 /// lives in settings.rs). CyberDesk OWNS this routing: both address bars (the
 /// command band and the start page) send `navigate` over the message router and
-/// the host builds the search URL here — Chromium's omnibox default-search-engine
+/// the host builds the search URL here - Chromium's omnibox default-search-engine
 /// (TemplateURLService) is never consulted, so the selector is authoritative by
 /// construction (CD-27, D-0043). Pure and engine-parameterized so the unit tests
 /// can pin every engine without touching the live setting.
@@ -2021,7 +2021,7 @@ fn search_url_for(engine: &str, query: &str) -> String {
         "bing" => format!("https://www.bing.com/search?q={q}"),
         "startpage" => format!("https://www.startpage.com/sp/search?query={q}"),
         "brave" => format!("https://search.brave.com/search?q={q}"),
-        // The factory default — and the fallback for any unknown name: never
+        // The factory default - and the fallback for any unknown name: never
         // silently Google (CD-27, D-0043).
         _ => format!("https://duckduckgo.com/?q={q}"),
     }
@@ -2045,7 +2045,7 @@ fn classify_input_for(engine: &str, input: &str) -> String {
         // A schemeless `.onion` defaults to http:// (CD-35, D-0052): the onion
         // transport itself is end-to-end encrypted and authenticated (the
         // address IS the service's public key), and onion services rarely carry
-        // TLS certificates — an https:// default would stall on a certificate
+        // TLS certificates - an https:// default would stall on a certificate
         // error before the page ever loads. An EXPLICIT https:// is honored
         // unchanged (the `://` branch above).
         if is_onion_host(host_of(&format!("x://{t}"))) {
@@ -2058,7 +2058,7 @@ fn classify_input_for(engine: &str, input: &str) -> String {
     }
 }
 
-/// [`classify_input_for`] on the LIVE `search_engine` setting — the `navigate`
+/// [`classify_input_for`] on the LIVE `search_engine` setting - the `navigate`
 /// IPC path shared by the command band and the start page.
 fn classify_input(input: &str) -> String {
     classify_input_for(crate::settings::search_engine(), input)
@@ -2144,7 +2144,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             } else if key == crate::settings::KEY_PURGE_RESIDUE {
                 // CD-34 (D-0051): disabling the on-launch browsing-residue purge is a
                 // WEAKENING of the anti-forensic guarantee (residue would accumulate),
-                // so it requires confirmation — the host RE-VALIDATES the D-0040 gate
+                // so it requires confirmation - the host RE-VALIDATES the D-0040 gate
                 // rather than trusting the page to have shown it. Turning it back on is
                 // immediate (no gate on strengthening).
                 let b = value
@@ -2182,11 +2182,11 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
                 .and_then(|x| x.as_str())
                 .ok_or((2, "missing 'input'".to_string()))?;
             // CD-35 Task B: a `.onion` target in a clearnet slot goes to the
-            // refusal page INSTEAD of the network — the address is never handed
+            // refusal page INSTEAD of the network - the address is never handed
             // to any resolver (the request-level guard below is the backstop for
             // non-address-bar paths).
             let url = route_navigation(slot, slot_is_tor(slot), &classify_input(input));
-            // Load that slot (spawning it if lazy — see navigate_slot).
+            // Load that slot (spawning it if lazy - see navigate_slot).
             navigate_slot(slot, &url);
             request_overlay_close();
             Ok(serde_json::json!({ "ok": true, "url": url }).to_string())
@@ -2214,7 +2214,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
                 .collect();
             Ok(serde_json::Value::Array(arr).to_string())
         }
-        // Favorites (CD-07). Toggles the favorite state of an explicit URL — used
+        // Favorites (CD-07). Toggles the favorite state of an explicit URL - used
         // by the star glyph in the command bar; the surf-view Ctrl+D toggles
         // host-side (see `toggle_current_favorite`).
         "toggle_favorite" => {
@@ -2260,7 +2260,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         // Onion refusal-page actions (CD-35 Task B): open the refused `.onion`
         // in a NEW Tor window beside this one, or switch THIS window to Tor and
         // load it there. Both validate host-side (the target must really be an
-        // http(s) `.onion` URL — the page is trusted UI, but fail-closed is the
+        // http(s) `.onion` URL - the page is trusted UI, but fail-closed is the
         // house style) and honor the Tor master switch with an honest error the
         // page shows inline (no dead end, no silent failure).
         "onion_open_tor" | "onion_switch_tor" => {
@@ -2274,7 +2274,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
                 return Err((2, "not an onion URL".to_string()));
             }
             if !crate::settings::tor_enabled() {
-                return Err((3, "Tor is disabled in Settings — enable it to open onion addresses".to_string()));
+                return Err((3, "Tor is disabled in Settings - enable it to open onion addresses".to_string()));
             }
             if cmd == "onion_open_tor" {
                 pending_onion_tor().lock().unwrap().push((slot, url.to_string()));
@@ -2292,7 +2292,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         }
         // GLOBAL hardening preset (CD-25): off/standard/strict, or custom with a
         // `vectors` object of per-vector booleans. `confirm:true` is REQUIRED to
-        // weaken (drop a vector / turn off) — the host re-validates the two-
+        // weaken (drop a vector / turn off) - the host re-validates the two-
         // confirmation gate rather than trusting the page to have run it. On success
         // every slot that inherits the global respawns under the new config.
         "set_hardening" => {
@@ -2331,7 +2331,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             Ok(serde_json::json!({ "ok": true }).to_string())
         }
         // Per-window screen state (CD-29): the slot's effective preset name + whether
-        // it inherits the global — for the per-window screen cycler.
+        // it inherits the global - for the per-window screen cycler.
         "get_slot_screen" => {
             let slot = target_slot(&v);
             let ov = slot_screen_override(slot);
@@ -2343,7 +2343,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             ))
         }
         // Per-window hardening state (CD-29): the slot's effective level, whether it
-        // is inheriting the global, and the full per-vector config — so the per-window
+        // is inheriting the global, and the full per-vector config - so the per-window
         // Custom detail can paint each vector's current state without bloating the
         // frame push. Read-only.
         "get_slot_hardening" => {
@@ -2361,7 +2361,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             ))
         }
         // PER-WINDOW hardening override (CD-25 / CD-29): inherit/off/standard/strict,
-        // OR custom with a per-vector `vectors` object (CD-29 Task C — every vector
+        // OR custom with a per-vector `vectors` object (CD-29 Task C - every vector
         // settable per-window too). Same weakening gate as the global; the host
         // re-validates it. Queued for the main thread, which respawns the slot.
         "set_slot_hardening" => {
@@ -2403,7 +2403,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             Ok(serde_json::json!({ "ok": true }).to_string())
         }
         // APPLICATION-level quit (CD-21): the two floating MF-zone quit buttons.
-        // Distinct from `close_slot` (one window) — these end the whole shell.
+        // Distinct from `close_slot` (one window) - these end the whole shell.
         // `quit` = no save (default layout next launch); `quit_save` = persist the
         // full session first, then quit (restored exactly next launch). Queued for
         // the main thread, which owns the winit event loop.
@@ -2425,14 +2425,14 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         })
         .to_string()),
         // "New circuit / new identity" (CD-18): rotate the per-slot isolated clients
-        // so new streams ride fresh circuits. A lock-free epoch bump — safe here.
+        // so new streams ride fresh circuits. A lock-free epoch bump - safe here.
         "tor_new_circuit" => {
             crate::tor::new_identity();
             Ok(serde_json::json!({ "ok": true }).to_string())
         }
         // Manual per-window "new identity now" (CD-29 Task D): re-roll THIS window's
         // farble seed (and, if enabled, its Tor circuit), then respawn it so the fresh
-        // document injects under the new identity — the "burn it now" control. This is
+        // document injects under the new identity - the "burn it now" control. This is
         // the strongest per-window unlinkability lever (a fresh seed AND a reload, so
         // it applies immediately, not just to future loads).
         "new_identity" => {
@@ -2443,14 +2443,14 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         }
         // The MF-zone viewer's log stream (CD-18): the last ring-buffer lines matching
         // an optional {filter:{target_prefix,level_min}, since_seq}. Pull-based +
-        // incremental — the page sends back the highest seq it has seen.
+        // incremental - the page sends back the highest seq it has seen.
         "get_log_lines" => Ok(crate::logging::log_snapshot_json(&v)),
-        // The HUD strip pulls its state once on load (CD-30 Task B) — the same
+        // The HUD strip pulls its state once on load (CD-30 Task B) - the same
         // pull-then-push pattern as `get_frame`. The cached payload's countdown
         // fields are elapsed-based, so the page re-anchors them at receive time.
         "get_hud_state" => Ok(hud_state().lock().unwrap().clone()),
         // Vault (CD-40, D-0058; model per CD-42, D-0062). Counts and states
-        // only — a secret never rides this IPC in either direction: while a
+        // only - a secret never rides this IPC in either direction: while a
         // capture is active the HOST consumes the keyboard, and the page
         // renders dots from the pushed character count.
         "get_vault_state" => Ok(crate::vault::state_json()),
@@ -2469,7 +2469,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         }
         // The informed override (CD-42 Task B): proceed with a weak master
         // password after the prominent warning. Valid only while the host's
-        // OWN state has a weak submit parked — the page cannot skip ahead.
+        // OWN state has a weak submit parked - the page cannot skip ahead.
         "vault_accept_weak" => {
             crate::vault::accept_weak().map_err(|e| (3, e))?;
             let state = crate::vault::state_json();
@@ -2477,14 +2477,14 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             Ok(state)
         }
         // "Lock now": queued for the shell, which relaunches the process cold
-        // (D-0059) — the next boot IS the start-authorization gate.
+        // (D-0059) - the next boot IS the start-authorization gate.
         "vault_lock" => {
             crate::vault::request_lock();
             Ok("{\"ok\":true}".to_string())
         }
         // Config surface (CD-40 1c; policy restricted to password-only /
         // password+passkey by CD-42). All host-revalidated: dropping 2FA or
-        // lowering the KDF cost is a weakening and refuses without `confirm` —
+        // lowering the KDF cost is a weakening and refuses without `confirm` -
         // regardless of what the page claims to have shown (D-0040 discipline).
         "vault_set_policy" => {
             let required = v.get("required").and_then(|n| n.as_u64()).unwrap_or(0) as u8;
@@ -2516,7 +2516,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
         }
         // Enroll THE passkey via Windows Hello (CD-43): host-validated
         // (unlocked, none enrolled, platform available); the modal
-        // MakeCredential + first PRF eval run on a vault worker — the page
+        // MakeCredential + first PRF eval run on a vault worker - the page
         // only sees busy/hello state, never any credential material.
         "vault_enroll_passkey" => {
             crate::vault::begin_hello_enroll().map_err(|e| (3, e))?;
@@ -2524,7 +2524,7 @@ fn handle_internal_query(request: &str) -> Result<String, (i32, String)> {
             set_vault_state(&state);
             Ok(state)
         }
-        // Open the settings card (CD-30: the HUD Ampel's "Custom…" — the
+        // Open the settings card (CD-30: the HUD Ampel's "Custom…" - the
         // per-vector view lives there). Queued for the main thread.
         "open_settings" => {
             OPEN_SETTINGS.store(true, Ordering::Relaxed);
@@ -2570,7 +2570,7 @@ wrap_app! {
             if let Some(reg) = registrar {
                 // Standard, secure origin so the settings page is a proper
                 // security context; fetch/CORS enabled for completeness. Served
-                // entirely in-process — no network ever.
+                // entirely in-process - no network ever.
                 let options = SchemeOptions::STANDARD.get_raw()
                     | SchemeOptions::SECURE.get_raw()
                     | SchemeOptions::CORS_ENABLED.get_raw()
@@ -2588,18 +2588,18 @@ wrap_app! {
 
             // Disable QUIC globally (CD-15, D-0027): QUIC rides UDP and can bypass a
             // SOCKS proxy, leaking a Tor window's real IP. There is no per-context
-            // QUIC pref, so it is off everywhere — clearnet still works over TCP
+            // QUIC pref, so it is off everywhere - clearnet still works over TCP
             // (QUIC is only a transport optimization; no site breaks).
             cmd.append_switch(Some(&CefString::from("disable-quic")));
 
             // CD-17 (D-0041): silence Chromium's phone-home vectors. Boolean,
-            // process-global switches — names verified against Chromium
+            // process-global switches - names verified against Chromium
             // 149.0.7827.201 (see src/degoogle.rs). Applied for every process so a
             // feature/behaviour toggle agrees browser<->renderer.
             for sw in crate::degoogle::SWITCHES {
                 cmd.append_switch(Some(&CefString::from(*sw)));
             }
-            // CD-26 (D-0042): valued switches — signin off + the GAIA origin
+            // CD-26 (D-0042): valued switches - signin off + the GAIA origin
             // redirected to a dead loopback, closing the eager ListAccounts
             // vector that no pref/policy/feature gates (see src/degoogle.rs).
             for sw in crate::degoogle::VALUED_SWITCHES {
@@ -2630,7 +2630,7 @@ wrap_app! {
             }
 
             // Opt-in net-log capture for the de-Google audit (CD-17 §2). Browser
-            // process only — the network service writes ONE file. OFF unless the
+            // process only - the network service writes ONE file. OFF unless the
             // env var names a path, so nothing lands on disk in a normal run
             // (anti-forensic tenet). CEF/Chromium's network service reads
             // --log-net-log=<path> and records every outbound connection.
@@ -2648,7 +2648,7 @@ wrap_app! {
                 );
                 tracing::warn!(
                     %path,
-                    "net-log capture ENABLED (audit mode) — outbound connections are being logged to disk"
+                    "net-log capture ENABLED (audit mode) - outbound connections are being logged to disk"
                 );
             }
         }
@@ -2685,7 +2685,7 @@ wrap_browser_process_handler! {
 
             // CD-33 (D-0050): build the shared in-memory context BEFORE CONTEXT_READY
             // gates browser creation, so no view can ever race onto the global
-            // (on-disk) context. Must be on this thread — its pref/scheme calls are
+            // (on-disk) context. Must be on this thread - its pref/scheme calls are
             // UI-thread-only.
             init_ephemeral_context();
 
@@ -2696,7 +2696,7 @@ wrap_browser_process_handler! {
             // nothing browses on it any more, but Chromium still instantiates the
             // primary profile and runs its keyed services (the CD-26 vectors), so
             // silencing it stays worth doing. This callback is on the browser-process
-            // UI thread — required for SetPreference.
+            // UI thread - required for SetPreference.
             log_degoogle_manifest();
             if let Some(ctx) = request_context_get_global_context() {
                 apply_degoogle_context_prefs(&ctx);
@@ -2704,7 +2704,7 @@ wrap_browser_process_handler! {
                 tracing::error!("global request context unavailable; its de-Google prefs NOT applied");
             }
             // Local-state prefs (secure-DNS mode) live in global preferences, not
-            // the profile — set them through the global preference manager.
+            // the profile - set them through the global preference manager.
             apply_degoogle_global_prefs();
 
             CONTEXT_READY.store(true, Ordering::Relaxed);
@@ -2735,7 +2735,7 @@ wrap_client! {
         // on_after_created against the slot's CURRENT mode: a rapid re-toggle can
         // leave a browser built under a stale mode racing to register, and
         // installing a clearnet browser on a Tor slot (or vice versa) is a fail-open
-        // IP leak — so a mismatched browser is closed instead of installed.
+        // IP leak - so a mismatched browser is closed instead of installed.
         tor: bool,
         // The slot generation this browser was created for (CD-25). Validated in
         // on_after_created against the slot's CURRENT generation: a respawn or close
@@ -2763,7 +2763,7 @@ wrap_client! {
             Some(CyberLifeSpanHandler::new(self.role, self.tor, self.generation))
         }
         fn request_handler(&self) -> Option<RequestHandler> {
-            // Web isolation (cyberdesk:// only) on the internal views — the shared
+            // Web isolation (cyberdesk:// only) on the internal views - the shared
             // overlay AND the MF-zone content view (CD-18). Slots get the onion
             // navigation guard (CD-35): clearnet slots refuse `.onion` with the
             // honest refusal page; Tor slots pass it to the SOCKS relay. Both
@@ -2783,7 +2783,7 @@ wrap_client! {
         ) -> c_int {
             // Route the message-router query for every view, not just the internal
             // one: the CD-14 start page lives in a SLOT and needs IPC (navigate,
-            // query_suggestions). This is safe — `window.cefQuery` is exposed ONLY
+            // query_suggestions). This is safe - `window.cefQuery` is exposed ONLY
             // on `cyberdesk://` frames (the render-side on_context_created gate), so
             // a slot showing a web page has no query bridge; only our own start
             // page (the sole cyberdesk:// content a slot ever shows) can send here.
@@ -2832,7 +2832,7 @@ wrap_render_handler! {
                 let dip_h = (g.phys_h as f32 / g.scale).round().max(1.0) as u32;
                 // CD-29: a web slot reports a COMMON, real monitor resolution for
                 // `screen.*` (clamped to the preset, bucketed up if the viewport
-                // needs it) so every machine looks ordinary — while the VIEWPORT
+                // needs it) so every machine looks ordinary - while the VIEWPORT
                 // (view_rect / innerWidth) stays the actual column size (no decoy).
                 // The internal / MF-zone cyberdesk:// UI is never fingerprinted and
                 // keeps its real geometry.
@@ -2911,7 +2911,7 @@ wrap_display_handler! {
                     nav.url = new_url.clone();
                     changed
                 };
-                // The onion refusal page is an error surface, not a destination —
+                // The onion refusal page is an error surface, not a destination -
                 // keep it (and the `.onion` target riding in its query) out of
                 // the suggestion pool (CD-35; history is RAM-only since CD-33
                 // either way).
@@ -2967,7 +2967,7 @@ wrap_life_span_handler! {
 
     impl LifeSpanHandler {
         // Popup policy (D-0011 → D-0018): a genuine user-gesture popup (a click on
-        // a `target=_blank` link, or a Ctrl-/middle-click on a link — Chromium
+        // a `target=_blank` link, or a Ctrl-/middle-click on a link - Chromium
         // routes these here as tab dispositions with a gesture) is queued to open
         // in a NEW slot beside the source (the main thread decides capacity and
         // falls back to navigate-in-place when the grid is full). Popups without a
@@ -3001,8 +3001,8 @@ wrap_life_span_handler! {
             if let Some(browser) = browser {
                 // FAIL-CLOSED (CD-15, D-0027): reject a browser built under a mode
                 // that no longer matches the slot (a rapid re-toggle raced two
-                // creations). Installing a clearnet browser on a Tor slot — or the
-                // reverse — is an IP leak, so close it instead of registering it.
+                // creations). Installing a clearnet browser on a Tor slot - or the
+                // reverse - is an IP leak, so close it instead of registering it.
                 if let Role::Slot(i) = self.role
                     && self.tor != slot_is_tor(i)
                 {
@@ -3012,11 +3012,11 @@ wrap_life_span_handler! {
                     return;
                 }
                 // FAIL-CLOSED lifecycle (CD-25): a respawn or a close raced this
-                // creation and bumped the slot generation, so this browser is stale —
+                // creation and bumped the slot generation, so this browser is stale -
                 // close it instead of registering. Without this, two same-slot
                 // respawns in one drain orphan the first browser, and a respawn drained
                 // before a close leaves a live page/circuit on a closed slot (the tor
-                // guard above misses both — a hardening respawn never flips Tor).
+                // guard above misses both - a hardening respawn never flips Tor).
                 if let Role::Slot(i) = self.role
                     && self.generation != slot_gen(i)
                 {
@@ -3027,14 +3027,14 @@ wrap_life_span_handler! {
                 }
                 // Give the OSR browser keyboard focus so the page accepts input, but
                 // for a SLOT only when it is the ACTIVE slot (CD-21). The multi-slot
-                // boot/restore creates several slots — each start page autofocuses its
-                // search box — and browsers are created ASYNCHRONOUSLY (a Tor slot even
+                // boot/restore creates several slots - each start page autofocuses its
+                // search box - and browsers are created ASYNCHRONOUSLY (a Tor slot even
                 // later, via TorSpawnTask), so an unconditional focus here would leave
                 // the last-created slot, not the active one, holding the caret (two
                 // carets at a 2-slot boot). Every creation path sets the slot active
                 // BEFORE create, so the active slot still focuses on spawn. The MF-zone
                 // view is mouse-driven and never wants the keyboard; the shared Internal
-                // overlay focuses on create (harmless — it is not composited until an
+                // overlay focuses on create (harmless - it is not composited until an
                 // overlay opens, which re-asserts its focus).
                 let want_focus = match self.role {
                     Role::Slot(i) => i == active_slot(),
@@ -3064,7 +3064,7 @@ wrap_request_handler! {
     impl RequestHandler {
         // Threading constraint (CD-38, D-0054): this handler may forward to
         // BROWSER_ROUTER *only because* every internal-view load_url originates
-        // on the shell's main thread (gear/info clicks, main-thread drains) —
+        // on the shell's main thread (gear/info clicks, main-thread drains) -
         // never inside a router query dispatch. A load_url issued FROM a router
         // handler starts its navigation synchronously on the dispatch stack,
         // where the router's map mutex is still held, and a router re-entry
@@ -3122,14 +3122,14 @@ wrap_request_handler! {
     }
 
     impl RequestHandler {
-        // DEADLOCK HAZARD (CD-38, D-0054) — this handler must NEVER call back
+        // DEADLOCK HAZARD (CD-38, D-0054) - this handler must NEVER call back
         // into BROWSER_ROUTER. A `navigate`/`reload`/`go_back` IPC runs inside
         // the router's on_process_message_received dispatch, which HOLDS the
         // router's browser_query_info_map mutex while our on_query handler
         // executes (crate message_router.rs); a load_url on that stack starts
         // the browser-initiated navigation synchronously (Chromium runs the
         // navigation throttles inside LoadURL), so on_before_browse fires ON
-        // THE SAME UI-THREAD STACK — router.on_before_browse would then re-lock
+        // THE SAME UI-THREAD STACK - router.on_before_browse would then re-lock
         // the held, non-reentrant mutex and deadlock the CEF UI thread
         // permanently (the CD-35→CD-38 app freeze). Slot router bookkeeping is
         // covered elsewhere: on_before_close forwards on browser destruction
@@ -3147,7 +3147,7 @@ wrap_request_handler! {
         ) -> c_int {
             // A `.onion` navigation in a CLEARNET slot is refused before the
             // network stack touches it (link clicks, JS navigation, and server
-            // redirects all pass through here — `on_before_browse` fires per
+            // redirects all pass through here - `on_before_browse` fires per
             // top-level hop). The main frame lands on the honest refusal page
             // with the Tor offer; a subframe is just canceled (an embedded
             // iframe must not hijack the whole window). The address-bar path
@@ -3171,10 +3171,10 @@ wrap_request_handler! {
                             .unwrap()
                             .push((self.slot, onion_refusal_url(self.slot, &url)));
                     }
-                    return 1; // cancel — the name never reaches a resolver
+                    return 1; // cancel - the name never reaches a resolver
                 }
             }
-            0 // proceed — and never touch the router here (deadlock, see above)
+            0 // proceed - and never touch the router here (deadlock, see above)
         }
     }
 }
@@ -3191,7 +3191,7 @@ wrap_resource_request_handler! {
             _callback: Option<&mut Callback>,
         ) -> ReturnValue {
             // Fail-closed: any `.onion` request in the clearnet context is
-            // canceled on the IO thread — subresources, XHR/fetch, iframes,
+            // canceled on the IO thread - subresources, XHR/fetch, iframes,
             // anything that slipped past the UI-thread navigation guard. NB:
             // the crate's `ReturnValue::default()` is RV_CANCEL, so the allow
             // path must return CONTINUE explicitly.
@@ -3215,8 +3215,8 @@ wrap_resource_request_handler! {
             new_url: Option<&mut CefString>,
         ) {
             // A clearnet request whose server REDIRECTS to a `.onion` would
-            // otherwise follow the hop inside the same request — after this
-            // handler was already selected — so the redirect target is rewritten
+            // otherwise follow the hop inside the same request - after this
+            // handler was already selected - so the redirect target is rewritten
             // to an inert about: URL (no resolver involved) before it is
             // followed. Top-level redirects additionally re-enter
             // on_before_browse, which shows the refusal page.
@@ -3248,7 +3248,7 @@ wrap_request_context_handler! {
             // Every request in the ephemeral CLEARNET context gets the onion
             // guard (CD-35 Task B). Context-level on purpose: it also covers
             // requests with no per-browser handler (workers), and any client
-            // path that returns None falls through to here — one choke point,
+            // path that returns None falls through to here - one choke point,
             // fail-closed. Tor contexts have no guard: `.onion` is legitimate
             // there and flows to the per-slot SOCKS relay.
             Some(OnionGuardHandler::new())
@@ -3372,7 +3372,7 @@ wrap_resource_handler! {
 
 /// The renderer-side router lives on the render process main thread. It is not
 /// `Sync` (it holds V8 handles), so it is kept in thread-local storage rather
-/// than a global — every render callback runs on that same thread.
+/// than a global - every render callback runs on that same thread.
 fn render_router() -> Arc<RendererSideRouter> {
     thread_local! {
         static R: Arc<RendererSideRouter> =
@@ -3421,9 +3421,9 @@ wrap_render_process_handler! {
             context: Option<&mut V8Context>,
         ) {
             // Two mutually-exclusive jobs, by frame scheme:
-            //  * cyberdesk:// (our internal UI) — expose window.cefQuery so the IPC
+            //  * cyberdesk:// (our internal UI) - expose window.cefQuery so the IPC
             //    bridge exists SOLELY on the internal views, never on the web.
-            //  * a web frame — inject the CD-16 fingerprinting hardening at
+            //  * a web frame - inject the CD-16 fingerprinting hardening at
             //    document-start (before any page script), under THIS browser's
             //    effective per-window config (CD-25). Off => skip injection entirely.
             //    Never both: our own UI is trusted and must not be farbled; web frames
@@ -3493,7 +3493,7 @@ mod tests {
 
     // --- Identity seed (CD-29): rotation produces fresh, well-formed seeds ------
 
-    /// A fresh seed is 32 lowercase-hex chars (16 bytes) and two draws differ — the
+    /// A fresh seed is 32 lowercase-hex chars (16 bytes) and two draws differ - the
     /// property that makes a rotation actually change the fingerprint (Task E).
     #[test]
     fn fresh_seed_is_hex_and_unique() {
@@ -3506,7 +3506,7 @@ mod tests {
 
     // --- Screen presets (CD-29): common-and-consistent, never a decoy ---------
 
-    /// The reported screen is the preset when the viewport fits inside it — every
+    /// The reported screen is the preset when the viewport fits inside it - every
     /// ordinary window on the default 1080p preset reports exactly 1920x1080.
     #[test]
     fn screen_reports_the_preset_when_viewport_fits() {
@@ -3521,10 +3521,10 @@ mod tests {
     /// pixel size.
     #[test]
     fn screen_never_contradicts_the_viewport() {
-        // A 2000-wide column on the 1080p preset can't report 1920 — bump to 2560x1440.
+        // A 2000-wide column on the 1080p preset can't report 1920 - bump to 2560x1440.
         assert_eq!(common_screen_for((1920, 1080), (2000, 1300)), (2560, 1440));
         // A tall column forces a taller common resolution (a 1000-tall column on the
-        // 720p preset can't report 720 or 900 — bump to 1920x1080).
+        // 720p preset can't report 720 or 900 - bump to 1920x1080).
         assert_eq!(common_screen_for((1280, 720), (600, 1000)), (1920, 1080));
         // Reported ≥ viewport on both axes, always.
         for &(vw, vh) in &[(3000u32, 1600u32), (5000, 2000), (1000, 1000)] {
@@ -3533,7 +3533,7 @@ mod tests {
         }
     }
 
-    /// A viewport larger than the whole ladder falls back to its real size — an
+    /// A viewport larger than the whole ladder falls back to its real size - an
     /// unusually large window can't be hidden, only the exact monitor size withheld;
     /// still never a decoy (reported == the real viewport, not something smaller).
     #[test]
@@ -3543,7 +3543,7 @@ mod tests {
 
     /// CD-32 (D-0049): `hardening.js` picks the reported INNER size from its own
     /// copy of the ladder while the host reports `screen.*` from this one. The two
-    /// must be the same list — a drift could let the reported inner size exceed the
+    /// must be the same list - a drift could let the reported inner size exceed the
     /// reported screen, which is exactly the self-contradiction the cluster spoof
     /// exists to prevent.
     #[test]
@@ -3562,7 +3562,7 @@ mod tests {
 
     // --- Search routing (CD-27, D-0043): the selector is authoritative --------
 
-    /// Every allowlisted engine routes a query to ITS OWN host — the engine
+    /// Every allowlisted engine routes a query to ITS OWN host - the engine
     /// shown is the engine used (CD-27 acceptance 3-5, headless half).
     #[test]
     fn each_engine_routes_to_its_own_host() {
@@ -3582,7 +3582,7 @@ mod tests {
         }
     }
 
-    /// A non-Google engine must never leak the query anywhere near Google —
+    /// A non-Google engine must never leak the query anywhere near Google -
     /// the de-Google guarantee for the chosen-search path (CD-27 acceptance 1).
     #[test]
     fn non_google_engines_never_touch_google() {
@@ -3595,7 +3595,7 @@ mod tests {
         }
     }
 
-    /// An unknown engine name falls back to the factory default, DuckDuckGo —
+    /// An unknown engine name falls back to the factory default, DuckDuckGo -
     /// a mis-stored or future value must never silently search Google (CD-27,
     /// D-0043).
     #[test]
@@ -3606,7 +3606,7 @@ mod tests {
 
     /// The URL-vs-search decision: bare domains, schemes, and localhost forms
     /// navigate; free text (even with dots among spaces) searches; empty input
-    /// is inert. Same rules for every engine — only the search host differs.
+    /// is inert. Same rules for every engine - only the search host differs.
     #[test]
     fn query_vs_url_classification() {
         // Free text searches on the given engine.
@@ -3643,7 +3643,7 @@ mod tests {
     }
 
     /// Queries are form-urlencoded: spaces become `+`, reserved bytes are
-    /// percent-escaped — no raw query text ever lands in the URL.
+    /// percent-escaped - no raw query text ever lands in the URL.
     #[test]
     fn queries_are_urlencoded() {
         assert_eq!(
@@ -3691,7 +3691,7 @@ mod tests {
         assert_eq!(host_of("https://example.com:8443/x"), "example.com");
         assert_eq!(host_of("http://user@example.com/"), "example.com");
         assert_eq!(host_of("http://user:pw@example.com:80/"), "example.com");
-        // '@' may legally occur in userinfo — the host starts after the LAST one.
+        // '@' may legally occur in userinfo - the host starts after the LAST one.
         assert_eq!(host_of("http://a@b@example.com/"), "example.com");
         assert_eq!(host_of("http://[2001:db8::1]:8080/"), "[2001:db8::1]");
         assert_eq!(host_of("http://[2001:db8::1]/"), "[2001:db8::1]");
@@ -3706,7 +3706,7 @@ mod tests {
     /// an empty label before ".onion".
     #[test]
     fn onion_host_detection() {
-        // The 56-char v3 base32 label, the realistic shape (structure only —
+        // The 56-char v3 base32 label, the realistic shape (structure only -
         // any real service id in the repo would be a doc/test-data smell).
         let v3 = format!("{}.onion", "a".repeat(56));
         assert!(is_onion_host(&v3));
@@ -3801,8 +3801,8 @@ mod tests {
     /// CD-38 regression tripwire (D-0054): the slot request handler must never
     /// call back into the message router. Its `on_before_browse` runs on the
     /// synchronous LoadURL navigation stack of a `navigate`/`reload`/`go_back`
-    /// IPC — a stack on which the router's `on_process_message_received` still
-    /// HOLDS its query-map mutex — so a router re-entry there deadlocks the CEF
+    /// IPC - a stack on which the router's `on_process_message_received` still
+    /// HOLDS its query-map mutex - so a router re-entry there deadlocks the CEF
     /// UI thread permanently (the CD-35 freeze). The threading property itself
     /// is not unit-testable headlessly; this source assertion is the tripwire
     /// for the exact regression shape instead.
@@ -3819,7 +3819,7 @@ mod tests {
         let block = &src[start..end];
         assert!(
             !block.contains("BROWSER_ROUTER.get"),
-            "SlotRequestHandler must not call into the message router — its \
+            "SlotRequestHandler must not call into the message router - its \
              callbacks run on the router's own dispatch stack (D-0054 deadlock)"
         );
     }

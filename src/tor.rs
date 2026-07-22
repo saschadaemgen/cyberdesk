@@ -1,4 +1,4 @@
-//! Embedded Tor engine (CD-15, D-0026) — pure-Rust Tor via `arti-client` on a
+//! Embedded Tor engine (CD-15, D-0026) - pure-Rust Tor via `arti-client` on a
 //! background tokio runtime, exposing a **per-slot** local SOCKS5 endpoint that
 //! each Tor CEF request context proxies through. Each slot id has its own loopback
 //! port bound to its own *isolated* [`TorClient`], so two Tor windows never share a
@@ -6,7 +6,7 @@
 //! status is a lock-free atomic, so the UI never blocks on Tor. This is NetGuard's
 //! second sanctioned outbound path (D-0004 → D-0026): user-driven browsing.
 //!
-//! Leak stance (host side of the checklist): the SOCKS relay does **remote DNS** —
+//! Leak stance (host side of the checklist): the SOCKS relay does **remote DNS** -
 //! a hostname (SOCKS ATYP=domain) is handed to arti unresolved, never resolved
 //! locally, so DNS goes through Tor. The WebRTC / QUIC / proxy-bypass half of the
 //! checklist is enforced on the CEF request context (Stage B). Empirical
@@ -16,7 +16,7 @@
 //! A `.onion` hostname arrives as ATYP=domain like any other and goes to
 //! `TorClient::connect` unresolved; with the `onion-service-client` feature
 //! compiled in (Cargo.toml), arti performs the hidden-service rendezvous INSIDE
-//! Tor — there is no exit node and no DNS resolution of any kind for onion
+//! Tor - there is no exit node and no DNS resolution of any kind for onion
 //! targets, clearnet or otherwise. Per-slot circuit isolation carries over:
 //! arti passes the client's isolation into `get_or_launch_tunnel`, so two Tor
 //! windows never share an HS circuit either. Clearnet slots never reach this
@@ -65,7 +65,7 @@ static STATUS: AtomicU8 = AtomicU8::new(STATUS_IDLE);
 /// bumping this epoch makes every listener drop and re-create its isolated client on
 /// its next connection, so subsequent streams ride FRESH circuits under a fresh
 /// isolation group (the user reloads a page to use its new circuit). Cheap + safe:
-/// it only changes when a new isolated client is built — never the proxy or the
+/// it only changes when a new isolated client is built - never the proxy or the
 /// fail-closed guarantee.
 static NEW_IDENTITY_EPOCH: AtomicU64 = AtomicU64::new(0);
 
@@ -119,7 +119,7 @@ pub fn fail_reason() -> String {
 /// Build the arti config with an **explicit, known-writable** state + cache dir
 /// under our app data dir (CD-15 HOTFIX). The default config uses `${ARTI_*}` path
 /// variables that must resolve at runtime; if they don't (or the dir isn't
-/// writable) bootstrap stalls — a literal path we create ourselves avoids that.
+/// writable) bootstrap stalls - a literal path we create ourselves avoids that.
 fn tor_config() -> Result<TorClientConfig, String> {
     let base = std::env::var("LOCALAPPDATA")
         .or_else(|_| std::env::var("APPDATA"))
@@ -138,7 +138,7 @@ fn tor_config() -> Result<TorClientConfig, String> {
 }
 
 /// The base loopback SOCKS port; slot id `i` listens on `SOCKS_BASE_PORT + i`.
-/// Loopback only (127.0.0.1) — never a public bind.
+/// Loopback only (127.0.0.1) - never a public bind.
 const SOCKS_BASE_PORT: u16 = 9250;
 
 /// The bootstrapped base client, shared with the per-slot SOCKS listeners once
@@ -168,18 +168,18 @@ pub fn socks_port(id: usize) -> u16 {
 ///
 /// `install_default` returns `Err` if a provider is ALREADY installed (this fn is
 /// called on the tor thread, which is spawned once, but a provider could also be set by
-/// some other path) — that is a success for our purposes: the postcondition is only
+/// some other path) - that is a success for our purposes: the postcondition is only
 /// that SOME provider is installed before arti runs.
 fn install_crypto_provider() {
     match rustls::crypto::ring::default_provider().install_default() {
-        Ok(()) => tracing::info!("rustls crypto provider installed (ring, explicit — D-0038)"),
+        Ok(()) => tracing::info!("rustls crypto provider installed (ring, explicit - D-0038)"),
         Err(_) => tracing::debug!("rustls crypto provider already installed (ok)"),
     }
 }
 
 /// Start the Tor engine once: a background tokio runtime that binds the per-slot
 /// SOCKS listeners immediately, then bootstraps arti (so a slot toggled to Tor
-/// while still connecting has a live port to retry against). Idempotent — a second
+/// while still connecting has a live port to retry against). Idempotent - a second
 /// call while already started is a no-op. Never blocks the caller.
 pub fn init() {
     if STATUS
@@ -194,7 +194,7 @@ pub fn init() {
         tracing::debug!("tor::init called but engine already started");
         return;
     }
-    tracing::info!("tor::init — spawning the Tor engine thread");
+    tracing::info!("tor::init - spawning the Tor engine thread");
     match std::thread::Builder::new()
         .name("tor-engine".to_string())
         .spawn(run)
@@ -234,7 +234,7 @@ fn run() {
         // FAILED instead of infinite connecting. Deep instrumentation (HOTFIX 2): we
         // split `create_bootstrapped` into create-unbootstrapped + `bootstrap()` so we
         // can subscribe to arti's live progress BEFORE any network I/O, and log every
-        // phase / blockage — the exact hang point (channel connect / guard / TLS).
+        // phase / blockage - the exact hang point (channel connect / guard / TLS).
         let config = match tor_config() {
             Ok(c) => c,
             Err(e) => {
@@ -245,7 +245,7 @@ fn run() {
         };
 
         // Build the TorClient on an EXPLICIT tokio+rustls runtime handle taken from the
-        // runtime we are blocking on — the SAME driven runtime that runs the SOCKS
+        // runtime we are blocking on - the SAME driven runtime that runs the SOCKS
         // listeners above. This proves (and logs) exactly which runtime + TLS backend
         // arti uses, and rules out any handle mismatch (HOTFIX 2 suspect 1).
         let arti_rt = match tor_rtcompat::tokio::TokioRustlsRuntime::current() {
@@ -287,7 +287,7 @@ fn run() {
                 *last_status().lock().unwrap() = line.clone();
                 match st.blocked() {
                     Some(b) => {
-                        tracing::warn!(pct, kind = %b.kind(), "tor bootstrap: BLOCKED — {line}")
+                        tracing::warn!(pct, kind = %b.kind(), "tor bootstrap: BLOCKED - {line}")
                     }
                     None => {
                         tracing::info!(pct, ready = st.ready_for_traffic(), "tor bootstrap: {line}")
@@ -318,7 +318,7 @@ fn run() {
                     last
                 };
                 set_failed(&format!(
-                    "bootstrap timed out after {}s — arti did not finish bootstrapping; last status: {last}",
+                    "bootstrap timed out after {}s - arti did not finish bootstrapping; last status: {last}",
                     timeout.as_secs()
                 ));
             }
@@ -370,7 +370,7 @@ async fn socks_listener(port: u16) {
 }
 
 /// Handle one SOCKS5 CONNECT: no-auth handshake, parse the target (IPv4 / IPv6 /
-/// **domain — resolved remotely through Tor, never locally**), open the Tor
+/// **domain - resolved remotely through Tor, never locally**), open the Tor
 /// stream, reply, and relay bytes both ways.
 async fn handle_socks(client: Arc<Client>, mut sock: TcpStream) {
     if socks_connect(&client, &mut sock).await.is_err() {
@@ -435,7 +435,7 @@ async fn socks_connect(client: &Arc<Client>, sock: &mut TcpStream) -> std::io::R
     // --- Open the Tor stream. A hostname is handed to arti unresolved (remote DNS
     // through Tor, never a local resolver). An explicit IP (SOCKS ATYP=1/4) came
     // straight from the client, not a local resolution, so it is connected via
-    // `dangerously_from` — intentional here, and the only place IPs enter. ---
+    // `dangerously_from` - intentional here, and the only place IPs enter. ---
     let stream = match target {
         Target::Host(h) => client.connect((h.as_str(), port)).await,
         Target::Addr(a) => match TorAddr::dangerously_from((a, port)) {
@@ -478,7 +478,7 @@ mod tests {
     use super::*;
 
     /// The rustls `CryptoProvider` must be COMPILED IN (the `ring` feature) and
-    /// installable without panicking — the exact regression CD-24 fixes (D-0038). Before
+    /// installable without panicking - the exact regression CD-24 fixes (D-0038). Before
     /// this, arti's TLS runtime panicked at provider auto-detection because `ring` left
     /// the runtime graph with `ureq` (CD-22). This proves `rustls::crypto::ring` is
     /// available (the feature is on) and that a process-level default ends up installed.
@@ -496,7 +496,7 @@ mod tests {
     /// `StreamPrefs::connect_to_onion_services` exists only under that feature, so
     /// this test is a compile-time proof: if the Cargo feature is ever dropped, the
     /// build (not a live .onion load) is what fails. A `.onion` through the relay
-    /// without the feature would fail with OnionAddressNotSupported — an outage,
+    /// without the feature would fail with OnionAddressNotSupported - an outage,
     /// not a leak, but the feature is the ticket's core capability.
     #[test]
     fn onion_service_client_feature_is_compiled_in() {

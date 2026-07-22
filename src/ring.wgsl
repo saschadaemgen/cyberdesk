@@ -1,4 +1,4 @@
-// CARVILON CyberDesk — background + rotating logo ring.
+// CARVILON CyberDesk - background + rotating logo ring.
 //
 // All colors and geometry come from theme tokens (see theme.toml); nothing
 // style-related is hardcoded here. Rendered as a fullscreen triangle: dark

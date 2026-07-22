@@ -9,12 +9,12 @@
 //! CD-18 adds an in-memory **ring buffer** layer alongside the file layer: the last
 //! `RING_CAP` records are kept as structured rows (seq, ts, level, target, msg) so
 //! the MF-zone viewer (`cyberdesk://mfzone/`) can stream the log live in the UI over
-//! IPC — no tailing of date-suffixed files. Both layers sit under ONE shared
+//! IPC - no tailing of date-suffixed files. Both layers sit under ONE shared
 //! `EnvFilter`, so the ring captures exactly what the file does.
 //!
 //! Never log secrets. The viewer surfaces whatever is logged, so the no-secrets rule
 //! matters doubly now: the ring visitor copies only `level`, `target`, and the
-//! `message` field — never arbitrary structured key/values.
+//! `message` field - never arbitrary structured key/values.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -68,13 +68,13 @@ const RING_CAP: usize = 2000;
 /// One captured log record. Owned (no borrows) so it outlives the event.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Record {
-    /// Monotonic capture sequence — the UI polls incrementally via `since_seq`.
+    /// Monotonic capture sequence - the UI polls incrementally via `since_seq`.
     pub seq: u64,
     /// Epoch milliseconds at capture (the UI formats it client-side).
     pub ts_ms: u64,
     /// `TRACE` | `DEBUG` | `INFO` | `WARN` | `ERROR` (display).
     pub level: &'static str,
-    /// Severity rank 0=TRACE..4=ERROR — used for `level_min` filtering so we never
+    /// Severity rank 0=TRACE..4=ERROR - used for `level_min` filtering so we never
     /// touch tracing's INVERTED `Level: Ord` (ERROR is the lowest `Level`).
     pub sev: u8,
     pub target: String,
@@ -177,7 +177,7 @@ fn sev_from_name(name: &str) -> Option<u8> {
     }
 }
 
-/// Extracts only the `message` field off an event — deliberately ignores every other
+/// Extracts only the `message` field off an event - deliberately ignores every other
 /// structured field so key/values (which could carry sensitive data) never enter the
 /// ring or the viewer.
 struct MsgVisitor {
@@ -211,7 +211,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for RingLayer {
         let sev = level_to_sev(level);
         let target = meta.target().to_owned();
         let ts_ms = now_ms();
-        // Tiny critical section: seq bump + O(1) push. Skip on a poisoned lock — a
+        // Tiny critical section: seq bump + O(1) push. Skip on a poisoned lock - a
         // panic in the log path would be fatal, and never emit a tracing event here
         // (it would re-enter this layer).
         if let Ok(mut g) = ring().lock() {
@@ -263,7 +263,7 @@ pub fn log_snapshot_json(v: &serde_json::Value) -> String {
 /// The default env-filter (used when `RUST_LOG` is unset). Our lifecycle at debug;
 /// arti's crates normally at info (bootstrap milestones + errors). `CYBERDESK_TOR_TRACE`
 /// raises the arti/tor crates to **debug** (or **trace** if it is `trace`/`2`) so a
-/// stalled bootstrap shows the exact hang point — including the **directory-fetch
+/// stalled bootstrap shows the exact hang point - including the **directory-fetch
 /// layer** (`tor_dirclient`), which issues the HTTP-over-Tor consensus request over a
 /// built circuit and is the previously-silent step where bootstrap stalls at 15%
 /// (CD-15 HOTFIX 2 / HOTFIX 3).
@@ -281,7 +281,7 @@ fn default_filter() -> String {
     // The arti/tor crate targets that carry the bootstrap detail. `tor_dirmgr` covers
     // its `::state` / `::bootstrap` submodules by prefix. `tor_dirclient` is the
     // directory CLIENT that sends the consensus request over the circuit and reads the
-    // response — the silent step in the 15% stall (HOTFIX 3). `tor_memquota` catches a
+    // response - the silent step in the 15% stall (HOTFIX 3). `tor_memquota` catches a
     // memory-quota reservation that could gate the fetch.
     let tor_targets = [
         "arti_client",

@@ -1,4 +1,4 @@
-//! Pulse Grid background — CPU model (CD-05, D-0012).
+//! Pulse Grid background - CPU model (CD-05, D-0012).
 //!
 //! This module is deliberately GPU-free: it owns the deterministic board
 //! *generation* and the geometry the renderer turns into GPU work. A seeded
@@ -26,10 +26,10 @@ use crate::theme::Background;
 /// One primitive for the instanced sprite pipeline (shared by the static bake
 /// and the live pulses/flares). Layout mirrors `pulsegrid_sprite.wgsl`.
 ///
-/// * `p0` — line endpoint A, or the centre of a disk/ring.
-/// * `p1` — line endpoint B (unused for disk/ring).
-/// * `color` — premultiplied-ish glow RGB, `a` an extra brightness multiplier.
-/// * `params` — `[kind, half_width_or_thickness, radius, aa]`.
+/// * `p0` - line endpoint A, or the centre of a disk/ring.
+/// * `p1` - line endpoint B (unused for disk/ring).
+/// * `color` - premultiplied-ish glow RGB, `a` an extra brightness multiplier.
+/// * `params` - `[kind, half_width_or_thickness, radius, aa]`.
 ///   `kind`: 0 = line, 1 = filled disk, 2 = hollow ring.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -71,7 +71,7 @@ impl SpriteInstance {
     }
 }
 
-/// A splitmix64 PRNG — tiny, dependency-free, deterministic. Seeded from the
+/// A splitmix64 PRNG - tiny, dependency-free, deterministic. Seeded from the
 /// `background.seed` token so the board is identical across launches.
 pub struct Rng {
     state: u64,
@@ -156,7 +156,7 @@ impl Polyline {
         if d >= self.total {
             return *self.pts.last().unwrap();
         }
-        // Linear scan over segments (traces are short: 3–7 segments).
+        // Linear scan over segments (traces are short: 3-7 segments).
         let mut i = 1;
         while i < self.cum.len() && self.cum[i] < d {
             i += 1;
@@ -229,8 +229,8 @@ struct LayerSpec {
 }
 
 /// Generate one depth layer's primitives (traces + component vocabulary) into
-/// `prims`, its trace polylines into `traces`, and — when `pads_out` is set (the
-/// near layer) — endpoint / hub pads into it as flare anchors.
+/// `prims`, its trace polylines into `traces`, and - when `pads_out` is set (the
+/// near layer) - endpoint / hub pads into it as flare anchors.
 #[allow(clippy::too_many_arguments)]
 fn gen_layer(
     rng: &mut Rng,
@@ -539,7 +539,7 @@ struct Flare {
 
 /// The animated life of the board. Its randomness (respawns, flare positions)
 /// runs off a seeded PRNG, but it is intentionally NOT part of the determinism
-/// contract — only the static board layout must match across launches. Positions
+/// contract - only the static board layout must match across launches. Positions
 /// are produced fresh each frame from the CPU polylines.
 pub struct PulseSim {
     pulses: Vec<Pulse>,

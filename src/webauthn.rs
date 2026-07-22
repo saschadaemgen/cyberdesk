@@ -4,7 +4,7 @@
 //! platform authenticator (Hello) with the CTAP `hmac-secret` capability, and
 //! evaluate the PRF at assertion time to derive the stable 32-byte method
 //! secret the envelope layer consumes (`vault::enroll_passkey` /
-//! `Factor::MethodSecret`). This module contains NO cryptography of its own —
+//! `Factor::MethodSecret`). This module contains NO cryptography of its own -
 //! it marshals the OS `webauthn.dll` API and moves the returned secret into
 //! locked memory ([`vault::SecretBuf`]).
 //!
@@ -14,11 +14,11 @@
 //!   `windows-sys 0.61.2` (v7 header): `pHmacSecretSaltValues` in
 //!   `GET_ASSERTION_OPTIONS` (struct v6) + the `pHmacSecret` output in
 //!   `WEBAUTHN_ASSERTION` (struct v3). API **v8 added create-time eval only**
-//!   (`pPRFGlobalEval`) — a convenience this module replaces with an eval
+//!   (`pPRFGlobalEval`) - a convenience this module replaces with an eval
 //!   assertion right after enrollment. No v8 FFI is needed; no crate bump.
 //! * **Salt hashing is the DLL's job by default**: values passed via
-//!   `pHmacSecretSaltValues` are converted per the WebAuthn PRF spec —
-//!   `SHA-256(UTF8("WebAuthn PRF") || 0x00 || value)` — unless the caller
+//!   `pHmacSecretSaltValues` are converted per the WebAuthn PRF spec -
+//!   `SHA-256(UTF8("WebAuthn PRF") || 0x00 || value)` - unless the caller
 //!   opts into RAW salts via `WEBAUTHN_AUTHENTICATOR_HMAC_SECRET_VALUES_FLAG`
 //!   (webauthn.h, the comment above WEBAUTHN_HMAC_SECRET_SALT). We do NOT set
 //!   the flag: the OS applies the spec hashing to our stored eval value, so
@@ -26,13 +26,13 @@
 //!   compute from the same input, and no hashing is hand-rolled here.
 //! * Windows Hello gained the hmac-secret capability with the Feb-2026
 //!   cumulative (KB5077181, build 26200.7840+); the DLL's API version number
-//!   is a proxy, so the AUTHORITATIVE capability check is empirical — the
+//!   is a proxy, so the AUTHORITATIVE capability check is empirical - the
 //!   enrollment's eval assertion either returns 32 bytes or enrollment fails
 //!   with the OS error name (honest, fail-closed).
 //!
 //! ## Hard-won FFI rules encoded here
 //!
-//! * Output structs are read only up to the RETURNED `dwVersion` — Windows
+//! * Output structs are read only up to the RETURNED `dwVersion` - Windows
 //!   Hello on older builds returns downlevel structs, and reading past them
 //!   is an access violation (kanidm/webauthn-rs issue #262; their fix is the
 //!   same gate).
@@ -40,15 +40,15 @@
 //!   zero-initialized first; every marshalled buffer outlives the call.
 //! * API-allocated output buffers holding secret bytes are zeroized IN PLACE
 //!   before `WebAuthNFreeAssertion` (bounded residual: copies inside
-//!   webauthn.dll / the authenticator broker are out of reach — documented
+//!   webauthn.dll / the authenticator broker are out of reach - documented
 //!   in cyberdesk-security.md).
-//! * The calls are modal (they show the Hello UI over `hwnd`) and BLOCK —
+//! * The calls are modal (they show the Hello UI over `hwnd`) and BLOCK -
 //!   they must run on a vault worker thread, never the render loop or the
 //!   CEF UI thread (CD-38 threading law).
 //!
 //! The attestation itself is deliberately NOT validated: the PRF output is
 //! the payload, and the vault's security rests on the AEAD envelope (a wrong
-//! or forged secret simply fails to unwrap the VMK — uniform error). The
+//! or forged secret simply fails to unwrap the VMK - uniform error). The
 //! RP id below is a stable local identifier, not a real origin; changing it
 //! would orphan enrolled credentials.
 
@@ -65,7 +65,7 @@ use zeroize::Zeroize;
 
 use crate::vault::{KEY_LEN, SecretBuf};
 
-/// The RP identity of the vault's credential — stable forever (it scopes the
+/// The RP identity of the vault's credential - stable forever (it scopes the
 /// enrolled credential; a change would orphan it). Shown by the Hello UI.
 const RP_ID: &str = "cyberdesk.local";
 const RP_NAME: &str = "CyberDesk Vault";
@@ -81,7 +81,7 @@ const MIN_API_VERSION: u32 = 4;
 
 /// Errors from the platform layer. `Cancelled` is the one flow-control case
 /// (the user dismissed the Hello prompt); everything else carries the OS
-/// error name — honest, and no oracle (no vault secret is involved yet).
+/// error name - honest, and no oracle (no vault secret is involved yet).
 #[derive(Debug)]
 pub enum WebAuthnError {
     /// webauthn.dll reports an API level below the salt path's minimum.
@@ -173,7 +173,7 @@ fn read_wide(p: *const u16) -> String {
 }
 
 /// Spec-shaped client-data JSON. The challenge is fresh randomness encoded
-/// as hex — nothing ever verifies this assertion (see module docs), the
+/// as hex - nothing ever verifies this assertion (see module docs), the
 /// field exists to keep the structure honest and well-formed.
 fn client_data_json(typ: &str) -> Result<String> {
     let mut challenge = [0u8; 32];
@@ -234,7 +234,7 @@ fn api_error(call: &'static str, hr: i32) -> WebAuthnError {
 /// PRF evaluation to derive the method secret. Two Hello prompts, by CTAP
 /// design: hmac-secret output only exists at assertion time, and the v8
 /// create-time eval is exactly the convenience this build does not depend on
-/// (D-0063). BLOCKING + modal — vault worker threads only.
+/// (D-0063). BLOCKING + modal - vault worker threads only.
 pub fn enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> Result<EnrolledPasskey> {
     let v = api_version();
     if v < MIN_API_VERSION {
@@ -244,7 +244,7 @@ pub fn enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> Result<EnrolledPasskey> {
     let rp_id = wide(RP_ID);
     let rp_name = wide(RP_NAME);
     let user_name = wide("CyberDesk Vault");
-    // The user handle: random, non-secret, persisted nowhere — each
+    // The user handle: random, non-secret, persisted nowhere - each
     // enrollment is a fresh credential (one passkey max; re-enrolling after
     // a removal mints a new credential and the old OS entry is deleted
     // best-effort by the caller).
@@ -291,7 +291,7 @@ pub fn enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> Result<EnrolledPasskey> {
 
     // The classic create-time enable: the "hmac-secret" extension with a
     // BOOL payload (BOOL in / BOOL out per webauthn.h), PLUS the v6
-    // `bEnablePrf` field — both express the same CTAP capability; setting
+    // `bEnablePrf` field - both express the same CTAP capability; setting
     // both matches what PRF-requesting browsers negotiate.
     let mut enable: BOOL = 1;
     let mut ext = [WEBAUTHN_EXTENSION {
@@ -334,10 +334,10 @@ pub fn enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> Result<EnrolledPasskey> {
         ));
     }
 
-    // Read gated on the RETURNED dwVersion (never past it — issue #262
+    // Read gated on the RETURNED dwVersion (never past it - issue #262
     // lesson): the credential id is a v1 field; bPrfEnabled is v5+ and only
     // informational here (the eval assertion below is the real proof). The
-    // id buffer is null-checked BEFORE slicing — an absent Win32 buffer is
+    // id buffer is null-checked BEFORE slicing - an absent Win32 buffer is
     // NULL + zero count, and `from_raw_parts(NULL, 0)` is library UB.
     let cred_id;
     let prf_acked;
@@ -356,16 +356,16 @@ pub fn enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> Result<EnrolledPasskey> {
     }
     if !prf_acked {
         tracing::warn!(
-            "hello: create-time PRF ack absent (attestation downlevel or FALSE) — \
+            "hello: create-time PRF ack absent (attestation downlevel or FALSE) - \
              the eval assertion decides"
         );
     }
 
-    // First PRF evaluation — the authoritative capability check AND the
+    // First PRF evaluation - the authoritative capability check AND the
     // method secret in one step. If it fails (cancelled second prompt, or a
     // Hello build without hmac-secret), the just-created credential is
     // deleted best-effort: a failed enrollment must not accumulate orphaned
-    // passkeys in Windows Settings — no half-enrolled state, OS side either.
+    // passkeys in Windows Settings - no half-enrolled state, OS side either.
     let secret = match assert(hwnd, &cred_id, salt) {
         Ok(s) => s,
         Err(e) => {
@@ -381,7 +381,7 @@ pub fn enroll(hwnd: isize, salt: &[u8; KEY_LEN]) -> Result<EnrolledPasskey> {
 
 /// Run the Hello assertion for `cred_id` and derive the PRF secret for
 /// `salt` (the stored per-passkey eval value; the DLL applies the WebAuthn
-/// PRF spec hashing — see module docs). BLOCKING + modal — vault worker
+/// PRF spec hashing - see module docs). BLOCKING + modal - vault worker
 /// threads only. The secret lands directly in locked memory; the DLL's
 /// output buffer is zeroized before it is freed.
 pub fn assert(hwnd: isize, cred_id: &[u8], salt: &[u8; KEY_LEN]) -> Result<SecretBuf> {
@@ -404,15 +404,15 @@ pub fn assert(hwnd: isize, cred_id: &[u8], salt: &[u8; KEY_LEN]) -> Result<Secre
         cbId: id_buf.len() as u32,
         pbId: id_buf.as_mut_ptr(),
         pwszCredentialType: WEBAUTHN_CREDENTIAL_TYPE_PUBLIC_KEY,
-        dwTransports: 0, // no transport restriction — the id pins it
+        dwTransports: 0, // no transport restriction - the id pins it
     };
     let mut cred_ptr: *mut WEBAUTHN_CREDENTIAL_EX = &mut cred;
     let mut allow = WEBAUTHN_CREDENTIAL_LIST { cCredentials: 1, ppCredentials: &mut cred_ptr };
 
     // The PRF eval value ("first" slot only). dwFlags deliberately does NOT
     // include WEBAUTHN_AUTHENTICATOR_HMAC_SECRET_VALUES_FLAG: without it the
-    // DLL converts this value per the WebAuthn PRF spec —
-    // SHA-256("WebAuthn PRF" || 0x00 || value) — before CTAP (webauthn.h).
+    // DLL converts this value per the WebAuthn PRF spec -
+    // SHA-256("WebAuthn PRF" || 0x00 || value) - before CTAP (webauthn.h).
     let mut salt_buf = *salt;
     let mut prf_salt = WEBAUTHN_HMAC_SECRET_SALT {
         cbFirst: salt_buf.len() as u32,
@@ -427,7 +427,7 @@ pub fn assert(hwnd: isize, cred_id: &[u8], salt: &[u8; KEY_LEN]) -> Result<Secre
     };
 
     // Everything not named is zero/null; notably dwFlags stays 0 (no RAW
-    // flag — the DLL applies the WebAuthn-PRF spec hashing, see above).
+    // flag - the DLL applies the WebAuthn-PRF spec hashing, see above).
     let opts = WEBAUTHN_AUTHENTICATOR_GET_ASSERTION_OPTIONS {
         dwVersion: WEBAUTHN_AUTHENTICATOR_GET_ASSERTION_OPTIONS_CURRENT_VERSION,
         dwTimeoutMilliseconds: TIMEOUT_MS,
@@ -451,13 +451,13 @@ pub fn assert(hwnd: isize, cred_id: &[u8], salt: &[u8; KEY_LEN]) -> Result<Secre
         return Err(WebAuthnError::Response("assertion returned nothing".into()));
     }
 
-    // Extract the PRF output — reads gated on the RETURNED dwVersion
+    // Extract the PRF output - reads gated on the RETURNED dwVersion
     // (pHmacSecret is a v3+ field; a downlevel struct means the OS did not
     // evaluate hmac-secret at all). WHATEVER the outcome, any PRF bytes the
-    // DLL handed back are zeroized in place before the free — the wipe runs
+    // DLL handed back are zeroized in place before the free - the wipe runs
     // on every path where pHmacSecret is non-null, not just success
     // (bounded residual: internal copies beyond this pointer are the DLL's /
-    // broker's — documented in cyberdesk-security.md).
+    // broker's - documented in cyberdesk-security.md).
     let result = unsafe {
         let a = &*assertion;
         if a.dwVersion < WEBAUTHN_ASSERTION_VERSION_3 {
@@ -467,7 +467,7 @@ pub fn assert(hwnd: isize, cred_id: &[u8], salt: &[u8; KEY_LEN]) -> Result<Secre
             )))
         } else if a.pHmacSecret.is_null() {
             Err(WebAuthnError::Response(
-                "Windows Hello returned no PRF output for this credential — \
+                "Windows Hello returned no PRF output for this credential - \
                  the credential lacks hmac-secret, or this Windows build predates \
                  Hello PRF support (KB5077181)"
                     .into(),
@@ -502,7 +502,7 @@ pub fn assert(hwnd: isize, cred_id: &[u8], salt: &[u8; KEY_LEN]) -> Result<Secre
 /// Best-effort deletion of the OS-side platform credential when the vault
 /// passkey is removed (the vault's envelope state is already authoritative;
 /// this only keeps Windows' credential list tidy). Errors are logged, never
-/// surfaced — the vault removal has already succeeded.
+/// surfaced - the vault removal has already succeeded.
 pub fn delete_platform_credential(cred_id: &[u8]) {
     if cred_id.is_empty() {
         return;
@@ -517,7 +517,7 @@ pub fn delete_platform_credential(cred_id: &[u8]) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — headless half (Task E): the FFI links against the OS DLL and the
+// Tests - headless half (Task E): the FFI links against the OS DLL and the
 // pure marshalling helpers behave. The modal enroll/assert calls need a user
 // gesture and are the maintainer's live check by design.
 // ---------------------------------------------------------------------------

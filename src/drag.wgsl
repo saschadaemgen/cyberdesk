@@ -1,4 +1,4 @@
-// CARVILON CyberDesk — command overlay (CD-12): the topmost transparent pass
+// CARVILON CyberDesk - command overlay (CD-12): the topmost transparent pass
 // shared by the favorite-drag visuals (ghost, control-gutter drop zones, the
 // full-capacity slot highlight) and the per-slot close orbs. One instanced pass
 // of soft-glowing rounded rects (a circle is a rounded rect with corner_radius =

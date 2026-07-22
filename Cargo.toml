@@ -2,7 +2,7 @@
 name = "cyberdesk"
 version = "0.1.0"
 edition = "2024"
-description = "CARVILON CyberDesk — desktop shell (Rust host + CEF)"
+description = "CARVILON CyberDesk - desktop shell (Rust host + CEF)"
 authors = ["Sascha Daemgen IT and More Systems"]
 license-file = "LICENSE"
 publish = false
@@ -17,7 +17,7 @@ wgpu = "30"
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-# CEF binding — exact pin (see docs/cyberdesk-decisions.md, D-0002).
+# CEF binding - exact pin (see docs/cyberdesk-decisions.md, D-0002).
 # default-features = false disables the Windows sandbox feature (no_sandbox);
 # see D-0008 for the tracked deviation from the "sandbox stays active" doctrine.
 cef = { version = "=149.3.0", default-features = false }
@@ -29,27 +29,27 @@ toml = "0.9"
 # NOTE: the update-awareness HTTPS client (`ureq`, CD-13/D-0023) was RETIRED in CD-22
 # (D-0036): the live manifest fetch is gone (the info area is now client-side only, and
 # the app self-update feed is deferred to a later ticket). The binary opens no HTTP
-# client of its own — NetGuard (D-0004) holds without exception. When the self-update
+# client of its own - NetGuard (D-0004) holds without exception. When the self-update
 # feed returns, its network client comes back with it.
-# Embedded Tor engine (CD-15, D-0026) — pure-Rust Tor via arti-client, rustls
+# Embedded Tor engine (CD-15, D-0026) - pure-Rust Tor via arti-client, rustls
 # (no OpenSSL), on a background tokio runtime. Heavy but justified by the
 # per-window Tor feature; the reasoned dependency exception is recorded in D-0026.
 # `compression` is a DEFAULT arti-client feature and is REQUIRED for bootstrap: Tor
 # directory caches serve the consensus compressed (zstd/lzma/zlib), and without it
-# arti cannot inflate the response — the fetch silently stalls at 15% (D-0033). Do
-# NOT drop it. (Needs a C toolchain for the zstd/xz codecs — MSVC, already present
+# arti cannot inflate the response - the fetch silently stalls at 15% (D-0033). Do
+# NOT drop it. (Needs a C toolchain for the zstd/xz codecs - MSVC, already present
 # for CEF.)
-# `onion-service-client` (CD-35, D-0052) — arti's onion-service CLIENT (stable,
+# `onion-service-client` (CD-35, D-0052) - arti's onion-service CLIENT (stable,
 # non-experimental at 0.43): a `.onion` hostname handed to `TorClient::connect`
 # resolves via the HS rendezvous protocol INSIDE Tor (no exit node, no DNS).
-# With the feature compiled in, `allow_onion_addrs` defaults to true — no config
+# With the feature compiled in, `allow_onion_addrs` defaults to true - no config
 # change needed; the per-slot SOCKS relay already passes hostnames unresolved.
 arti-client = { version = "0.43", default-features = false, features = ["tokio", "rustls", "compression", "onion-service-client"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
 # File logging (CD-15 HOTFIX): a windowed app has no visible stderr. `tracing` is
 # chosen over `log`+fern because arti/tokio already emit `tracing` events, so one
 # subscriber captures BOTH our lifecycle logs AND arti's internal bootstrap/dirmgr
-# progress — the exact diagnostic the Tor stall needs. General infra, not Tor-only.
+# progress - the exact diagnostic the Tor stall needs. General infra, not Tor-only.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
@@ -57,15 +57,15 @@ tracing-appender = "0.2"
 tokio-util = { version = "0.7", default-features = false, features = ["compat"] }
 # Names arti's PreferredRuntime (already in the tree via arti-client) for the client type.
 tor-rtcompat = { version = "0.43", default-features = false, features = ["tokio", "rustls"] }
-# rustls CryptoProvider — EXPLICIT `ring` (CD-24, D-0038). arti's `TokioRustlsRuntime`
+# rustls CryptoProvider - EXPLICIT `ring` (CD-24, D-0038). arti's `TokioRustlsRuntime`
 # needs a process-level rustls provider. rustls 0.23 with no provider feature panics at
 # auto-detection ("Could not automatically determine the process-level CryptoProvider").
 # `ring` used to arrive TRANSITIVELY via `ureq`; CD-22 (D-0036) removed `ureq` and
-# silently removed `ring`, so the Tor engine thread panicked at startup — Tor completely
+# silently removed `ring`, so the Tor engine thread panicked at startup - Tor completely
 # down. We now depend on `ring` directly (the SAME provider proven working here) and
 # install it ourselves in `tor::run` (never `aws-lc-rs`: it needs a C-toolchain path we
 # do not want; `ring` matches arti's runtime rustls, unifying to one rustls 0.23.41).
-# This is a crypto library, NOT an HTTP client — NetGuard (D-0004/D-0036) is preserved.
+# This is a crypto library, NOT an HTTP client - NetGuard (D-0004/D-0036) is preserved.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # `StreamExt` to consume arti's bootstrap-status Stream (deep bootstrap instrumentation,
 # CD-15 HOTFIX 2). Already in the tree transitively via arti.
@@ -73,12 +73,12 @@ futures = { version = "0.3", default-features = false, features = ["std"] }
 # OS CSPRNG for the per-session fingerprinting-hardening seed (CD-16, D-0039). A fresh
 # 16-byte random seed per browser launch keys the coherent readback farbling, so two
 # sessions are unlinkable and the seed is unguessable. Purpose-built minimal crate,
-# already in the tree via rand/arti; NOT an HTTP client — NetGuard (D-0004) unaffected.
+# already in the tree via rand/arti; NOT an HTTP client - NetGuard (D-0004) unaffected.
 getrandom = "0.3"
-# --- Vault crypto core (CD-40, D-0058) — vetted RustCrypto crates, no custom
+# --- Vault crypto core (CD-40, D-0058) - vetted RustCrypto crates, no custom
 # crypto. All four are MIT OR Apache-2.0 (D-0005 license check clean).
 # `argon2`: Argon2id KDF for the passphrase envelope. Trimmed to `alloc` (the
-# in-memory block matrix) — the PHC-string/password-hash layer and its rand dep
+# in-memory block matrix) - the PHC-string/password-hash layer and its rand dep
 # are not used (we store explicit per-envelope params + salt, not PHC strings).
 argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
 # `chacha20poly1305`: XChaCha20-Poly1305 AEAD wrapping the Vault Master Key and
@@ -89,18 +89,18 @@ chacha20poly1305 = { version = "0.10", default-features = false, features = ["al
 # `zeroize`: volatile-write key erasure the optimizer cannot elide (closes the
 # CD-33-deferred memory-hygiene tasks C/D for vault keys).
 zeroize = "1"
-# `blake2`: keyless KDF duties — combining per-method wrapping keys into the
+# `blake2`: keyless KDF duties - combining per-method wrapping keys into the
 # 2FA pair-envelope key (domain-separated). Already proven code: it is the same
 # hash family Argon2 builds on internally.
 blake2 = "0.10"
 # `zxcvbn`: the vetted password-strength estimator behind the HOST-side setup
 # meter (CD-42 Task B, D-0062; MIT, license-checked per D-0005). Runs only in
-# the host on the locked input buffer — the renderer sees score/criteria, never
+# the host on the locked input buffer - the renderer sees score/criteria, never
 # characters. No hand-rolled strength rules.
 zxcvbn = "3.1.1"
 # `windows-sys`: the Win32 WebAuthn (webauthn.dll) surface for the vault's
 # Windows Hello passkey (CD-43, D-0063). ALREADY in the tree at this exact
-# version via cef + arti — this direct entry only enables the two features;
+# version via cef + arti - this direct entry only enables the two features;
 # no new crate download, no pin change. The v7 header it binds carries the
 # complete assertion-time PRF/hmac-secret path (Task-0 determination); linking
 # is raw-dylib (windows-link), so no import library is involved.

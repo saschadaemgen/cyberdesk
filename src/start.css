@@ -1,6 +1,6 @@
 /* CyberDesk start page (CD-14). Brand colors come from the injected theme tokens
    (theme.toml / Theme::to_css_vars); start-page geometry lives in :root here (the
-   settings/info pattern). Zero network — no fonts, images, or remote resources. */
+   settings/info pattern). Zero network - no fonts, images, or remote resources. */
 
 :root {
   --start-bg: #000000;              /* darker than the shell base (--bg) */
@@ -152,7 +152,7 @@ body {
   box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 28%, transparent);
 }
 
-/* A status light, not an alarm: honor reduced-motion — freeze the core. */
+/* A status light, not an alarm: honor reduced-motion - freeze the core. */
 @media (prefers-reduced-motion: reduce) {
   .ring-a, .ring-b, .ring-c, .hollow, .hollow-glow, .spark { animation: none; }
 }

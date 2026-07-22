@@ -1,7 +1,7 @@
-# CyberDesk update manifest — publishing
+# CyberDesk update manifest - publishing
 
 CyberDesk shows update availability in its top-right info area by fetching **one**
-small static JSON — the update manifest — over HTTPS. This is the host's only
+small static JSON - the update manifest - over HTTPS. This is the host's only
 outbound connection (NetGuard exception, D-0023). Nothing is downloaded or
 installed; the manifest only tells the running build what the latest versions are.
 
@@ -32,15 +32,15 @@ A single JSON file matching the schema below. A ready sample is in this folder:
 }
 ```
 
-- `schema` — always `1` for now. (Adding fields later is safe; older builds ignore
+- `schema` - always `1` for now. (Adding fields later is safe; older builds ignore
   unknown fields.)
-- `cyberdesk.latest` — the newest CyberDesk version you have released (semver, e.g.
+- `cyberdesk.latest` - the newest CyberDesk version you have released (semver, e.g.
   `0.9.0`). `notes_url` is optional (a page the user can open from the panel).
-- `components.cef.recommended` — the CEF version you recommend (the
+- `components.cef.recommended` - the CEF version you recommend (the
   `major.minor.patch+chromium-…` string). `reason` is a short word; `security`
   shows the item with the amber security accent. `notes_url` is optional.
-- `components.tor.recommended` — the embedded Tor engine (arti-client) version you
-  recommend (plain semver, e.g. `0.45.0` — no `+chromium` tail). `reason` and
+- `components.tor.recommended` - the embedded Tor engine (arti-client) version you
+  recommend (plain semver, e.g. `0.45.0` - no `+chromium` tail). `reason` and
   `notes_url` behave exactly as for `cef`. An outdated Tor client is
   security-critical, so keep this current.
 
@@ -55,10 +55,10 @@ running. Set the versions to what you have actually released.
    elsewhere).
 2. On the nginx webspace, that is simply the file at
    `…/updates/cyberdesk.json`. Ensure:
-   - it is served over **HTTPS** with a valid certificate (CyberDesk uses rustls;
+ - it is served over **HTTPS** with a valid certificate (CyberDesk uses rustls;
      no self-signed certs);
-   - the `Content-Type` is `application/json` (nginx does this by extension);
-   - it is publicly readable (no auth) — the manifest is public product info.
+ - the `Content-Type` is `application/json` (nginx does this by extension);
+ - it is publicly readable (no auth) - the manifest is public product info.
 3. That is the whole deploy: **one file upload.** To announce a new version, edit
    the numbers and re-upload. No CyberDesk change is needed.
 

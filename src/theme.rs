@@ -3,7 +3,7 @@
 //! The "cyber" template is embedded data (`theme.toml`). It is the single source
 //! for every style value in the shell: colors, radii, periods, amplitudes. Those
 //! values are resolved here into wgpu-uniform-ready numbers and into the settings
-//! page's CSS custom properties — one truth, two render worlds. Nothing
+//! page's CSS custom properties - one truth, two render worlds. Nothing
 //! style-related is hardcoded in shaders or Rust UI code.
 
 // The full token set is defined here in Stage A and consumed incrementally by
@@ -36,7 +36,7 @@ pub struct Colors {
     pub accent: String,
     pub warn: String,
     /// The Ampel lamp colors (CD-30): the graded protection control's
-    /// green/yellow/red — semantic traffic-light colors, tokenized like
+    /// green/yellow/red - semantic traffic-light colors, tokenized like
     /// everything else so a template can restyle them.
     pub ampel_green: String,
     pub ampel_yellow: String,
@@ -75,7 +75,7 @@ pub struct DeepField {
     pub sweep_amplitude: f32,
 }
 
-/// Pulse Grid — background v2 (D-0012). Sizes are logical px (scaled by the DPI
+/// Pulse Grid - background v2 (D-0012). Sizes are logical px (scaled by the DPI
 /// factor at bake time); the seed drives deterministic board generation.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Background {
@@ -127,7 +127,7 @@ pub struct Background {
     pub pulse: PulseTokens,
 }
 
-/// The Pulse Grid "life" layer — travelling pulses and node flares.
+/// The Pulse Grid "life" layer - travelling pulses and node flares.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PulseTokens {
     pub count: i32,
@@ -168,7 +168,7 @@ pub struct Command {
     pub max_results: i32,
     /// Favorites chip row height (CD-08 top bar). Shared with the page CSS.
     pub chip_row: f32,
-    /// Floating command sets (CD-12, D-0021) — shared host<->page geometry.
+    /// Floating command sets (CD-12, D-0021) - shared host<->page geometry.
     pub band_height: f32,
     pub launcher_top: f32,
     pub ensemble_top: f32,
@@ -192,7 +192,7 @@ pub struct Slots {
     pub zone_top: f32,
     pub zone_bottom: f32,
     /// The per-column compression floor (CD-30): when the frame would overflow
-    /// (e.g. the 2×-wide terminal), columns squeeze down to this — never close.
+    /// (e.g. the 2×-wide terminal), columns squeeze down to this - never close.
     pub slot_min_width: f32,
     pub max_count: u32,
     pub active_line: f32,
@@ -203,14 +203,14 @@ pub struct Slots {
     /// `<= slots::MAX_SLOTS` (the compile-time per-view array ceiling).
     pub slot_max: u32,
     /// CD-11 (D-0020), revised D-0022: the widths of the **left** (Spine) zone,
-    /// the flexible one — `side_zone_width` in the Full state, `side_rail_width`
+    /// the flexible one - `side_zone_width` in the Full state, `side_rail_width`
     /// when the slots demand the width and it retreats to a rail.
     pub side_zone_width: f32,
     pub side_rail_width: f32,
-    /// The **right** Multifunctional (MF) zone width steps (D-0022 permanent —
+    /// The **right** Multifunctional (MF) zone width steps (D-0022 permanent -
     /// never rails; CD-31/D-0048 discrete sizing): identical for every tab,
     /// stable, and reduced only when the window is too small to hold the step
-    /// alongside the nominal columns — large → medium → small, never fluid.
+    /// alongside the nominal columns - large → medium → small, never fluid.
     pub mf_zone_large: f32,
     pub mf_zone_medium: f32,
     pub mf_zone_small: f32,
@@ -224,7 +224,7 @@ pub struct Slots {
 pub struct Updates {
     pub feed_url: String,
     pub check_interval_hours: u32,
-    /// Info glyph radius (logical px, DPI-scaled) — a small status light near the gear.
+    /// Info glyph radius (logical px, DPI-scaled) - a small status light near the gear.
     pub glyph_radius: f32,
     /// Seconds per pulse cycle when updates are available (modest amplitude).
     pub pulse_period: f32,

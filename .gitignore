@@ -1,7 +1,7 @@
 # Rust build output
 /target
 
-# CEF binaries — fetched via scripts/fetch-cef.ps1, NEVER committed (hundreds of MB)
+# CEF binaries - fetched via scripts/fetch-cef.ps1, NEVER committed (hundreds of MB)
 /vendor/cef/
 
 # Editor / OS noise

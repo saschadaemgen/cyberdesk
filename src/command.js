@@ -5,7 +5,7 @@
 // ensemble (CSS fade+drop, ~220 ms) and binds its capsule / orbs / star / star to
 // THAT column. All logic (suggestions, star, scheme, nav) is reused from CD-07/08
 // per capsule; only the presentation and per-slot binding changed. Talks to the
-// host over the CEF message router only (window.cefQuery) — no network.
+// host over the CEF message router only (window.cefQuery) - no network.
 // Wire format: see docs/cyberdesk-wire-format.md.
 
 (function () {
@@ -318,9 +318,9 @@
 
   var FP_OPTS = [
     { level: "inherit", label: "Use global default" },
-    { level: "green", label: "Green — everyday" },
-    { level: "yellow", label: "Yellow — elevated" },
-    { level: "red", label: "Red — maximum, locks size" },
+    { level: "green", label: "Green - everyday" },
+    { level: "yellow", label: "Yellow - elevated" },
+    { level: "red", label: "Red - maximum, locks size" },
     { level: "custom", label: "Custom…" },
     { level: "off", label: "Off" }
   ];
@@ -338,7 +338,7 @@
     query({ cmd: "set_slot_hardening", slot: id, level: level, confirm: !!confirm })
       .catch(function () {
         // Host rejected an unconfirmed weakening the client didn't flag (e.g. an
-        // Inherit that resolves weaker) — show the gate, then retry confirmed.
+        // Inherit that resolves weaker) - show the gate, then retry confirmed.
         if (!confirm && onNeedGate) onNeedGate();
       });
   }
@@ -347,7 +347,7 @@
     // "Custom…" opens the per-vector detail (fetched from the host), not a preset.
     if (level === "custom") { openFpCustom(e); return; }
     // CD-30: the Ampel ladder Off < Green < Yellow < Red is a strict protection
-    // order — any step DOWN it is a weakening and opens the two-step gate. The
+    // order - any step DOWN it is a weakening and opens the two-step gate. The
     // frame's `fp` code IS the ladder rank for 0..3 (4 = custom, rank unknown).
     // Anything the client can't rank (from Custom, or an Inherit that resolves
     // weaker) is caught by the authoritative host classifier and gated on the
@@ -411,7 +411,7 @@
           applySlotCustom(e, vectors, turningOff, null);
         }
         if (turningOff) {
-          // Two-step gate, then commit confirmed — mirrors the preset weakening gate.
+          // Two-step gate, then commit confirmed - mirrors the preset weakening gate.
           fpGate("vector", function () { commit(); });
         } else {
           commit();
@@ -434,7 +434,7 @@
     var warn = document.createElement("div");
     warn.className = "fp-pop-warn";
     warn.innerHTML = level === "off"
-      ? "Turning protection <b>off</b> gives every site a stable fingerprint — trackers can link your visits and recognise you when you return. Weaken this window anyway?"
+      ? "Turning protection <b>off</b> gives every site a stable fingerprint - trackers can link your visits and recognise you when you return. Weaken this window anyway?"
       : "This lowers this window's protection, making it easier to fingerprint. Weaken anyway?";
     fpPop.appendChild(warn);
     var step = 1;
@@ -475,7 +475,7 @@
     fpPop.appendChild(sub);
 
     // Manual "new identity now" (CD-29 Task D): re-roll THIS window's fingerprint
-    // (and its Tor circuit if enabled) and reload it — the "burn it now" control.
+    // (and its Tor circuit if enabled) and reload it - the "burn it now" control.
     var idBtn = document.createElement("button");
     idBtn.className = "fp-pop-opt fp-newid";
     idBtn.type = "button";
@@ -563,7 +563,7 @@
       // Tor glyph: lit when this column is on Tor; a pulse while the engine is
       // still bootstrapping (its stream can't route until READY); a distinct lit
       // "ready" state once connected; a warn state if the engine failed to bootstrap
-      // (fail-closed — it can't fetch, so a plain lit shield would falsely imply
+      // (fail-closed - it can't fetch, so a plain lit shield would falsely imply
       // working protection). CD-15 HOTFIX / CD-18.
       e.tor.classList.toggle("on", !!sl.tor);
       e.tor.classList.toggle("connecting", !!sl.tor && torStatus === 1);

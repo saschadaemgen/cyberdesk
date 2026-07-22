@@ -12,7 +12,7 @@ Third-party components
 CyberDesk builds on third-party open-source software. These components are
 fetched at build time and are NOT distributed within this repository:
 
-  * Chromium Embedded Framework (CEF) — BSD 3-Clause License
+  * Chromium Embedded Framework (CEF) - BSD 3-Clause License
     Fetched by scripts/fetch-cef.ps1 into vendor/cef/ (git-ignored).
     Copyright (c) The Chromium Embedded Framework Authors.
     Includes components of the Chromium project (Google LLC) and others.

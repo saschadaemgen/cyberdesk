@@ -1,5 +1,5 @@
 // Settings page logic. Talks to the Rust host exclusively over the CEF message
-// router (window.cefQuery) — no network, no fetch, no external resources. The
+// router (window.cefQuery) - no network, no fetch, no external resources. The
 // wire format is documented in docs/cyberdesk-wire-format.md.
 
 (function () {
@@ -45,14 +45,14 @@
     var next = !el.classList.contains("on");
     // Turning OFF the on-launch residue purge weakens the anti-forensic guarantee
     // (residue would accumulate on disk), so it routes through the honest two-
-    // confirmation gate (D-0040) — the host re-validates it too. Turning it back on
+    // confirmation gate (D-0040) - the host re-validates it too. Turning it back on
     // is immediate. Every other toggle is a plain flip.
     if (key === "purge_residue" && !next) {
       openGate({
         title: "Stop purging browsing residue?",
         body: "With this off, any browsing cache or content that reaches the disk " +
           "<strong>stays there</strong> and builds up across launches, so what you browsed " +
-          "could be recovered from the disk later. Browsing still runs in memory — but the " +
+          "could be recovered from the disk later. Browsing still runs in memory - but the " +
           "disk safety net is gone. Keep it on unless you have a specific reason."
       }, function () {
         paint(key, false);
@@ -106,7 +106,7 @@
   });
 
   // Search-engine select: a custom in-page dropdown (CEF OSR does not paint
-  // native <select> popups — see settings.css / D-0015). Applied live, persisted.
+  // native <select> popups - see settings.css / D-0015). Applied live, persisted.
   var engineSelect = document.getElementById("engine-select");
   var engineBtn = document.getElementById("engine-btn");
   var engineMenu = document.getElementById("engine-menu");
@@ -213,8 +213,8 @@
 
   // --- Fingerprinting-hardening controls (CD-25; Ampel-graded CD-30) -------
   // Global Ampel level (Off/Green/Yellow/Red/Custom) + a per-vector detail view,
-  // with a two-confirmation gate on any WEAKENING (any step DOWN the ladder —
-  // Red→Yellow→Green→Off — or a dropped vector; stepping UP is immediate). The
+  // with a two-confirmation gate on any WEAKENING (any step DOWN the ladder -
+  // Red→Yellow→Green→Off - or a dropped vector; stepping UP is immediate). The
   // weaken classification mirrors harden.rs::is_weakening; the host re-validates
   // it, so the gate here is UX, not the trust boundary.
   var fpSelect = document.getElementById("fp-select");
@@ -286,7 +286,7 @@
     var reduced = !eff.on || isWeakening(GREEN_EFF, eff);
     fpLevelPill.textContent = lvl;
     // s2 = accent (red, strongest), s1 = brand (green/yellow/custom), s3 = warn
-    // (off / below the Green floor) — the pill is a status display first.
+    // (off / below the Green floor) - the pill is a status display first.
     fpLevelPill.className = "tor-status s" + (lvl === "off" || reduced ? 3 : lvl === "red" ? 2 : 1);
     fpDetail.hidden = fpState.preset !== "custom";
     VECTORS.forEach(function (k) {
@@ -333,13 +333,13 @@
   });
 
   // Honest, plain-language cost of each step DOWN the Ampel ladder (CD-30). The
-  // copy states exactly what disengages — never more, never less (rule 0.1).
+  // copy states exactly what disengages - never more, never less (rule 0.1).
   function presetGateCopy(level, from) {
     if (level === "off") {
       return {
         title: "Turn off tracking protection?",
         body: "With hardening <strong>off</strong>, every site gets a stable, distinctive " +
-          "fingerprint — your canvas, GPU, audio and text measurements read the same across " +
+          "fingerprint - your canvas, GPU, audio and text measurements read the same across " +
           "sites and every session, so trackers can <strong>link your visits and recognise " +
           "you when you return</strong>, even without cookies. This makes you easier to track, not harder."
       };
@@ -348,7 +348,7 @@
       return {
         title: "Customise protection?",
         body: "Custom mode lets you disable individual protections. A partial, unusual set can make " +
-          "you <strong>more</strong> identifiable, not less — an Ampel level (Green, Yellow or Red) " +
+          "you <strong>more</strong> identifiable, not less - an Ampel level (Green, Yellow or Red) " +
           "hides you better. Only turn things off if you have a specific reason."
       };
     }
@@ -465,7 +465,7 @@
     .catch(function (err) { setStatus(String(err), true); });
 
   // On-disk privacy readout (CD-34): the live browsing footprint + what the last
-  // launch purge did. Truthful by construction — both numbers arrive measured from the
+  // launch purge did. Truthful by construction - both numbers arrive measured from the
   // host, never asserted. Refreshed on load, after a toggle, and on a slow poll.
   var residuePill = document.getElementById("residue-pill");
   var residueLast = document.getElementById("residue-last");
@@ -477,18 +477,18 @@
       var lp = j.last_purge || {};
       var last;
       // lp.error is a self-describing sentence from the host (refused / could-not-resolve /
-      // could-not-fully-clear), so it renders verbatim — no framing that would mislabel a
+      // could-not-fully-clear), so it renders verbatim - no framing that would mislabel a
       // never-ran case as "incomplete" or double the phrasing.
-      if (!lp.ran) last = "purge is off — residue accumulates on disk";
+      if (!lp.ran) last = "purge is off - residue accumulates on disk";
       else if (lp.error) last = lp.error;
       else if (lp.found_bytes > 0) last = "cleared " + lp.found_human + " of browsing residue";
-      else last = "no residue found — clean";
+      else last = "no residue found - clean";
       if (residueLast) residueLast.textContent = last;
       // The live profile is CEF's working scaffolding; it holds no browsing content
       // (that stays in RAM) and is wiped at the next launch. Say so, plainly.
       if (residueNow) {
         residueNow.textContent = j.on_disk_human +
-          " — working profile, wiped next launch (holds no browsing content)";
+          " - working profile, wiped next launch (holds no browsing content)";
       }
       if (residuePill) {
         residuePill.textContent = j.enabled ? "on" : "off";
@@ -500,7 +500,7 @@
   setInterval(refreshResidue, 3000);
 
   // Tor engine status readout (CD-15): polled while the settings page is open.
-  // On failure the engine reports a concrete reason (timeout, bad dir, …) —
+  // On failure the engine reports a concrete reason (timeout, bad dir, …) -
   // shown so "failed" is never a dead end (CD-15 HOTFIX Stage C).
   var torStatusEl = document.getElementById("tor-status");
   var torReasonEl = document.getElementById("tor-reason");
@@ -523,7 +523,7 @@
           torReasonEl.hidden = true;
         }
       }
-      // The embedded arti (Tor engine) version — honest: this is the arti-client
+      // The embedded arti (Tor engine) version - honest: this is the arti-client
       // crate we link, not the standalone Tor CLI (CD-18).
       if (torVersionEl && version) torVersionEl.textContent = "arti " + version;
     }).catch(function () {});
@@ -590,7 +590,7 @@
     var last = {};
 
     // The live meter (CD-42 Task B), rendered purely from the host-computed
-    // snapshot — the password itself never enters this page. The weak block
+    // snapshot - the password itself never enters this page. The weak block
     // follows ONLY the host's staged weak_pending while the meter shows, so
     // the two can never disagree (CD-44 A2).
     function renderMeter(s) {
@@ -650,7 +650,7 @@
         errEl.hidden = true;
       }
 
-      // The config surface (1c): methods, policy, KDF cost — unlocked only.
+      // The config surface (1c): methods, policy, KDF cost - unlocked only.
       var config = document.getElementById("vault-config");
       config.hidden = s.vault !== "unlocked" || capturing;
       // Poll only while the passkey row is blocked on Hello setup and the
@@ -672,16 +672,16 @@
         }
         var hasPasskey = !!passkey;
         document.getElementById("vault-methods").textContent =
-          parts.length ? parts.join(" · ") : "—";
+          parts.length ? parts.join(" · ") : "-";
         var p1 = document.getElementById("vault-pol-1");
         var p2 = document.getElementById("vault-pol-2");
         p1.classList.toggle("active", s.required === 1);
         p2.classList.toggle("active", s.required === 2);
-        // 2FA needs the passkey enrolled (the host refuses regardless — this
+        // 2FA needs the passkey enrolled (the host refuses regardless - this
         // just keeps the button honest).
         p2.disabled = !hasPasskey;
         p2.title = hasPasskey ? "" : "Requires an enrolled passkey";
-        // The passkey row (CD-43): add when none, remove when enrolled —
+        // The passkey row (CD-43): add when none, remove when enrolled -
         // honest platform state when WebAuthn is unavailable.
         var wa = s.webauthn || {};
         var addBtn = document.getElementById("vault-pk-add");
@@ -692,10 +692,10 @@
         if (hasPasskey) {
           rmBtn.dataset.id = passkey.id;
           rmBtn.disabled = s.required === 2;
-          rmBtn.title = s.required === 2 ? "Required by two-factor unlock — switch to password-only first" : "";
+          rmBtn.title = s.required === 2 ? "Required by two-factor unlock - switch to password-only first" : "";
           pkHint.textContent = passkey.label +
             " · enrolled " + new Date(passkey.created_ms).toLocaleDateString() +
-            " — the second factor when two-factor unlock is on.";
+            " - the second factor when two-factor unlock is on.";
         } else if (!wa.available) {
           addBtn.disabled = true;
           addBtn.title = "Windows WebAuthn is unavailable on this system";
@@ -711,7 +711,7 @@
         } else {
           addBtn.disabled = false;
           addBtn.title = "";
-          pkHint.textContent = "The optional second factor — with two-factor unlock on, password and passkey are both required.";
+          pkHint.textContent = "The optional second factor - with two-factor unlock on, password and passkey are both required.";
         }
         if (s.kdf) {
           document.getElementById("vault-kdf-hint").textContent =
@@ -759,7 +759,7 @@
       });
     });
 
-    // Locking ends the session (windows close by design — websites are not
+    // Locking ends the session (windows close by design - websites are not
     // saved). Two-step button instead of a modal: the second click confirms.
     var lockArmed = null;
     lockBtn.addEventListener("click", function () {
@@ -786,7 +786,7 @@
 
     // Policy: BOTH directions are two-step armed + host-gated. Turning 2FA
     // on is an informed-consent step (a lost passkey then means an
-    // unrecoverable vault — no recovery key, by design); dropping back to
+    // unrecoverable vault - no recovery key, by design); dropping back to
     // password-only is a weakening.
     var polArmed = null;
     var pol2Armed = null;
@@ -801,7 +801,7 @@
         return;
       }
       errEl.textContent = "With two-factor unlock on, the vault opens only with password AND passkey. " +
-        "If the passkey is ever lost, the vault cannot be opened — there is no recovery key, by design. " +
+        "If the passkey is ever lost, the vault cannot be opened - there is no recovery key, by design. " +
         "Click again to confirm.";
       errEl.hidden = false;
       pol2.textContent = "Confirm two-factor";
@@ -829,7 +829,7 @@
     });
 
     // KDF re-tune: numbers staged here, authorized by a host-captured
-    // passphrase entry. Lowering below the default needs the confirm flag —
+    // passphrase entry. Lowering below the default needs the confirm flag -
     // armed the same two-step way.
     var retuneForm = document.getElementById("vault-retune-form");
     document.getElementById("vault-retune").addEventListener("click", function () {

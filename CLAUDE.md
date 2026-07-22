@@ -1,13 +1,13 @@
-# CLAUDE.md — working rules for this repo
+# CLAUDE.md - working rules for this repo
 
 This repo (Cyb3rD3sk) is the **AGPL-3.0 open-core** component of the CARVILON
 platform (Copyright (c) 2026 Sascha Daemgen IT and More Systems; see `LICENSE`,
-plus a separate commercial Professional edition — D-0056). It is developed
+plus a separate commercial Professional edition - D-0056). It is developed
 jointly by Sascha and Claude Code. The following rules are binding.
 
 ## Language
 
-* **English everywhere in the repo** — docs, README, this file, code,
+* **English everywhere in the repo** - docs, README, this file, code,
   comments, and commit messages. (Permanent rule from CD-02 onward.)
 * German is only for the chat with Sascha, never in the repo.
 
@@ -15,38 +15,68 @@ jointly by Sascha and Claude Code. The following rules are binding.
 
 * **Work directly on `main`.** No feature branches, no PRs in this phase.
 * **Conventional Commits.** Prefixes include:
-  * `feat(shell): …`, `feat(cef): …` — functionality
-  * `build: …` — build system / dependencies
-  * `docs: …` — documentation
+  * `feat(shell): …`, `feat(cef): …` - functionality
+  * `build: …` - build system / dependencies
+  * `docs: …` - documentation
   * `fix: …`, `refactor: …`, `chore: …`
 * Each ticket stage ends with **one** meaningful commit, followed by a push.
 * **Push per stage, autonomously, never ask** (permanent rule from CD-06 /
   D-0013). The pre-push secret/IP grep below stays mandatory before every push;
   only the asking stops. If a push is denied by the tool permission system, note
-  it in the final report and continue — do not stall a stage on it.
+  it in the final report and continue - do not stall a stage on it.
 * `Cargo.lock` is **committed** (this is an application, not a library →
   reproducible builds, exact version pins).
 
 ## Pre-push secret/IP grep
 
 Run this grep before every `git push`; it must come back clean (version numbers
-that happen to match the IP pattern — e.g. Chromium versions — are known false
+that happen to match the IP pattern - e.g. Chromium versions - are known false
 positives, so eyeball every hit):
 
 ```sh
 git grep -nE "192\.168\.|10\.0\.|secret|token|passwor" -- . ':!Cargo.lock'
 ```
 
-Principle: **no real IPs, hostnames, or secrets in the repo** — placeholders
+Principle: **no real IPs, hostnames, or secrets in the repo** - placeholders
 only (documentation IPs such as `203.0.113.x`). CARVILON-internal addresses
 never enter the history.
+
+## Pre-push em dash guard (CD-44, D-0064) - mandatory
+
+Run this before every `git push`, with the same standing as the secret/IP
+grep. It must exit 0:
+
+```sh
+node scripts/no-emdash.mjs
+```
+
+It scans the **staged tree** and fails with `file:line:column` on every hit.
+`cargo test` carries a second tripwire (`no_em_dashes_in_ui_and_docs`) over
+the product copy and the living docs, so a reintroduction also fails a normal
+test run.
+
+## No em dashes, ever (CD-44, D-0064) - binding
+
+The **em dash (U+2014) and the en dash (U+2013) are forbidden** in every
+user-facing surface (lock/setup screens, settings, all `cyberdesk://` pages,
+HUD, dialogs, error and warning strings), in the README, and in every repo
+document and source comment. Their HTML entity spellings are forbidden with
+them.
+
+Use a regular hyphen, a comma, a colon, or rewrite the sentence.
+
+*Why:* the em dash is the single most recognisable tell of machine-written
+copy. On a product whose entire proposition is trust, copy that instantly
+reads as generated is a credibility problem, and a screenshot of it is a
+liability. This rule sits alongside the D-0044 copy rules and is enforced
+automatically (see the guard above).
 
 ## Product copy (D-0044)
 
 Product UI states what CyberDesk **does**, confidently and accurately. It
 **never** names or points to a competitor (no "use Tor Browser" or equivalent,
 ever), and it **never** self-deprecates. Honesty means not lying about
-capabilities — not advertising alternatives. IP-anonymity copy points to
+capabilities - not advertising alternatives. IP-anonymity copy points to
 CyberDesk's own per-window Tor (and the VPN route once shipped). Bounded
 technical limits, where they genuinely exist, live in internal docs
 (`docs/cyberdesk-security.md`), never in UI, marketing, or demos. The README
@@ -87,7 +117,7 @@ are a map; the crate is the truth.
 ## Briefing fidelity & decisions
 
 * The current ticket briefing is the reference. Its requirements are followed.
-* **Reasoned deviations are welcome** when they serve the goal better — but they
+* **Reasoned deviations are welcome** when they serve the goal better - but they
   are recorded in `docs/cyberdesk-decisions.md` as a numbered decision
   (`D-XXXX`, newest on top).
 * On a real blocker, don't guess for hours: commit the clean intermediate state,
@@ -95,13 +125,13 @@ are a map; the crate is the truth.
 
 ## Documentation governance (CD-36, D-0053)
 
-* **Claude Code (CC) owns and maintains the living technical docs** — it has the
+* **Claude Code (CC) owns and maintains the living technical docs** - it has the
   implementation ground truth: `cyberdesk-architecture.md`,
   `cyberdesk-security.md`, `cyberdesk-wire-format.md`,
   `cyberdesk-feature-backlog.md`, `cyberdesk-decisions.md`,
   `cyberdesk-degoogle-audit.md`.
 * **Per-ticket doc Definition of Done:** every code change updates its affected
-  living docs **in the same commit-set** as the change — never deferred. Each CC
+  living docs **in the same commit-set** as the change - never deferred. Each CC
   report lists which docs it touched. Briefings additionally name the docs to
   update, but CC updates any doc the change actually touches, not just the
   named ones.
@@ -114,5 +144,5 @@ are a map; the crate is the truth.
 
 The current target is **Windows 11 (x64, MSVC)** only. No Linux/macOS support in
 this phase; platform-specific code is `#[cfg(...)]`-gated where it will matter
-later. (CD-02's OSR removes the last Windows-specific embed path — the child
-HWND — after which compositing is platform-neutral.)
+later. (CD-02's OSR removes the last Windows-specific embed path - the child
+HWND - after which compositing is platform-neutral.)

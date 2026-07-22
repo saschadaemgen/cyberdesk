@@ -7,7 +7,7 @@ Soft season mapping - chat fill level and reality decide the actual cuts. Comple
 
 ## Principles & season orientation
 
-(Folded in from the retired `cyberdesk-roadmap.txt`, CD-36 / D-0053 — one
+(Folded in from the retired `cyberdesk-roadmap.txt`, CD-36 / D-0053 - one
 source of truth for the season→feature mapping.)
 
 Principles:
@@ -18,18 +18,18 @@ Principles:
   the path, not all-at-once scope.
 - Season end: season protocol (including failures and dead ends) + chat
   handover + update of the living docs. Stored in `seasons/` AND in the chat
-  project. (Doc updates themselves are continuous per D-0053 — every change in
+  project. (Doc updates themselves are continuous per D-0053 - every change in
   the same commit-set; the season-end pass is the review, not the catch-up.)
 
 Season orientation (terse; numbers are orientation, not a contract):
 
 | Season | Theme | Anchor |
 | --- | --- | --- |
-| S1 | Foundation + risk proof | CD-01 shell+CEF, CD-02 OSR texture, CD-03 feathering — **shipped** |
-| S2 | Design law | color world, motion language, shaders, drag-and-drop language (CD reference binding) — running; privacy/Tor/hardening arc CD-14..CD-35 shipped within it |
+| S1 | Foundation + risk proof | CD-01 shell+CEF, CD-02 OSR texture, CD-03 feathering - **shipped** |
+| S2 | Design law | color world, motion language, shaders, drag-and-drop language (CD reference binding) - running; privacy/Tor/hardening arc CD-14..CD-35 shipped within it |
 | S3 | Zone engine | grid, S/M/L reflow, tab rail, Edit Mode |
 | S4 | Modes + Event Engine | Standard/Admin/DND, priority x mode, simulated events |
-| S5 | Browser becomes CARVILON | favorites/history (SQLite — shipped CD-07), downloads, context menu, request filter |
+| S5 | Browser becomes CARVILON | favorites/history (SQLite - shipped CD-07), downloads, context menu, request filter |
 | S6 | Crypto + authorization | Argon2id, Zeroize, encrypted state, start authorization |
 | S7 | CARVILON integration | cameras, doors, status, time clock (NetGuard rules Edge/VPS) |
 | S8+ | Tools | terminal, editor, explorer, FTP, logic analyzer, NetGuard monitor |
@@ -38,7 +38,7 @@ Season orientation (terse; numbers are orientation, not a contract):
 Long-term goal: CARVILON OS (Debian 13 Trixie) - CyberDesk boots as the shell.
 Nothing on the app path is throwaway work.
 
-## Foundation (Season 1 — shipped)
+## Foundation (Season 1 - shipped)
 
 - CD-01 shell skeleton (winit/wgpu, fullscreen, rotating ring, ESC, --windowed) + CEF windowed with google.com [with CC]
 - CD-02 OSR PoC: web page as GPU texture inside our own frame
@@ -64,7 +64,7 @@ Nothing on the app path is throwaway work.
 
 ## Browser becomes CARVILON (Season 5)
 
-- Favorites and history in SQLite, own buttons away from the content — **shipped
+- Favorites and history in SQLite, own buttons away from the content - **shipped
   early** (CD-07 command palette + favorites; history RAM-only since CD-33)
 - Downloads land in the Files zone; context menu, JS dialogs, and popups in our own design
 - Request filter as adblock foundation (filter lists on the network level)
@@ -72,46 +72,46 @@ Nothing on the app path is throwaway work.
 
 ## Crypto + authorization (Season 6)
 
-- **Vault — foundation SHIPPED (CD-40, D-0058/D-0059/D-0060/D-0061);
+- **Vault - foundation SHIPPED (CD-40, D-0058/D-0059/D-0060/D-0061);
   authoritative unlock model SHIPPED (CD-42, D-0062); Windows Hello passkey
-  SHIPPED (CD-43, D-0063)**: crypto core (`src/vault.rs`) — envelope key management
+  SHIPPED (CD-43, D-0063)**: crypto core (`src/vault.rs`) - envelope key management
   (one random VMK; Argon2id master-password envelope; passkey-PRF as the only
   optional additional factor), escrow-based re-wrap from an unlocked session,
   sealed app state under the VMK, `VirtualLock`ed + zeroized key memory
   (closes the CD-33-deferred Tasks C/D for vault keys). The D-0062 model:
-  **mandatory master password at first launch** (the gate boots into setup —
+  **mandatory master password at first launch** (the gate boots into setup -
   no vault, no workspace), unlock policy exactly password-only or password +
-  passkey (2FA, both required), **no recovery key, no backdoor** — a
+  passkey (2FA, both required), **no recovery key, no backdoor** - a
   forgotten master password means an unrecoverable vault, by design, stated
   plainly at setup. Setup/change show a HOST-computed live strength meter
   (`zxcvbn`, MIT, license-checked; only score/criteria/canned feedback reach
-  the renderer — never the characters) with an overridable weak warning
+  the renderer - never the characters) with an overridable weak warning
   (informed override via explicit IPC, host-revalidated; never a
-  hard-block). Start-authorization gate — closed-gate boot shows only
+  hard-block). Start-authorization gate - closed-gate boot shows only
   `cyberdesk://lock/` (unlock or first-launch setup), HOST-captured secret
   entry (no renderer ever holds a keystroke), "Lock now" via cold relaunch,
   identity seed sealed as the first tenant, `debug_assertions`-only dev
-  bypass. Config + tile surface — enrolled methods, password-only /
+  bypass. Config + tile surface - enrolled methods, password-only /
   password+passkey policy (host-gated weakening), Argon2id cost re-tune
   (verified before re-derive), change-master-password, HUD Vault field; no
-  recovery-key controls exist. Passkey via Windows Hello / WebAuthn PRF —
+  recovery-key controls exist. Passkey via Windows Hello / WebAuthn PRF -
   SHIPPED (CD-43, D-0063, superseding the D-0061 deferral and CD-41):
   `src/webauthn.rs` over the in-tree windows-sys 0.61.2 (the v7 header's
-  API-v4-era hmac-secret salt path; no v8 FFI needed — v8 is create-time
+  API-v4-era hmac-secret salt path; no v8 FFI needed - v8 is create-time
   eval only; the DLL applies the WebAuthn-spec salt hashing itself), enroll
   from the unlocked session (two Hello prompts: MakeCredential + first PRF
-  eval — the authoritative capability check), 2FA unlock = host-captured
+  eval - the authoritative capability check), 2FA unlock = host-captured
   password + Hello assertion opening the pair envelope, remove returns
   cleanly to password-only + best-effort OS-credential cleanup; headless
   self-checks + mock-platform runtime flow, the live Hello loop is the
   maintainer's. NEXT on the same seam: hardware security keys (CTAP2
-  hmac-secret, same v7 salt path with attachment widened — live-verify when
+  hmac-secret, same v7 salt path with attachment widened - live-verify when
   a key is available); Google/Android platform passkeys via the Credential
   Manager API in the CARVILON Android app (separate Kotlin codebase,
   sequenced when the vault reaches Android); Linux platform authenticators
   (libfido2) if/when CyberDesk ships on Linux. If a 2FA-loss safety net is
   ever wanted, an optional
-  recovery key is a small additive change — deliberately out of scope
+  recovery key is a small additive change - deliberately out of scope
   (D-0062). Auto-lock via the event engine is a later stage (event-engine
   dependency).
 - File vault (quantum-resistant): encrypted file store integrated into the Files zone, format-agnostic (any file type and size, including large media). Per-file keys (DEK) wrapped by an Argon2id-derived master key (KEK), content in chunked AEAD (XChaCha20-Poly1305 or AES-256-GCM), filenames and metadata encrypted, auto-lock via the Event Engine (DND, away, timeout, security alert), Zeroize plus memory locking. Chunked AEAD enables streaming decryption with random access: media zones (music, video, photos) and the office unit read and write directly through the vault API - plaintext never touches disk, seeking decrypts only the needed chunks. Thumbnail/cover cache is encrypted inside the vault as well (a plaintext preview cache would leak content). Post-quantum stance: the symmetric core is already PQ-safe; hybrid X25519+ML-KEM-768 (FIPS 203) for any future cross-device key exchange, ML-DSA (FIPS 204) for signatures (also covers signed updates). Drag-and-drop onto the vault zone IS the encrypt action (sealing animation). No hidden-volume deniability features (complexity not justified). Note: sensitive files should be created inside the vault from the start - secure deletion of plaintext originals on SSDs is unreliable by design (wear leveling).
@@ -148,18 +148,18 @@ Nothing on the app path is throwaway work.
 
 Outside technical critiques that constrain or direct the engineering. Each entry
 records the verified facts and the engineering consequence we draw from them.
-Register rule (D-0044): entries never conclude "use another product" — a critique's
+Register rule (D-0044): entries never conclude "use another product" - a critique's
 consequence is always something we build.
 
-### EC-01 — Fingerprinting strategy: uniformity vs. randomization (Sam Bent / Tor Browser 14.5 OS-spoofing removal)
+### EC-01 - Fingerprinting strategy: uniformity vs. randomization (Sam Bent / Tor Browser 14.5 OS-spoofing removal)
 
 **Verified facts (kept, they shape CD-16/CD-25/CD-29):**
 
 - There are two workable anti-fingerprinting strategies: **uniformity** (everyone
-  reports the same value — needs a crowd all reporting it) and **randomization**
-  (per-session noise — needs no crowd, breaks linkage).
+  reports the same value - needs a crowd all reporting it) and **randomization**
+  (per-session noise - needs no crowd, breaks linkage).
 - Tor Browser **14.5 removed OS spoofing**: it now reports the real OS family,
-  because maintaining a coherent OS lie across every surface proved untenable —
+  because maintaining a coherent OS lie across every surface proved untenable -
   even the uniformity flagship gave up that vector rather than ship an
   incoherent one.
 - The **anonymity-set effect is real but bounded**: a large identical crowd
@@ -168,13 +168,13 @@ consequence is always something we build.
   internal-only).
 - **Naive/incoherent spoofing backfires**: a spoofed value that contradicts
   another surface (the Brave UA/`navigator.platform` mismatch) makes the user
-  *more* unique, not less. Coherence is a hard constraint — no OS/UA/platform
+  *more* unique, not less. Coherence is a hard constraint - no OS/UA/platform
   spoofing, no cross-surface contradiction (binding since CD-16, D-0039).
 
 **Engineering consequence (the corrected conclusion):** solve **every**
-fingerprint vector — clamp stable signals to a common standard value, farble
+fingerprint vector - clamp stable signals to a common standard value, farble
 measured signals with fresh coherent per-session noise (the CD-29 sweep
-executes this vector-by-vector) — and treat **each solved vector as a product
+executes this vector-by-vector) - and treat **each solved vector as a product
 and marketing win**. The earlier conclusion drawn from this critique ("for
 serious anti-fingerprinting anonymity, use Tor Browser") was wrong and is
 deleted (D-0044): a bounded limit against one adversary model is not a reason
@@ -182,36 +182,36 @@ to point users at anything else.
 
 **Stance:** CyberDesk targets **parity-or-better with Tor Browser on every axis
 buildable in software**. The only non-buildable axes are crowd size (mass) and
-audit reputation (time) — internal scope notes, never product limitations to
+audit reputation (time) - internal scope notes, never product limitations to
 advertise.
 
-## Marketing lines — the solved fingerprint surface (CD-29, D-0045/D-0046)
+## Marketing lines - the solved fingerprint surface (CD-29, D-0045/D-0046)
 
 Confident and accurate, one per solved vector (D-0044: never name a competitor,
 never self-deprecate). For the feature list / site.
 
 - **Canvas fingerprint re-randomized every session.** Your canvas reads clean and
-  unlinkable — the same within a session, different the next.
+  unlinkable - the same within a session, different the next.
 - **GPU render fingerprint neutralized.** Sites see a generic, ordinary graphics
   identity, not the make and model of your card.
-- **WebGL readback carries fresh per-session noise** — the pixels a tracker hashes
+- **WebGL readback carries fresh per-session noise** - the pixels a tracker hashes
   never match from one session to the next.
 - **Audio fingerprint scrambled, inaudibly.** Your sound stack reports a fresh,
   unlinkable signature every session; playback is untouched.
 - **Your installed fonts are invisible to websites.** Every window returns the same
   standard font set, whatever you have installed.
-- **Layout and text measurements jittered per session** — the pixel-perfect metrics
+- **Layout and text measurements jittered per session** - the pixel-perfect metrics
   used to profile you don't line up across sessions.
-- **High-resolution timers blunted against hardware fingerprinting** — CPU-speed and
+- **High-resolution timers blunted against hardware fingerprinting** - CPU-speed and
   micro-benchmark tricks can't measure your machine finely.
-- **Codec and media support normalized** to a common profile — your exact device
+- **Codec and media support normalized** to a common profile - your exact device
   media fingerprint stays private; your installed voices are hidden.
 - **Math fingerprint erased.** The tiny per-CPU rounding differences trackers exploit
   are rounded away to one common answer.
-- **Your screen reads as an ordinary display** — a common resolution, consistent with
+- **Your screen reads as an ordinary display** - a common resolution, consistent with
   your real window, never a contradiction that flags you.
-- **CPU cores, memory, touch, battery and network reported in common buckets** — the
+- **CPU cores, memory, touch, battery and network reported in common buckets** - the
   exact spec of your machine stays yours.
 - **New identity, on demand.** One click re-rolls a window's entire fingerprint and
-  reloads it fresh — plus a fresh identity every launch, and an automatic rotation you
+  reloads it fresh - plus a fresh identity every launch, and an automatic rotation you
   can watch count down on the grid.

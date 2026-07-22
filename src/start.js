@@ -1,5 +1,5 @@
 // CyberDesk start page logic (CD-14). Talks to the Rust host ONLY over the CEF
-// message router (window.cefQuery) — no network, no fetch, no external resources.
+// message router (window.cefQuery) - no network, no fetch, no external resources.
 // The search box reuses `navigate` (host-side URL-vs-search + search_engine); the
 // favorite tiles reuse `query_suggestions ""` and `navigate`. Both act on this
 // slot (interacting with it makes it the active slot host-side). Wire format:
@@ -40,7 +40,7 @@
     navigate(input.value);
   });
 
-  // Favorite tiles — the top favorites, click to open in this slot.
+  // Favorite tiles - the top favorites, click to open in this slot.
   function initial(title, url) {
     var s = (title && title.trim()) || url.replace(/^https?:\/\/(www\.)?/, "");
     var c = (s || "?").trim().charAt(0);

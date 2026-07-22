@@ -1,5 +1,5 @@
 /* Floating HUD strip (CD-30 Task B). Like the command band the page is fully
-   TRANSPARENT — only the clock digits and the info capsules paint, floating
+   TRANSPARENT - only the clock digits and the info capsules paint, floating
    over the Pulse Grid in the top-right (no bars, CD-12). Colors/sizes come from
    the injected token custom properties (theme.toml / Theme::to_css_vars). */
 
@@ -71,7 +71,7 @@ html, body {
   color: var(--text);
 }
 
-/* Status tints — a status display first (CD-30 rule 0.1): the accent lights
+/* Status tints - a status display first (CD-30 rule 0.1): the accent lights
    only what is genuinely stronger, the warn tint marks genuinely reduced
    protection; neutral otherwise. */
 .field.good .v  { color: color-mix(in srgb, var(--accent) 85%, var(--text)); }
@@ -84,7 +84,7 @@ html, body {
 
 /* A horizontal three-lamp traffic light. The lamp matching the ACTIVE global
    level lights and glows; Off leaves all lamps dark inside a warn ring; Custom
-   tints all three faintly brand. The Ampel is a status display first — its
+   tints all three faintly brand. The Ampel is a status display first - its
    light always equals the level actually applied (host-pushed). */
 .ampel {
   display: inline-flex;

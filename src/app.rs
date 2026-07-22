@@ -20,7 +20,7 @@ use crate::slots::{self, MAX_SLOTS};
 use crate::theme::Theme;
 
 /// Grace period after the cursor leaves the engaged band region before it
-/// disengages (hysteresis — no flicker on grazing touches, CD-08 → CD-12).
+/// disengages (hysteresis - no flicker on grazing touches, CD-08 → CD-12).
 const BAR_HIDE_HYSTERESIS: Duration = Duration::from_millis(250);
 
 /// After the band disengages, keep it composited this long so the page's
@@ -29,7 +29,7 @@ const BAND_FADE_LINGER: Duration = Duration::from_millis(300);
 
 /// Per-frame ease factor for the CD-11 frame reflow (side zones retreating to
 /// rails + the slot recenter). Exponential approach, ~220 ms ease-out at ~60 fps
-/// — the same host-side interpolation pattern as the top-bar slide.
+/// - the same host-side interpolation pattern as the top-bar slide.
 const FRAME_EASE: f32 = 0.22;
 
 /// Exponentially ease a rect toward a target by factor `k` (per frame).
@@ -63,8 +63,8 @@ fn gear_geom(width: u32, scale: f32) -> (f32, f32, f32) {
 }
 
 /// The local wall-clock's offset from UTC in minutes (CD-30: the HUD's digital
-/// clock). The PROCESS runs under TZ=UTC (the CD-16 timezone clamp — honest and
-/// global), so local time is derived from the OS timezone via Win32 — never from
+/// clock). The PROCESS runs under TZ=UTC (the CD-16 timezone clamp - honest and
+/// global), so local time is derived from the OS timezone via Win32 - never from
 /// the (deliberately clamped) C-runtime timezone, which would silently show UTC.
 #[cfg(windows)]
 fn local_utc_offset_minutes() -> i32 {
@@ -112,7 +112,7 @@ fn local_utc_offset_minutes() -> i32 {
     0
 }
 
-/// Read the clipboard as text — the host-side paste path for vault secret
+/// Read the clipboard as text - the host-side paste path for vault secret
 /// capture (CD-40): Ctrl+V during a capture appends clipboard text to the
 /// locked input buffer without the renderer ever seeing it. Same direct-extern
 /// style as the timezone read above; user32/kernel32 are in the link set.
@@ -157,7 +157,7 @@ fn clipboard_text() -> Option<String> {
 
 /// Which internal overlay (if any) is currently shown. `Command` is the CD-12
 /// floating command band; `Settings` is the gear card; `Info` is the CD-13
-/// update-awareness panel. All mutually exclusive — one shared internal OSR view.
+/// update-awareness panel. All mutually exclusive - one shared internal OSR view.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Overlay {
     Closed,
@@ -165,7 +165,7 @@ enum Overlay {
     Command,
     Info,
     /// The start-authorization gate (CD-40, D-0058): the internal view shows
-    /// `cyberdesk://lock/` and nothing else exists — no slots, no MF zone, no
+    /// `cyberdesk://lock/` and nothing else exists - no slots, no MF zone, no
     /// HUD. Every keystroke is captured by the HOST (never the page) while
     /// this overlay is up; leaving it is only possible by unlocking (or quit).
     Lock,
@@ -180,19 +180,19 @@ pub fn run(windowed: bool) {
     settings::init();
     // Load the vault state (CD-40, D-0058): with a vault present the shell boots
     // LOCKED; with none it boots into MANDATORY first-launch setup (CD-42,
-    // D-0062) — only the lock/setup page exists until the start-authorization
+    // D-0062) - only the lock/setup page exists until the start-authorization
     // gate opens. Must follow settings::init (shares the app-data dir) and
     // precede everything that might touch sealed state.
     crate::vault::init();
     let locked = crate::vault::gate_closed();
     // Anti-forensic browsing-residue purge (CD-34, D-0051): wipe the CEF
-    // browsing-cache/profile dir BEFORE init_cef (below) — the only moment CEF does
+    // browsing-cache/profile dir BEFORE init_cef (below) - the only moment CEF does
     // not yet hold its files open. Reads the `purge_residue` toggle just loaded by
     // settings::init; never touches the Tor state, session, or config (a disjoint tree).
     crate::forensic::purge_on_launch();
     // Initialize the global identity seed (CD-29): fresh each launch, or the
     // persisted seed when "new identity on restart" is off. Must follow settings::init.
-    // While the vault gate is closed this is DEFERRED to the unlock transition —
+    // While the vault gate is closed this is DEFERRED to the unlock transition -
     // the persisted seed is a sealed tenant and unreadable before the VMK exists.
     if !locked {
         browser::init_identity_seed();
@@ -258,7 +258,7 @@ pub fn run(windowed: bool) {
 struct Shell {
     windowed: bool,
     /// The start-authorization gate is closed (CD-40, D-0058): the VMK is not
-    /// in memory — either a vault exists (unlock) or none does yet (mandatory
+    /// in memory - either a vault exists (unlock) or none does yet (mandatory
     /// first-launch setup, CD-42). While true, only the lock view boots; the
     /// workspace follows after the unlock/setup outcome arrives.
     locked: bool,
@@ -272,12 +272,12 @@ struct Shell {
     /// Automatic identity-rotation cycle anchor (CD-29): the start of the current
     /// countdown. Reset on each rotation and whenever auto-rotation is (re)enabled.
     rot_anchor: Instant,
-    /// A brief post-rotation flash deadline — drives the Pulse Grid re-roll burst.
+    /// A brief post-rotation flash deadline - drives the Pulse Grid re-roll burst.
     rot_flash_until: Option<Instant>,
     /// The red-transition burst deadline (CD-30 Task E): armed by
     /// [`Shell::trigger_red_transition`] when Red actually engages.
     red_flash_until: Option<Instant>,
-    /// How many windows were at effective Red last pass — the truthful edge
+    /// How many windows were at effective Red last pass - the truthful edge
     /// detector for the transition (fires only on an INCREASE, i.e. a window
     /// actually entering Red).
     red_slots: usize,
@@ -315,7 +315,7 @@ struct Shell {
     /// Per-slot width in units (1 or 2, CD-10). Indexed by slot id.
     width_units: [u32; MAX_SLOTS],
     /// Animated frame (CD-11): the on-screen (interpolated) rect per slot id, and
-    /// the eased side zones. Rendering AND input read these — one per-frame
+    /// the eased side zones. Rendering AND input read these - one per-frame
     /// geometry, so the reflow animation can never desync. `disp_rect[id]` is
     /// `None` until a slot's first frame (it then grows from a collapsed sliver).
     disp_rects: [Option<slots::Rect>; MAX_SLOTS],
@@ -343,13 +343,13 @@ struct Shell {
     /// page's fade-out completes, then finalise to `Closed` (CD-12).
     band_off_at: Option<Instant>,
     /// The last frame state pushed to the page, so a push fires only on change
-    /// (target rects + engaged slot) — not per frame (the CD-11 IPC cadence).
+    /// (target rects + engaged slot) - not per frame (the CD-11 IPC cadence).
     frame_sig: String,
-    /// The last HUD state pushed (CD-30 Task B) — same on-change cadence.
+    /// The last HUD state pushed (CD-30 Task B) - same on-change cadence.
     hud_sig: String,
     /// The Tor engine status last carried in a frame push (CD-23). The engine reaches
     /// READY on a BACKGROUND thread with no user action, so `about_to_wait` compares
-    /// this against `tor::status()` and re-pushes the frame on a transition — otherwise
+    /// this against `tor::status()` and re-pushes the frame on a transition - otherwise
     /// the per-window anonymity indicator (cdFrame-driven) stays latched on the last
     /// pushed value ("Connecting") while Tor is actually Ready. `u8::MAX` = never pushed.
     tor_status_pushed: u8,
@@ -358,7 +358,7 @@ struct Shell {
     drag: Option<(String, String)>,
 }
 
-/// One slot to spawn during boot/restore (CD-21): its id, and the URL to open —
+/// One slot to spawn during boot/restore (CD-21): its id, and the URL to open -
 /// `None` = the own start page (a Tor slot, or a clearnet slot with no saved URL),
 /// `Some(url)` = reload that clearnet URL. The slot's mode/width/order are applied
 /// to the `Shell` during the plan phase; this carries only what the spawn phase needs.
@@ -428,7 +428,7 @@ impl Shell {
     }
 
     /// The full target frame layout for a given surface size (CD-30/CD-31: one
-    /// source of truth — includes the stepped MF width, column compression, and
+    /// source of truth - includes the stepped MF width, column compression, and
     /// the red-mode viewport locks).
     fn frame_target(&self, w: u32, h: u32) -> slots::FrameLayout {
         slots::frame_layout(
@@ -441,16 +441,16 @@ impl Shell {
         )
     }
 
-    /// Per-display-position viewport locks (CD-30 Task D — the red "bunker"
+    /// Per-display-position viewport locks (CD-30 Task D - the red "bunker"
     /// mode). A window whose EFFECTIVE Ampel level is Red snaps to a STANDARD
-    /// viewport — its reported-screen preset (default 1920×1080), laddered DOWN
-    /// (1600×900, 1280×720) to the largest standard size the frame can hold —
+    /// viewport - its reported-screen preset (default 1920×1080), laddered DOWN
+    /// (1600×900, 1280×720) to the largest standard size the frame can hold -
     /// and stays locked while Red is active (`toggle_active_width` refuses, the
     /// layout ignores its width units). With viewport == reported screen the
     /// window reads exactly like a fullscreen browser on an ordinary machine.
     /// Slots are allocated in display order (earlier locks count against later
     /// ones); if not even the smallest standard size fits this display, the slot
-    /// stays zone-sized — the LEVEL and its vectors are unaffected, the lock is
+    /// stays zone-sized - the LEVEL and its vectors are unaffected, the lock is
     /// honestly recorded as the minor, presentational increment it is (D-0047).
     /// `width_units` are never modified, so stepping down from Red restores the
     /// user's previous layout by construction.
@@ -459,7 +459,7 @@ impl Shell {
         let (_, zh) = slots::zone_vertical(h, self.scale, t);
         let g = (t.gutter * self.scale).round();
         // CD-32 Task A (D-0049): while ANY window is at Red, protection outranks
-        // the MF zone — it yields to its small step so the ladder below can reach
+        // the MF zone - it yields to its small step so the ladder below can reach
         // the largest common resolution the display holds (1920×1080 from ~2400px
         // wide, where CD-31's nominal step capped the same display at 1600×900).
         // `frame_layout` re-derives the same yield from the locks this returns, so
@@ -627,7 +627,7 @@ impl Shell {
 
         // Ease the flexible LEFT (Spine) zone width; derive both zone rects from
         // the animated group bounds so they glide with the columns. The RIGHT MF
-        // zone is permanent — its width is the constant target (no easing), it
+        // zone is permanent - its width is the constant target (no easing), it
         // only follows the group's right edge (D-0022).
         self.disp_left_width += (target.left_width - self.disp_left_width) * FRAME_EASE;
         let mf_width = target.right.w;
@@ -657,7 +657,7 @@ impl Shell {
     fn mouse_target(&self) -> Option<(Role, (f32, f32))> {
         let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
         let (cx, cy) = (self.cursor_phys.x as f32, self.cursor_phys.y as f32);
-        // The HUD strip (CD-30) is interactive in EVERY overlay state — the Ampel
+        // The HUD strip (CD-30) is interactive in EVERY overlay state - the Ampel
         // must stay reachable. Its rect (the top margin strip above/right of the
         // MF zone) overlaps neither the slots, the band columns, the launcher,
         // nor the MF zone, so the check is order-independent; the shell-drawn
@@ -675,7 +675,7 @@ impl Shell {
                     None
                 }
             }
-            // The lock gate (CD-40): only the lock card is interactive — no HUD,
+            // The lock gate (CD-40): only the lock card is interactive - no HUD,
             // no MF zone, no slots exist while the gate is closed.
             Overlay::Lock => {
                 let (x, y, pw, ph) = self.internal_rect(w, h);
@@ -716,7 +716,7 @@ impl Shell {
         }
     }
 
-    /// The total slot-unit budget the frame can hold at the current width — the
+    /// The total slot-unit budget the frame can hold at the current width - the
     /// rail-state center budget (CD-11), so slots are capped against the maximum
     /// the frame will ever fit.
     fn capacity(&self) -> usize {
@@ -732,7 +732,7 @@ impl Shell {
     }
 
     /// Make slot id `id` the active slot: move CEF keyboard focus (only while no
-    /// overlay is open — otherwise the internal view holds focus) and update the
+    /// overlay is open - otherwise the internal view holds focus) and update the
     /// browser-side active-slot pointer the top bar / IPC read.
     fn set_active(&mut self, id: usize) {
         if !self.order.contains(&id) || id == self.active_slot {
@@ -769,7 +769,7 @@ impl Shell {
     }
 
     /// Add a slot right of the active one (Ctrl+T). No-op at capacity / slot_max.
-    /// The new slot spawns at the own start page (CD-14) and becomes active — its
+    /// The new slot spawns at the own start page (CD-14) and becomes active - its
     /// own search box is the landing surface (so the CD-12 Ctrl+T capsule
     /// auto-reveal is retired here; Ctrl+L still reveals the floating capsule).
     fn add_slot(&mut self) {
@@ -812,7 +812,7 @@ impl Shell {
 
     /// Flip slot `id` between clearnet and Tor (CD-15 Stage B): start the Tor engine
     /// if needed, set the slot's mode, then tear its browser down and respawn it
-    /// under the new request context at the start page — a fresh identity, no state
+    /// under the new request context at the start page - a fresh identity, no state
     /// bleed. Other slots are untouched (per-window switching, per-CefRequestContext).
     fn toggle_tor(&mut self, id: usize) {
         if !self.order.contains(&id) {
@@ -823,16 +823,16 @@ impl Shell {
         // The engine master switch (CD-15 Stage C) gates turning Tor ON; a slot can
         // always be reverted to clearnet even if the engine is disabled.
         if now_tor && !settings::tor_enabled() {
-            tracing::info!(slot = id, "toggle_tor: engine disabled in settings — no-op");
+            tracing::info!(slot = id, "toggle_tor: engine disabled in settings - no-op");
             return;
         }
         if now_tor {
-            crate::tor::init(); // idempotent — ensure the engine is bootstrapping
+            crate::tor::init(); // idempotent - ensure the engine is bootstrapping
         }
         browser::set_slot_tor(id, now_tor);
         // Respawn the slot's browser under the new context (read from the mode). This
         // is NON-blocking: a Tor slot's browser is created immediately (posted to the
-        // CEF UI thread), NOT gated on bootstrap — it just cannot fetch until arti is
+        // CEF UI thread), NOT gated on bootstrap - it just cannot fetch until arti is
         // ready. The UI never waits on Tor (CD-15 HOTFIX).
         if let Some(window) = self.window.clone() {
             browser::close_slot(id);
@@ -850,8 +850,8 @@ impl Shell {
     }
 
     /// Switch slot `id` to Tor and load `url` there (CD-35): the onion refusal
-    /// page's "switch this window to Tor". [`toggle_tor`]'s teardown/respawn —
-    /// same fresh-identity, no-state-bleed semantics — except the new browser
+    /// page's "switch this window to Tor". [`toggle_tor`]'s teardown/respawn -
+    /// same fresh-identity, no-state-bleed semantics - except the new browser
     /// spawns at the requested URL instead of the start page, and the direction
     /// is fixed (always → Tor; a slot already on Tor just navigates). The Tor
     /// master switch was checked by the IPC that queued this.
@@ -864,7 +864,7 @@ impl Shell {
             return;
         }
         tracing::info!(slot = id, "switch_slot_to_tor_url: begin");
-        crate::tor::init(); // idempotent — ensure the engine is bootstrapping
+        crate::tor::init(); // idempotent - ensure the engine is bootstrapping
         browser::set_slot_tor(id, true);
         if let Some(window) = self.window.clone() {
             browser::close_slot(id);
@@ -880,8 +880,8 @@ impl Shell {
     }
 
     /// Respawn slot `id`'s browser at its CURRENT url (CD-25 / CD-29): the fresh
-    /// document picks up the new effective fingerprint config — hardening vectors AND
-    /// the reported screen preset — which a live context can't adopt (the patches are
+    /// document picks up the new effective fingerprint config - hardening vectors AND
+    /// the reported screen preset - which a live context can't adopt (the patches are
     /// irreversible / `screen_info` is read at create time). Mirrors [`toggle_tor`]'s
     /// respawn, but RELOADS the current page (not the start page): a fingerprint-config
     /// change is not a network-identity change, so the user stays on their page. The
@@ -910,13 +910,13 @@ impl Shell {
         self.push_frame(false);
     }
 
-    /// Open `url` in a new slot beside the source slot — a user-gesture popup or
+    /// Open `url` in a new slot beside the source slot - a user-gesture popup or
     /// a Ctrl-/middle-click on a link (D-0018). The new slot is one unit, spawns
     /// immediately with the URL, and becomes active. If the grid has no room, fall
     /// back to the CD-04 behavior: navigate the source slot in place.
     fn open_in_new_slot(&mut self, source_id: usize, url: String) {
         // FAIL-CLOSED (CD-15, D-0027): a link opened from a Tor slot must STAY on
-        // Tor — the new slot inherits the source's mode. (The no-room fallback
+        // Tor - the new slot inherits the source's mode. (The no-room fallback
         // navigates the source's own browser in place, so it keeps the source's
         // mode already.)
         self.open_in_new_slot_mode(source_id, url, browser::slot_is_tor(source_id));
@@ -927,7 +927,7 @@ impl Shell {
     /// TOR window, so "inherit the source's mode" is exactly wrong there. The
     /// no-room fallback differs per mode: same-mode falls back to navigating the
     /// source in place (CD-04), while a forced-Tor open must NOT (a clearnet
-    /// slot would just refuse the `.onion` again) — it switches the source slot
+    /// slot would just refuse the `.onion` again) - it switches the source slot
     /// to Tor with the URL instead.
     fn open_in_new_slot_mode(&mut self, source_id: usize, url: String, tor: bool) {
         let has_room = self.order.len() < self.slot_max() && self.total_units() < self.capacity() as u32;
@@ -950,7 +950,7 @@ impl Shell {
         self.loading[free] = 0.0;
         self.active_slot = free;
         browser::set_active_slot(free);
-        // Set the mode BEFORE the browser is created — create_browser_url reads
+        // Set the mode BEFORE the browser is created - create_browser_url reads
         // slot_is_tor to pick the request context (CD-15, D-0027).
         if tor {
             crate::tor::init();
@@ -1002,7 +1002,7 @@ impl Shell {
     }
 
     /// The control-gutter drop zones (CD-12): a gutter-wide bar before slot 0,
-    /// between each pair, and after the last slot — paired with the display
+    /// between each pair, and after the last slot - paired with the display
     /// position a drop there inserts at (0..=n).
     fn gutter_drops(&self) -> Vec<(usize, slots::Rect)> {
         let (w, h) = match self.renderer.as_ref().map(|r| r.size()) {
@@ -1072,7 +1072,7 @@ impl Shell {
                 });
             }
         } else if let Some((_, r)) = self.slot_at_cursor() {
-            // Full grid: dropping over a slot navigates it — hint by glowing it.
+            // Full grid: dropping over a slot navigates it - hint by glowing it.
             out.push(renderer::DragQuad {
                 rect: (r.x, r.y, r.w, r.h),
                 color: [b[0], b[1], b[2], 0.16],
@@ -1110,7 +1110,7 @@ impl Shell {
         }
     }
 
-    /// Cancel an in-progress drag (ESC) — no drop.
+    /// Cancel an in-progress drag (ESC) - no drop.
     fn cancel_drag(&mut self) {
         self.drag = None;
     }
@@ -1124,7 +1124,7 @@ impl Shell {
     }
 
     /// Close the slot at display position `pos` (Ctrl+W on the active slot, or a
-    /// click on that slot's floating close orb — CD-12). The last slot refuses to
+    /// click on that slot's floating close orb - CD-12). The last slot refuses to
     /// close; a closed active slot promotes a neighbor. The frame then reflows.
     fn close_slot_at(&mut self, pos: usize) {
         if self.order.len() <= 1 || pos >= self.order.len() {
@@ -1164,14 +1164,14 @@ impl Shell {
     // was RETIRED in CD-18: closing a window is now an explicit in-page close icon
     // beside each ensemble's address capsule (command.js `.close-btn` →
     // `close_slot` IPC → `take_pending_closes` → `close_slot_at`). The last-slot
-    // refusal + neighbor promotion still live in `close_slot_at` — the single choke
+    // refusal + neighbor promotion still live in `close_slot_at` - the single choke
     // point for the icon, Ctrl+W, and resize-driven drops alike.
 
     /// Swap the active slot with its neighbor (Ctrl+Shift+Left/Right). A pure
-    /// order operation — the active slot keeps its id (and its browser/texture),
+    /// order operation - the active slot keeps its id (and its browser/texture),
     /// only its display position changes; no browser moves and no view resizes
     /// (widths are unchanged), so the compositor picks up the new positions next
-    /// frame. A hard swap (no slide animation) — see D-0019. No-op at the edge.
+    /// frame. A hard swap (no slide animation) - see D-0019. No-op at the edge.
     fn swap_active(&mut self, dir: i32) {
         let pos = self.active_position();
         let target = pos as i32 + dir;
@@ -1188,7 +1188,7 @@ impl Shell {
     /// just the toggled slot.
     fn toggle_active_width(&mut self) {
         let id = self.active_slot;
-        // CD-30 Task D: while a window is at Red its size is LOCKED — resizing
+        // CD-30 Task D: while a window is at Red its size is LOCKED - resizing
         // is refused until the level steps down (through the gate). Outside Red,
         // sizing stays completely free.
         if browser::slot_effective_level(id) == crate::harden::Level::Red {
@@ -1200,7 +1200,7 @@ impl Shell {
         } else if self.total_units() < self.capacity() as u32 {
             self.width_units[id] = 2;
         } else {
-            return; // doubling would overflow — no-op
+            return; // doubling would overflow - no-op
         }
         self.push_geometry();
         self.notify_all_resized();
@@ -1223,7 +1223,7 @@ impl Shell {
         (self.theme.command.band_height * self.scale).round()
     }
 
-    /// The slot whose floating-ensemble band segment the cursor is over — the top
+    /// The slot whose floating-ensemble band segment the cursor is over - the top
     /// gap above a slot, within its x-range. Drives which ensemble engages.
     fn band_hot_slot(&self) -> Option<usize> {
         let (w, h) = self.renderer.as_ref().map(|r| r.size()).unwrap_or((1, 1));
@@ -1304,7 +1304,7 @@ impl Shell {
 
     /// Build and push the frame state to the page when it changes (engaged slot or
     /// target slot rects). Band-local DIP coordinates (band origin = window
-    /// origin). Pushed on change only — the page glides via CSS (CD-11 cadence).
+    /// origin). Pushed on change only - the page glides via CSS (CD-11 cadence).
     fn push_frame(&mut self, autofocus: bool) {
         use std::fmt::Write;
         let (w, h) = match self.renderer.as_ref().map(|r| r.size()) {
@@ -1328,7 +1328,7 @@ impl Shell {
         // Per-slot hardening view (CD-25; Ampel-graded CD-30): the effective level
         // code (0=off, 1=green, 2=yellow, 3=red, 4=custom), whether it is INHERITED
         // (vs a per-window override), and whether it is REDUCED below the safe
-        // Green floor (off / a dropped Green-core vector — Green itself is a
+        // Green floor (off / a dropped Green-core vector - Green itself is a
         // first-class safe level, never a warning). Used for both the change-sig
         // and the payload so a level change re-pushes.
         let hview = |id: usize| -> (u8, bool, bool) {
@@ -1363,7 +1363,7 @@ impl Shell {
             );
         }
         if !autofocus && sig == self.frame_sig {
-            return; // nothing changed — no IPC (the CD-11 on-change cadence)
+            return; // nothing changed - no IPC (the CD-11 on-change cadence)
         }
         self.frame_sig = sig;
         // Build + push only on a real change.
@@ -1395,7 +1395,7 @@ impl Shell {
     }
 
     /// Build and push the HUD state (CD-30 Task B) when it changes. Same on-change
-    /// cadence as `push_frame` — the signature excludes the continuously-moving
+    /// cadence as `push_frame` - the signature excludes the continuously-moving
     /// countdown/age milliseconds (the page ticks those locally off absolute
     /// anchors) but includes the rotation EPOCH, so a re-roll re-anchors the page
     /// exactly when it lands. Called once per loop pass; a couple of atomic reads
@@ -1411,7 +1411,7 @@ impl Shell {
         let active_pos = self.active_position() + 1;
         let active_tor = browser::slot_is_tor(self.active_slot);
         // CD-35 Task C: "connected to an onion service" = the active window is a
-        // Tor window AND its current page is a `.onion` — derived from the live
+        // Tor window AND its current page is a `.onion` - derived from the live
         // slot URL, never asserted. (A clearnet slot can never show a `.onion`
         // page, so the conjunction is belt-and-suspenders.) In the sig because
         // it changes on navigation alone.
@@ -1465,7 +1465,7 @@ impl Shell {
     /// the interval elapses, re-roll the GLOBAL identity (every window's next page
     /// load / any new window gets the fresh, unlinkable fingerprint) and start the
     /// Pulse Grid re-roll flash. Honest by design: auto rotation re-seeds the basis for
-    /// SUBSEQUENT loads and is the visible showpiece — it does NOT reload live pages
+    /// SUBSEQUENT loads and is the visible showpiece - it does NOT reload live pages
     /// (mid-page re-rolling is cosmetic; the manual button and on-restart are the
     /// immediate cross-session-linkage killers). Cheap: a couple of atomic reads/frame.
     fn tick_identity_rotation(&mut self) {
@@ -1487,7 +1487,7 @@ impl Shell {
     /// (CD-29). 1.0 when auto-rotation is off. Otherwise a gentle build that ramps in
     /// the final stretch of the interval (the grid visibly "charges"), then a bright
     /// decaying burst right after a re-roll (the visible re-roll). Always ≥ 1.0, so the
-    /// countdown only ever ADDS energy — never dims the user's chosen glow.
+    /// countdown only ever ADDS energy - never dims the user's chosen glow.
     fn rotation_glow_factor(&self) -> f32 {
         // A post-rotation flash dominates while it lasts.
         if let Some(until) = self.rot_flash_until {
@@ -1516,14 +1516,14 @@ impl Shell {
 
     // --- The red transition (CD-30 Task E) -----------------------------------
 
-    /// THE red-transition entry point — the single, replaceable hook for the
+    /// THE red-transition entry point - the single, replaceable hook for the
     /// "bulkhead coming down" choreography. What ships here is the tasteful
     /// BASELINE, deliberately built on the CD-29 charge-and-burst mechanism (one
-    /// glow scalar through the existing uniform — no new shader): a bright pulse
+    /// glow scalar through the existing uniform - no new shader): a bright pulse
     /// sweeps the Pulse Grid as Red engages, while the layout snap+lock (Task D,
     /// `red_locks`) lands in the same pass. Sascha elevates the final
     /// choreography by replacing THIS function's body (and, if the finale needs
-    /// more channels, extending `red_glow_factor` alongside it) — nothing else
+    /// more channels, extending `red_glow_factor` alongside it) - nothing else
     /// needs refactoring. Truthful by construction: the only caller is the
     /// `tick_red_state` edge detector, which fires strictly when a window's
     /// EFFECTIVE level becomes Red (level committed + respawn queued + lock
@@ -1535,7 +1535,7 @@ impl Shell {
 
     /// The red-transition glow multiplier (≥ 1.0, multiplied with the CD-29
     /// rotation factor on top of the user's setting): a strong burst decaying
-    /// over ~1.4 s — brighter and longer than the identity re-roll, as befits
+    /// over ~1.4 s - brighter and longer than the identity re-roll, as befits
     /// the bulkhead. 1.0 whenever no transition is live.
     fn red_glow_factor(&self) -> f32 {
         if let Some(until) = self.red_flash_until {
@@ -1551,7 +1551,7 @@ impl Shell {
 
     /// Truthful red-engagement edge detector (CD-30, rule 0.1): counts the
     /// windows whose EFFECTIVE level is Red this pass and fires the transition
-    /// only when that count INCREASES — i.e. a window genuinely entered Red
+    /// only when that count INCREASES - i.e. a window genuinely entered Red
     /// (global level committed for inheriting windows, or a per-window override).
     /// Every Red-level vector is active by construction (`resolve(Red)` is the
     /// full strict config, carried by the respawn queued in the same drain).
@@ -1575,12 +1575,12 @@ impl Shell {
     /// Drive the floating command band once per frame: engage on band hover,
     /// hysteresis disengage (typing exception), and the compositing linger.
     fn update_band(&mut self) {
-        // During a favorite drag the host owns the mouse — don't engage/disengage.
+        // During a favorite drag the host owns the mouse - don't engage/disengage.
         if self.drag.is_some() {
             return;
         }
         match self.overlay {
-            // The gate has no band — no slot exists to engage (CD-40).
+            // The gate has no band - no slot exists to engage (CD-40).
             Overlay::Lock => {}
             Overlay::Closed => {
                 if let Some(s) = self.band_hot_slot() {
@@ -1649,7 +1649,7 @@ impl Shell {
     fn toggle_settings(&mut self) {
         if self.overlay == Overlay::Settings {
             // Closing the card aborts any vault capture begun from it (CD-40)
-            // — the host must not keep swallowing the keyboard for an entry
+            // - the host must not keep swallowing the keyboard for an entry
             // field that is no longer visible.
             if crate::vault::capture_active() {
                 crate::vault::cancel_capture();
@@ -1707,7 +1707,7 @@ impl Shell {
     }
 
     /// The info panel card rectangle (device px): a floating top-right card just
-    /// below the glyph row (the floating law — a discrete panel, not a strip).
+    /// below the glyph row (the floating law - a discrete panel, not a strip).
     fn info_rect(&self, w: u32, h: u32) -> (f32, f32, f32, f32) {
         let (wf, hf) = (w as f32, h as f32);
         let m = 24.0 * self.scale;
@@ -1770,7 +1770,7 @@ impl Shell {
             let (_, _, iw, ih) = self.internal_rect(w, h);
             browser::set_view_geometry(Role::Internal, iw as u32, ih as u32, self.scale);
             // MF-zone view (CD-18): its texture is sized to the zone (the CD-31
-            // stepped width × slot height — identical for every tab); only its
+            // stepped width × slot height - identical for every tab); only its
             // X animates during reflow (carried by the render NDC rect), so
             // geometry is set here on resize / layout changes, not per frame.
             let mf = self.frame_target(w, h).right;
@@ -1799,7 +1799,7 @@ impl Shell {
 
     /// Re-clamp the live slots to what the current width allows (called on resize
     /// / DPI change): close excess columns from the right. Websites are not saved
-    /// (CD-14, D-0025), so a closed column is simply gone — no overflow. Keeps
+    /// (CD-14, D-0025), so a closed column is simply gone - no overflow. Keeps
     /// `active_slot` valid, promoting a neighbor if the active column was closed.
     fn reflow_slots(&mut self) {
         let cap = self.capacity().max(1) as u32;
@@ -1833,15 +1833,15 @@ impl Shell {
 
     /// Boot the workspace once the CEF context is ready. A saved "Quit & Save"
     /// session (schema v6) is restored exactly as left (per-slot mode / URL / width /
-    /// layout); otherwise — a plain quit, first run, or an old/unknown schema — the
+    /// layout); otherwise - a plain quit, first run, or an old/unknown schema - the
     /// default two-slot layout opens.
     ///
-    /// Two phases so the invariants hold: (1) *plan* — decide `order`, per-slot mode
+    /// Two phases so the invariants hold: (1) *plan* - decide `order`, per-slot mode
     /// (set BEFORE any browser exists, so a Tor slot is created under its proxied
     /// context and a reused id never inherits a stale `SLOT_TOR`), width and target
-    /// URL; (2) *spawn* — push geometry for every view, then create the shared
+    /// URL; (2) *spawn* - push geometry for every view, then create the shared
     /// internal overlay + permanent MF-zone views FIRST and the slots LAST (so a
-    /// slot, not the overlay, holds keyboard focus after startup — matching the
+    /// slot, not the overlay, holds keyboard focus after startup - matching the
     /// pre-CD-21 order). `create_browser` needs geometry set first, hence the split.
     fn restore_session(&mut self, window: &Window) {
         self.restore_session_views(window, true);
@@ -1877,11 +1877,11 @@ impl Shell {
     }
 
     /// Plan the default layout (fresh start / after a plain quit, D-0035): two slots
-    /// side by side — clearnet (left) + Tor (right), both on the own start page
+    /// side by side - clearnet (left) + Tor (right), both on the own start page
     /// `cyberdesk://start/`. Clamped to what the frame can hold (big-monitor focus):
     /// two where they fit, else a single clearnet slot on a narrow monitor. The right
     /// slot is Tor only when the engine's master switch is enabled; otherwise both
-    /// are clearnet (honest — a disabled engine cannot open a Tor window). Sets slot
+    /// are clearnet (honest - a disabled engine cannot open a Tor window). Sets slot
     /// state; returns the spawn plan (both slots open the start page → `url: None`).
     fn plan_default(&mut self) -> Vec<SlotPlan> {
         let cap = self.capacity().max(1);
@@ -1913,8 +1913,8 @@ impl Shell {
     /// Plan a restored "Quit & Save" session (D-0035). Slots are re-created with
     /// fresh contiguous ids `0..n` (ids index fixed per-slot arrays, so a persisted
     /// raw id is never reused), clamped to the product cap AND the width the frame
-    /// can hold. Each restored slot's mode is set EXPLICITLY here — before any
-    /// browser is spawned — so a reused id never inherits a stale `SLOT_TOR` (the
+    /// can hold. Each restored slot's mode is set EXPLICITLY here - before any
+    /// browser is spawned - so a reused id never inherits a stale `SLOT_TOR` (the
     /// CD-15 leak trap) and a Tor slot is created under its proxied context. A Tor
     /// slot comes back as a REAL Tor slot on the start page (its URL was never
     /// persisted); a clearnet slot reloads its saved URL (empty → start page). If
@@ -1972,7 +1972,7 @@ impl Shell {
 
     /// Build + persist the current session (the "Quit & Save" button, D-0035).
     /// Privacy: a Tor slot's URL is NEVER written to disk (it restores on the start
-    /// page), and internal/blank slots persist an empty URL — only real clearnet site
+    /// page), and internal/blank slots persist an empty URL - only real clearnet site
     /// URLs are saved, and only on this explicit opt-in.
     fn save_session(&self) {
         let rows: Vec<crate::store::SessionSlot> = self
@@ -2001,7 +2001,7 @@ impl Shell {
 
     /// Foreground guard (tier 1): in fullscreen, keep the shell always-on-top
     /// while the "stay_foreground" setting is on. Dev (`--windowed`) mode is
-    /// never topmost. `force` re-asserts the level even if unchanged — used by
+    /// never topmost. `force` re-asserts the level even if unchanged - used by
     /// the focus-loss watchdog, since a window manager may drop the level when
     /// another window steals focus.
     fn apply_foreground(&mut self, force: bool) {
@@ -2032,7 +2032,7 @@ impl ApplicationHandler for Shell {
         let mut attributes = Window::default_attributes().with_title("CARVILON CyberDesk");
         attributes = if self.windowed {
             // `CYBERDESK_WINDOW_SIZE=WxH` overrides the dev window size (default
-            // 1600x900) — e.g. to exercise multi-slot layouts on a non-ultrawide.
+            // 1600x900) - e.g. to exercise multi-slot layouts on a non-ultrawide.
             let (dw, dh) = std::env::var("CYBERDESK_WINDOW_SIZE")
                 .ok()
                 .and_then(|s| {
@@ -2120,7 +2120,7 @@ impl ApplicationHandler for Shell {
                 // Route the move to the view under the cursor (a slot, or the
                 // overlay). When the cursor crosses from one view to another, send
                 // a mouse-leave to the one it left so its hover states clear. The
-                // gear and info glyph are shell chrome — no page gets the move.
+                // gear and info glyph are shell chrome - no page gets the move.
                 let target = if over_gear || over_info { None } else { self.mouse_target() };
                 let next_role = target.map(|(r, _)| r);
                 if self.mouse_role != next_role
@@ -2164,11 +2164,11 @@ impl ApplicationHandler for Shell {
                     }
                     return;
                 }
-                // (CD-18: the shell-drawn corner close orb was retired — a window is
+                // (CD-18: the shell-drawn corner close orb was retired - a window is
                 // now closed by its in-page close icon, `close_slot` IPC.)
                 let target = self.mouse_target();
                 // Mouse buttons 4/5 are Back/Forward on the slot under the cursor
-                // (only when a slot is the actual target — not over an overlay).
+                // (only when a slot is the actual target - not over an overlay).
                 if down
                     && let Some((Role::Slot(id), _)) = target
                 {
@@ -2230,7 +2230,7 @@ impl ApplicationHandler for Shell {
                     PhysicalKey::Code(code) => keycode_to_vk(code),
                     _ => 0,
                 };
-                // Vault secret capture (CD-40, D-0058) — the iron law's teeth:
+                // Vault secret capture (CD-40, D-0058) - the iron law's teeth:
                 // while the lock screen is up, or a setup flow begun from the
                 // settings page is capturing, the HOST consumes every key event
                 // here and NO page receives a keystroke. The typed secret goes
@@ -2420,11 +2420,11 @@ impl ApplicationHandler for Shell {
                 let size = self.renderer.as_ref().map(|r| r.size());
                 if let Some((w, h)) = size {
                     let internal = self.internal_rect(w, h);
-                    // Rects come from the ANIMATED frame (CD-11) — the same
+                    // Rects come from the ANIMATED frame (CD-11) - the same
                     // geometry input routing reads, so the reflow can never desync.
                     let disp = self.disp_slots();
                     // While the vault gate is closed (CD-40) no slot and no side
-                    // zone exists — the frame is the Pulse Grid and the lock card,
+                    // zone exists - the frame is the Pulse Grid and the lock card,
                     // nothing else (an honest empty shell, not placeholders).
                     let slot_views: Vec<SlotView> = if self.overlay == Overlay::Lock {
                         Vec::new()
@@ -2473,7 +2473,7 @@ impl ApplicationHandler for Shell {
                     };
                     // CD-29: the identity-rotation countdown modulates the glow (charge
                     // → re-roll burst), and CD-30 layers the red-transition burst on
-                    // top — both multiply the user's setting and are computed before
+                    // top - both multiply the user's setting and are computed before
                     // the mutable renderer borrow below (as is the HUD rect, CD-30).
                     let glow =
                         settings::glow_intensity() * self.rotation_glow_factor() * self.red_glow_factor();
@@ -2507,7 +2507,7 @@ impl ApplicationHandler for Shell {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // The start-authorization gate (CD-40, D-0058): the shell boots with
-        // only the internal view, showing the lock page — unlocking an
+        // only the internal view, showing the lock page - unlocking an
         // existing vault, or the MANDATORY first-launch master-password setup
         // when none exists yet (CD-42, D-0062). Either way the host is already
         // capturing; nothing else is created and no sealed state is readable
@@ -2534,7 +2534,7 @@ impl ApplicationHandler for Shell {
         }
 
         // The gate opens: an unlock or first-launch-setup outcome arrived from
-        // a vault worker. The deferred boot runs — sealed identity seed first
+        // a vault worker. The deferred boot runs - sealed identity seed first
         // (it feeds browser creation), then the workspace; the internal view
         // leaves the lock page for its normal settings document.
         if let Some(outcome) = crate::vault::take_outcome() {
@@ -2558,7 +2558,7 @@ impl ApplicationHandler for Shell {
         }
 
         // "Lock now" (CD-40, D-0059): relaunch the shell cold. The exec image
-        // restarts with every CEF child gone, and the next boot IS the gate —
+        // restarts with every CEF child gone, and the next boot IS the gate -
         // the same teardown a quit does, plus a fresh start. Secrets are wiped
         // explicitly first (statics never drop on exit).
         if crate::vault::take_relaunch() {
@@ -2632,7 +2632,7 @@ impl ApplicationHandler for Shell {
         if self.views_started {
             for (slot, refusal_url) in browser::take_pending_onion_refusals() {
                 // The slot may have been closed between the UI-thread cancel and
-                // this drain — navigating it then would ghost-spawn a browser
+                // this drain - navigating it then would ghost-spawn a browser
                 // for a slot outside the layout.
                 if self.order.contains(&slot) {
                     browser::navigate_slot(slot, &refusal_url);
@@ -2650,7 +2650,7 @@ impl ApplicationHandler for Shell {
         // reported-screen preset (CD-29). Each respawns the affected slot(s) under the
         // new config. A global change respawns only slots that INHERIT it (an
         // overridden slot keeps its own). Screen inheritance is tracked separately
-        // from hardening inheritance — a slot may override one and inherit the other —
+        // from hardening inheritance - a slot may override one and inherit the other -
         // so a slot is respawned at most once even if both changed this pass.
         if self.views_started {
             let mut respawn: Vec<usize> = Vec::new();
@@ -2706,7 +2706,7 @@ impl ApplicationHandler for Shell {
 
         // APPLICATION-level quit queued by the MF-zone quit buttons (CD-21, D-0035).
         // Distinct from the per-slot closes above: this ends the whole shell.
-        // "Quit & Save" (save = true) persists the full session first — restored
+        // "Quit & Save" (save = true) persists the full session first - restored
         // exactly next launch; plain "Quit" writes nothing (default layout next
         // launch, since take_saved_session found no flag). Either way we exit the
         // loop; browser::shutdown_cef() runs after run_app returns (app.rs run()).
@@ -2722,7 +2722,7 @@ impl ApplicationHandler for Shell {
         }
 
 
-        // A favorite-tile drag the page started — the host takes over (CD-12).
+        // A favorite-tile drag the page started - the host takes over (CD-12).
         if self.views_started
             && self.drag.is_none()
             && let Some((url, title)) = browser::take_pending_drag()
@@ -2739,7 +2739,7 @@ impl ApplicationHandler for Shell {
         // engine reaches READY on a background thread with NO user action, and the
         // frame push (which carries `tor_status` to the per-window anonymity
         // indicator) otherwise only fires on user actions / while the band is engaged
-        // — so without this a bootstrapping→ready transition would leave the indicator
+        // - so without this a bootstrapping→ready transition would leave the indicator
         // latched on "Connecting" while Tor is actually usable. `push_frame` dedups on
         // its own signature, so this pushes at most once per real transition and keeps
         // the cached `get_frame` payload current for any (re)created consumer. The MF
@@ -2802,7 +2802,7 @@ impl ApplicationHandler for Shell {
                 let full = if title.is_empty() {
                     "CARVILON CyberDesk".to_string()
                 } else {
-                    format!("{title} — CARVILON CyberDesk")
+                    format!("{title} - CARVILON CyberDesk")
                 };
                 window.set_title(&full);
                 self.applied_title = title;

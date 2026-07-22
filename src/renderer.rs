@@ -1,13 +1,13 @@
 //! wgpu renderer for the CyberDesk shell.
 //!
 //! Composites, every frame:
-//!   1. the shell background — the Pulse Grid circuit board (`pulsegrid_*.wgsl`),
+//!   1. the shell background - the Pulse Grid circuit board (`pulsegrid_*.wgsl`),
 //!      the sole background since CD-06 (D-0013), and
-//!   2. the surf-zone page — the CEF off-screen texture drawn at the zone
+//!   2. the surf-zone page - the CEF off-screen texture drawn at the zone
 //!      rectangle with rounded corners (`page.wgsl`), blended over the shell.
 //!
 //! The CARVILON ring (`ring.wgsl`, [`RingUniforms`], [`ring_pipeline`]) is kept
-//! dormant in the tree — nothing renders it anymore; its motif migrates to the
+//! dormant in the tree - nothing renders it anymore; its motif migrates to the
 //! start animation / Energy Core in Season 2 (D-0013).
 //!
 //! All wgpu work lives on the main thread. CEF's `on_paint` (on the CEF UI
@@ -191,7 +191,7 @@ fn ring_pipeline(
     (pipeline, uniform_buf, bind_group)
 }
 
-/// Shared page-compositing pipeline (`page.wgsl`) — one pipeline, bind-group
+/// Shared page-compositing pipeline (`page.wgsl`) - one pipeline, bind-group
 /// layouts and sampler, reused by every surf slot and the internal overlay
 /// (CD-09). Per-target data (the rect uniform + the CEF texture) lives in
 /// [`PageTarget`].
@@ -641,7 +641,7 @@ fn fullscreen_pipeline(
 
 // --- Pulse Grid background (CD-05, D-0012) ----------------------------------
 
-/// Full-resolution HDR bake target — thin lines stay crisp and glow above 1.0
+/// Full-resolution HDR bake target - thin lines stay crisp and glow above 1.0
 /// survives the intensity scaling in the composite (a one-time cost, not
 /// per-frame). 16-bit float is core-blendable and can be sampled with
 /// `textureLoad`.
@@ -652,7 +652,7 @@ const BAKE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const SPRITE_ATTRS: [wgpu::VertexAttribute; 4] =
     wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4];
 
-/// Premultiplied additive blend — overlapping glow accumulates.
+/// Premultiplied additive blend - overlapping glow accumulates.
 fn additive_blend() -> wgpu::BlendState {
     let add = wgpu::BlendComponent {
         src_factor: wgpu::BlendFactor::One,
@@ -676,7 +676,7 @@ struct SpriteGlobals {
     zone_count: u32,
     _pad: [f32; 2],
     // Up to 8 content rects (x, y, w, h) in physical px: up to MAX_SLOTS slots +
-    // 2 side zones + the one open overlay (bar / settings card) = 7 max — CD-11
+    // 2 side zones + the one open overlay (bar / settings card) = 7 max - CD-11
     // grew this from 6 (CD-09 grew it from 4).
     zones: [[f32; 4]; 8],
 }
@@ -685,7 +685,7 @@ struct SpriteGlobals {
 const MAX_ZONES: usize = 8;
 
 /// Micro-lattice uniforms (mirrors `Lattice` in `pulsegrid_lattice.wgsl`). Since
-/// CD-06 it carries three depth weaves — each `layers[i]` is `(cell, dot_radius,
+/// CD-06 it carries three depth weaves - each `layers[i]` is `(cell, dot_radius,
 /// glow, _)` for far / mid / near.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -734,7 +734,7 @@ fn blended_fullscreen_pipeline(
 }
 
 /// An instanced sprite pipeline (unit quad × instance buffer) for the SDF
-/// primitives — additive, targeting `format`.
+/// primitives - additive, targeting `format`.
 fn sprite_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
@@ -880,7 +880,7 @@ impl PulseGrid {
             }],
         });
 
-        // Live instance buffer — a generous fixed cap. Pulses now span three
+        // Live instance buffer - a generous fixed cap. Pulses now span three
         // depth layers (each head + trail), but even at ultrawide the total
         // stays well under this.
         let life_cap: u32 = 4096;
@@ -1133,7 +1133,7 @@ impl PulseGrid {
         }
 
         // Live globals for this frame (including the content rects that dim the
-        // background beneath them — the zone shadow).
+        // background beneath them - the zone shadow).
         let mut zarr = [[0.0f32; 4]; MAX_ZONES];
         let zc = zones.len().min(MAX_ZONES);
         zarr[..zc].copy_from_slice(&zones[..zc]);
@@ -1339,7 +1339,7 @@ struct PlaceholderInstance {
     dot: [f32; 4],   // pending-dot rgb + present flag (a: 0 = none, 1 = shown)
 }
 
-/// One slot-line instance (`slot_lines.wgsl`) — the loading line + active accent.
+/// One slot-line instance (`slot_lines.wgsl`) - the loading line + active accent.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct SlotLineInstance {
@@ -1347,7 +1347,7 @@ struct SlotLineInstance {
     params: [f32; 4], // loading_intensity, active(0/1), accent_th_px, loading_th_px
 }
 
-/// Placeholder globals — just the resolution (for the px→NDC vertex transform).
+/// Placeholder globals - just the resolution (for the px→NDC vertex transform).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct PlaceholderGlobals {
@@ -1355,7 +1355,7 @@ struct PlaceholderGlobals {
     _pad: [f32; 2],
 }
 
-/// Slot-line globals — resolution, time (for the loading sweep) and brand color.
+/// Slot-line globals - resolution, time (for the loading sweep) and brand color.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct SlotLineGlobals {
@@ -1371,7 +1371,7 @@ const PLACEHOLDER_ATTRS: [wgpu::VertexAttribute; 4] =
     wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4];
 
 /// A unit-quad, instance-stepped pipeline (premultiplied OVER) for the slot
-/// decorations — one draw covers every slot.
+/// decorations - one draw covers every slot.
 fn instanced_over_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
@@ -1450,7 +1450,7 @@ fn globals_bind_group(
     (buf, bgl, bg)
 }
 
-/// The lazy-slot placeholder pass (`slot_placeholder.wgsl`) — instanced fills +
+/// The lazy-slot placeholder pass (`slot_placeholder.wgsl`) - instanced fills +
 /// index glyphs for slots with no browser yet.
 struct SlotPlaceholder {
     pipeline: wgpu::RenderPipeline,
@@ -1493,7 +1493,7 @@ impl SlotPlaceholder {
     }
 }
 
-/// The per-slot line pass (`slot_lines.wgsl`) — instanced loading lines + the
+/// The per-slot line pass (`slot_lines.wgsl`) - instanced loading lines + the
 /// active accent for every slot.
 struct SlotLines {
     pipeline: wgpu::RenderPipeline,
@@ -1552,7 +1552,7 @@ const DRAG_ATTRS: [wgpu::VertexAttribute; 3] =
 
 /// A command-overlay quad (CD-12): the topmost transparent pass shared by the
 /// favorite-drag visuals (drag ghost, drop-zone gutter bars, slot highlight) and
-/// the per-slot close orbs. `kind` selects the fragment shape — `0` a filled soft
+/// the per-slot close orbs. `kind` selects the fragment shape - `0` a filled soft
 /// rounded rect (a circle when `radius` = half), `1` a close orb (ring + cross).
 /// Premultiplied OVER.
 pub struct DragQuad {
@@ -1563,7 +1563,7 @@ pub struct DragQuad {
     pub kind: u32,
 }
 
-/// The drag overlay pass — instanced soft rounded rects, drawn topmost.
+/// The drag overlay pass - instanced soft rounded rects, drawn topmost.
 struct DragOverlay {
     pipeline: wgpu::RenderPipeline,
     globals_buf: wgpu::Buffer,
@@ -1632,7 +1632,7 @@ pub struct SurfaceRenderer {
     mfzone: PageTarget,
     /// The permanent floating HUD view (CD-30 Task B): a TRANSPARENT strip in the
     /// top-right (clock + live info fields), composited over the Pulse Grid like
-    /// the command band — only its floating elements paint, no zone shadow.
+    /// the command band - only its floating elements paint, no zone shadow.
     hud: PageTarget,
     placeholder: SlotPlaceholder,
     slotlines: SlotLines,
@@ -1821,7 +1821,7 @@ impl SurfaceRenderer {
             zones.push([s.0, s.1, s.2, s.3]);
         }
         // The settings card dims its full rect (opaque). The CD-12 command band
-        // is transparent — only its floating pills paint — so it casts NO zone
+        // is transparent - only its floating pills paint - so it casts NO zone
         // shadow (dimming the whole band would darken the Pulse Grid across the
         // top even where nothing shows).
         if overlay_open && !is_bar {
@@ -1991,13 +1991,13 @@ impl SurfaceRenderer {
                 .write_buffer(&self.drag.instance_buf, 0, bytemuck::cast_slice(&drag_insts));
         }
 
-        // Panel uniforms: the internal overlay (settings card or command bar) —
+        // Panel uniforms: the internal overlay (settings card or command bar) -
         // crisp rounded corners, never feathered. Only written/drawn while open.
         if overlay_open {
             let (px, py, pw, ph) = panel;
             // The overlay always uses the hard edge (feather = 0). The settings
             // card keeps rounded corners; the top bar is square (corner_radius 0)
-            // — a clean strip flush to the top edge, clipped by the scissor as it
+            // - a clean strip flush to the top edge, clipped by the scissor as it
             // slides. The exponent is inert here; carried for a complete uniform.
             let panel_u = PageUniforms {
                 rect_ndc: [
@@ -2018,7 +2018,7 @@ impl SurfaceRenderer {
 
         // HUD uniforms (CD-30): the permanent transparent info strip, top-right.
         // Like the command band it paints only its floating elements (no zone
-        // shadow, no rounded clip — corner_radius 0, never feathered).
+        // shadow, no rounded clip - corner_radius 0, never feathered).
         if self.hud.has_texture() {
             let (hx, hy, hw, hh) = hud;
             let hud_u = PageUniforms {
@@ -2130,13 +2130,13 @@ impl SurfaceRenderer {
         }
 
         // Pass 1b: bake the Pulse Grid static layer (only on first frame / after
-        // a resize or seed change — otherwise the baked texture is reused).
+        // a resize or seed change - otherwise the baked texture is reused).
         if do_pulse && pulse_bake {
             self.pulse.record_bake(&mut encoder);
             self.pulse.needs_bake = false;
         }
 
-        // Pass 2: shell composite — background, then ring, then page.
+        // Pass 2: shell composite - background, then ring, then page.
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shell-pass"),
@@ -2160,7 +2160,7 @@ impl SurfaceRenderer {
                 multiview_mask: None,
             });
 
-            // Backmost and sole background (CD-06, D-0013): the Pulse Grid alone —
+            // Backmost and sole background (CD-06, D-0013): the Pulse Grid alone -
             // the ring no longer renders in the shell. Pulse Grid composites its
             // baked circuit (scaled by glow intensity); the Deep Field upscales
             // its half-res target. Either is the Cyber/Calm template choice.
@@ -2198,7 +2198,7 @@ impl SurfaceRenderer {
             }
 
             // Lazy-slot placeholders (fill + index glyph), for slots with no
-            // texture yet — one instanced draw.
+            // texture yet - one instanced draw.
             if placeholder_count > 0 {
                 pass.set_pipeline(&self.placeholder.pipeline);
                 pass.set_bind_group(0, &self.placeholder.globals_bg, &[]);
@@ -2206,7 +2206,7 @@ impl SurfaceRenderer {
                 pass.draw(0..6, 0..placeholder_count);
             }
 
-            // Per-slot loading lines (top edge) + active accent (bottom edge) —
+            // Per-slot loading lines (top edge) + active accent (bottom edge) -
             // one instanced draw over all slots.
             if line_count > 0 {
                 pass.set_pipeline(&self.slotlines.pipeline);
@@ -2216,7 +2216,7 @@ impl SurfaceRenderer {
             }
 
             // Internal overlay, over the pages. The CD-12 command band is a full
-            // transparent top strip (corner_radius 0) — only its pills paint, so
+            // transparent top strip (corner_radius 0) - only its pills paint, so
             // it composites directly with no scissor slide (the page fades each
             // ensemble in CSS). The settings card draws its rounded opaque rect.
             if overlay_open
@@ -2261,9 +2261,9 @@ impl SurfaceRenderer {
 }
 
 /// Render a single shell frame off-screen to a PNG (headless self-test: the
-/// Pulse Grid background alone, no CEF surf zone and — since CD-06 — no ring).
+/// Pulse Grid background alone, no CEF surf zone and - since CD-06 - no ring).
 /// Because the background shaders write token colors directly to a non-sRGB
-/// target — exactly as the on-screen `Bgra8Unorm` path does — the PNG shows the
+/// target - exactly as the on-screen `Bgra8Unorm` path does - the PNG shows the
 /// circuit as it appears fullscreen, which is the sanctioned way to eyeball it
 /// without screen-scraping the desktop.
 pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme) {
@@ -2287,15 +2287,15 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
 
     let format = wgpu::TextureFormat::Rgba8Unorm;
 
-    // Pulse Grid background (skipped when the template selects the Deep Field —
+    // Pulse Grid background (skipped when the template selects the Deep Field -
     // that path is surface-bound and not wired into the headless capture).
     let base = theme.colors.background_rgb();
     let brand = theme.colors.brand_rgb();
     let do_pulse = theme.background.is_pulse_grid();
 
     // Frame layout for the capture (CD-11): N placeholder columns flanked by the
-    // side zones, so the frame — side zones, columns, gutters, glowing margins,
-    // zone shadow, and the retreat-to-rails at four slots — can be eyeballed
+    // side zones, so the frame - side zones, columns, gutters, glowing margins,
+    // zone shadow, and the retreat-to-rails at four slots - can be eyeballed
     // headlessly. `CYBERDESK_CAPTURE_SLOTS=N` (default 1), clamped to the frame
     // capacity; `CYBERDESK_CAPTURE_UNITS=2,1,...` overrides it with an explicit
     // per-slot width-unit sequence (CD-10 double slots).
@@ -2338,7 +2338,7 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
     }
 
     // Placeholder columns + side zones + the active accent on slot 0 (shell-side,
-    // no CEF) — exactly what a fresh all-lazy frame looks like before navigation.
+    // no CEF) - exactly what a fresh all-lazy frame looks like before navigation.
     let st = &theme.slots;
     let placeholder = SlotPlaceholder::new(&device, format, MAX_SLOTS as u32 + 2);
     let slotlines = SlotLines::new(&device, format, MAX_SLOTS as u32);
@@ -2413,7 +2413,7 @@ pub fn capture(path: &str, width: u32, height: u32, theme: &crate::theme::Theme)
     // CYBERDESK_CAPTURE_DRAG=1 renders a sample favorite-drag overlay (CD-12): the
     // gutter drop zones (the middle one hot) + a ghost. Headless check.
     // (CD-18: the CYBERDESK_CAPTURE_CLOSE knob was retired with the shell-drawn
-    // close orb — closing is now an in-page icon, not a shell overlay.)
+    // close orb - closing is now an in-page icon, not a shell overlay.)
     let drag = DragOverlay::new(&device, format, MAX_SLOTS as u32 * 2 + 4);
     let mut drag_insts: Vec<DragInstance> = Vec::new();
     if std::env::var("CYBERDESK_CAPTURE_DRAG").is_ok() {

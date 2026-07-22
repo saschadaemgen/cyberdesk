@@ -1,10 +1,10 @@
-// CyberDesk — fingerprinting hardening (CD-16, D-0039; CD-29, D-0045).
+// CyberDesk - fingerprinting hardening (CD-16, D-0039; CD-29, D-0045).
 //
-// COHERENT, PER-SESSION TRACKING-RESISTANCE — NOT anonymity, NOT OS/UA/platform
+// COHERENT, PER-SESSION TRACKING-RESISTANCE - NOT anonymity, NOT OS/UA/platform
 // spoofing (binding constraint EC-01). The goal is to break a site's ability to
 // LINK this browser across sites and across sessions, without introducing a single
 // cross-surface contradiction. We deliberately do NOT touch the User-Agent,
-// navigator.platform / oscpu, CPU/OS strings, or language — leaving them real and
+// navigator.platform / oscpu, CPU/OS strings, or language - leaving them real and
 // mutually consistent. Timezone normalization is done natively by the host
 // (TZ=UTC before Chromium init), not here, so Date and Intl agree by construction.
 //
@@ -16,10 +16,10 @@
 // CD-29 (D-0046) rotation re-injects with a fresh seed on a "new identity" event.
 //
 // Two solving techniques, applied per vector (CD-29):
-//   * CLAMP  — report a common/standard value so the machine looks ordinary
+//   * CLAMP - report a common/standard value so the machine looks ordinary
 //     (fonts -> a fixed standard set; GPU vendor/renderer strings; math rounding;
 //     media/codec answers; device buckets). Everyone converges on one value.
-//   * FARBLE — add fresh per-session noise to a MEASURED signal so sessions are
+//   * FARBLE - add fresh per-session noise to a MEASURED signal so sessions are
 //     unlinkable while the site still works (canvas, WebGL readback, audio,
 //     client rects / text metrics, high-resolution clock).
 //
@@ -27,7 +27,7 @@
 // FUNCTION of (origin key, input), re-seeded per call and walked in a fixed order,
 // so repeated reads in one session are byte-identical (a site cannot detect the
 // noise by reading twice, and nothing flickers), yet a fresh session's different
-// seed yields a different — hence unlinkable — result.
+// seed yields a different - hence unlinkable - result.
 
 (function () {
   "use strict";
@@ -35,7 +35,7 @@
   var SESSION_SEED = "__CYBERDESK_FP_SEED__";
 
   // The per-window EFFECTIVE config (CD-25/CD-29): which vectors run, and whether to
-  // use the tighter "strict" buckets — substituted by the host per browser (the seed
+  // use the tighter "strict" buckets - substituted by the host per browser (the seed
   // stays session-global). Each vector block is gated on its flag; Standard resolves
   // to every flag true / strict false. "Off" is never injected at all (the render
   // process skips injection), so by the time this file runs at least one vector is on.
@@ -43,7 +43,7 @@
 
   // The page global. Referenced explicitly (and every DOM constructor is looked up
   // via `W.` and guarded) so a missing global degrades to a no-op instead of
-  // throwing and aborting the rest of the hardening — and so the exact same file
+  // throwing and aborting the rest of the hardening - and so the exact same file
   // is exercisable under a headless (Node vm) mock. Built-ins (Math, Object,
   // Function, Promise, WeakSet, Proxy, Array, typed arrays, isFinite) are always
   // present and used bare.
@@ -53,7 +53,7 @@
 
   // ---- deterministic primitives ---------------------------------------------
 
-  // FNV-1a (32-bit): mixes strings into the seed. Not cryptographic — the secret
+  // FNV-1a (32-bit): mixes strings into the seed. Not cryptographic - the secret
   // is SESSION_SEED; this only decorrelates origins/tags cheaply.
   function fnv1a(str) {
     var h = 0x811c9dc5;
@@ -65,7 +65,7 @@
   }
 
   // Mulberry32: a tiny, fast, well-distributed PRNG. Re-seeding it from the same
-  // value reproduces the same stream — the property that makes readback stable.
+  // value reproduces the same stream - the property that makes readback stable.
   function mulberry32(a) {
     return function () {
       a |= 0; a = (a + 0x6d2b79f5) | 0;
@@ -75,7 +75,7 @@
     };
   }
 
-  // First-party origin — keys the noise per top-level site. A tracker embedded as
+  // First-party origin - keys the noise per top-level site. A tracker embedded as
   // a third-party iframe on two DIFFERENT first parties therefore reads DIFFERENT
   // noise on each, so it cannot correlate the two visits by fingerprint. For a
   // cross-origin iframe (window.top unreadable) we recover the top origin from
@@ -99,7 +99,7 @@
   function vseed(tag) { return (ORIGIN_KEY ^ fnv1a(tag)) | 0; }
 
   // Stable per-value scalar jitter (for metrics: rect edges, text width). Keyed on
-  // the value itself, so the SAME measured value always perturbs the SAME way —
+  // the value itself, so the SAME measured value always perturbs the SAME way -
   // stable within a session, and (because ORIGIN_KEY changes) different across
   // sessions. Magnitude is a small RELATIVE fraction: sub-visual for layout, but it
   // moves the low significant digits that a full-precision fingerprint hashes.
@@ -135,7 +135,7 @@
   // ---- pixel farbling --------------------------------------------------------
 
   // RGBA-aware: nudge ~4.7% of pixels by ±1 in ONE of R/G/B (never alpha, never
-  // more than 1/255) — invisible, but it changes the serialized bytes and thus the
+  // more than 1/255) - invisible, but it changes the serialized bytes and thus the
   // hash. Re-seeded per call + walked in order => identical output on repeat reads.
   function farbleRGBA(u8, seed) {
     var rnd = mulberry32(seed | 0);
@@ -174,7 +174,7 @@
     if (!C2D || !_getImageData) return;
     var SEED = vseed("canvas");
 
-    // getImageData IS readback — farble the returned pixels in place.
+    // getImageData IS readback - farble the returned pixels in place.
     def(C2D.prototype, "getImageData", function () {
       var img = _getImageData.apply(this, arguments);
       try { farbleRGBA(img.data, SEED); } catch (e) {}
@@ -182,7 +182,7 @@
     });
 
     // toDataURL / toBlob serialize the backing store directly (not via the hooked
-    // getImageData), so farble a private COPY and serialize that — never the live
+    // getImageData), so farble a private COPY and serialize that - never the live
     // canvas (no visible change). drawImage works from a 2D OR a WebGL source, so
     // this covers WebGL canvases too. The original getImageData is used internally
     // to avoid double-farbling.
@@ -389,7 +389,7 @@
     }
     // Element and Range both expose getBoundingClientRect / getClientRects. The
     // jitter is keyed on the value, so a single-rect element's bounding rect and
-    // its getClientRects()[0] receive the SAME perturbation — they stay mutually
+    // its getClientRects()[0] receive the SAME perturbation - they stay mutually
     // consistent (no self-contradiction a script could detect).
     [W.Element, W.Range].forEach(function (Ctor) {
       if (!Ctor || !Ctor.prototype) return;
@@ -439,7 +439,7 @@
         var buckets = [2, 4, 8, 16], cores = 2;
         for (var i = 0; i < buckets.length; i++) if (buckets[i] <= real) cores = buckets[i];
         // Strict collapses everyone toward a single common value (max anonymity set)
-        // — but never ABOVE the standard bucket, so it never over-reports cores.
+        // - but never ABOVE the standard bucket, so it never over-reports cores.
         if (FP_CONFIG.strict && cores > 4) cores = 4;
         defGetSet(Nav.prototype, "hardwareConcurrency", function () { return cores; });
       }
@@ -493,12 +493,12 @@
   // highest-value clamp (CD-29 Task A). We cannot patch Chromium's DirectWrite
   // backend from an embedder, so we standardize the JS MEASUREMENT SURFACE instead:
   // any font-family a page requests that is NOT in the pinned standard set is
-  // stripped to the generic fallback, so it renders — and therefore MEASURES —
+  // stripped to the generic fallback, so it renders - and therefore MEASURES -
   // exactly as it would on a machine that lacks it. Standard-set families (all
   // present on a stock Windows 11, the sole target platform) always measure present.
   // Net effect: every CyberDesk user returns the SAME font answer regardless of what
   // is installed locally, and enumeration is neutralized outright. A page's OWN
-  // @font-face web font (loaded from its server) is untouched — only the user's
+  // @font-face web font (loaded from its server) is untouched - only the user's
   // LOCAL fonts are hidden. Combined with the per-session text-metric farble
   // (metrics vector) so measured glyph dimensions also vary per session.
   if (FP_CONFIG.fonts) (function fonts() {
@@ -665,7 +665,7 @@
   // strong, cleanly-removable signal like local fonts).
   if (FP_CONFIG.media) (function media() {
     // A common baseline of container/codec types a stock desktop Chromium supports.
-    // Anything outside the table answers "not supported" — identical on every machine.
+    // Anything outside the table answers "not supported" - identical on every machine.
     function common(type) {
       var t = String(type || "").toLowerCase();
       if (!t) return "";
@@ -703,7 +703,7 @@
         if (MC.prototype.encodingInfo) def(MC.prototype, "encodingInfo", info);
       }
     } catch (e) {}
-    // Speech-synthesis voices reveal the exact installed voice packs — hide them
+    // Speech-synthesis voices reveal the exact installed voice packs - hide them
     // (report none), like local fonts. Sites fall back to the default voice.
     try {
       var SS = W.SpeechSynthesis;
@@ -714,7 +714,7 @@
   })();
 
   // ============ Math rounding (clamp) ========================================
-  // Transcendental functions differ in their last ULPs between CPU/libm builds — a
+  // Transcendental functions differ in their last ULPs between CPU/libm builds - a
   // known fingerprint. Round every fingerprintable result to 12 significant digits
   // so those low-bit differences vanish and every machine returns the SAME value.
   // 12 digits is far beyond any real precision need, so pages are unaffected.
@@ -742,24 +742,24 @@
   // is deliberately level-agnostic: it reports the nearest common step of the
   // CD-29 ladder to the real width. Below Red that is a clamp (many machines
   // converge on one reported size); at Red the real window ALREADY IS a common
-  // step, so the very same rule is the identity — reported == real, and the
+  // step, so the very same rule is the identity - reported == real, and the
   // residual below closes without a special case.
   //
   // COHERENCE is the whole point (the "Brave trap"): spoofing innerWidth while
   // clientWidth or matchMedia still answer from the real size is itself a
-  // fingerprint — a contradiction no real browser can produce. So we move the
+  // fingerprint - a contradiction no real browser can produce. So we move the
   // whole cluster by ONE delta (reported − real) and shift every other member by
   // that same delta rather than overwriting each with an independent guess. Every
-  // internal relationship Blink computed — the scrollbar gap between innerWidth
+  // internal relationship Blink computed - the scrollbar gap between innerWidth
   // and clientWidth, the chrome gap to outerWidth, visualViewport's sub-pixel
-  // fraction — survives exactly, so the cluster cannot contradict itself.
+  // fraction - survives exactly, so the cluster cannot contradict itself.
   //
-  // HONEST RESIDUAL (internal scope, D-0044 — never surfaced as product copy):
+  // HONEST RESIDUAL (internal scope, D-0044 - never surfaced as product copy):
   // CSS layout still uses the REAL viewport, so a page that measures the rendered
   // pixels of a full-width element (or reads documentElement.scrollWidth) can
-  // still tell reported from real below Red. That is the accepted tradeoff — a
+  // still tell reported from real below Red. That is the accepted tradeoff - a
   // weak, transient, low-entropy vector (users resize constantly) traded for the
-  // user's layout freedom — and it is fully closed at Red, where reported == real.
+  // user's layout freedom - and it is fully closed at Red, where reported == real.
   if (FP_CONFIG.viewport) (function viewportSize() {
     // TOP FRAME ONLY. An iframe's inner size is that frame's own box, not the
     // user's window: reporting 1280×720 for a 300×250 ad slot would be both
@@ -771,7 +771,7 @@
     var Win = W.Window, El = W.Element, VV = W.VisualViewport;
     if (!Win || !Win.prototype) return;
 
-    // The ORIGINAL accessors — how we keep reading the real geometry after the
+    // The ORIGINAL accessors - how we keep reading the real geometry after the
     // public ones are patched (and the proof that a getter exists to patch).
     function origGet(obj, name) {
       try {
@@ -793,7 +793,7 @@
     var _innerH = origGet(Win.prototype, "innerHeight");
     if (!_innerW || !_innerH) return;
 
-    // Own, NON-enumerable accessor — for shadowing a prototype accessor on ONE
+    // Own, NON-enumerable accessor - for shadowing a prototype accessor on ONE
     // instance without the shadow showing up in Object.keys() (a real
     // MediaQueryList enumerates nothing of its own).
     function defOwnGet(obj, name, getter) {
@@ -811,7 +811,7 @@
     var LADDER = [[1280, 720], [1600, 900], [1920, 1080], [2560, 1440], [3840, 2160]];
 
     // The common step for a real inner width: the ladder entry NEAREST by width
-    // (truthful-closest — not a fixed 1920), skipping any the reported screen
+    // (truthful-closest - not a fixed 1920), skipping any the reported screen
     // could not contain, so `inner <= screen` holds structurally rather than by
     // argument. Ties go to the smaller entry (never over-report). null = the
     // screen is smaller than every step; the caller then reports the truth.
@@ -906,14 +906,14 @@
     // --- matchMedia ----------------------------------------------------------
     // The classic way to catch a size lie: binary-search the viewport with
     // (min-width: Npx) and compare against innerWidth. So the viewport-derived
-    // media features must answer for the REPORTED size — width, height,
+    // media features must answer for the REPORTED size - width, height,
     // aspect-ratio and orientation. `device-*` describes the SCREEN (already
     // reported by the host) and is deliberately left alone.
     //
     // We do NOT parse and evaluate media queries ourselves: we rewrite only the
     // numbers and hand the query back to Blink, which keeps every subtlety
     // (`not`/`only`/`and`, unknown features, invalid-query semantics) exactly
-    // right. A width/height threshold shifts by −delta — asking Blink the
+    // right. A width/height threshold shifts by −delta - asking Blink the
     // equivalent question about the real viewport; aspect-ratio and orientation
     // are computed from the reported size and collapse to a tautology or a
     // contradiction.
@@ -924,7 +924,7 @@
     var NEVER = "(max-width: 0px)";  // no top-level viewport is <= 0
 
     // In a media query, font-relative units resolve against the INITIAL font size
-    // (the browser default), NOT the root element's computed size — CSS
+    // (the browser default), NOT the root element's computed size - CSS
     // Conditional §3. CyberDesk exposes no setting that changes it, so 16 is
     // exact here. Units we cannot resolve (vw/vh, ch/ex, calc()) leave their
     // block untouched: viewport-relative units are self-referential (they answer
@@ -988,27 +988,27 @@
                : op === ">" ? a > t : Math.abs(a - t) < 1e-9;
         return ok ? ALWAYS : NEVER;
       });
-      // width/height — classic (min-/max-/exact). `device-width` cannot match:
+      // width/height - classic (min-/max-/exact). `device-width` cannot match:
       // the feature name has to start right after the "(".
       q = q.replace(/\(\s*(min-|max-)?(width|height)\s*:\s*([^)]+?)\s*\)/gi,
         function (m0, pre, feat, val) {
           var s = shifted(val, dOf(feat));
           return s === null ? m0 : "(" + (pre || "") + feat + ": " + s + ")";
         });
-      // width/height — one-sided range: (width >= 600px)
+      // width/height - one-sided range: (width >= 600px)
       q = q.replace(/\(\s*(width|height)\s*(<=|>=|<|>|=)\s*([^)]+?)\s*\)/gi,
         function (m0, feat, op, val) {
           var s = shifted(val, dOf(feat));
           return s === null ? m0 : "(" + feat + " " + op + " " + s + ")";
         });
-      // width/height — two-sided range: (400px <= width <= 700px)
+      // width/height - two-sided range: (400px <= width <= 700px)
       q = q.replace(/\(\s*([^<>=()]+?)\s*(<=|<|>=|>)\s*(width|height)\s*(<=|<|>=|>)\s*([^<>=()]+?)\s*\)/gi,
         function (m0, lo, op1, feat, op2, hi) {
           var d = dOf(feat), a = shifted(lo, d), b = shifted(hi, d);
           return (a === null || b === null) ? m0
             : "(" + a + " " + op1 + " " + feat + " " + op2 + " " + b + ")";
         });
-      // width/height — boolean: (width) is true iff non-zero, and the top-level
+      // width/height - boolean: (width) is true iff non-zero, and the top-level
       // viewport always is.
       q = q.replace(/\(\s*(width|height)\s*\)/gi, function () { return ALWAYS; });
       return q;
@@ -1033,7 +1033,7 @@
       return mql;
     });
 
-    // A change event carries its own `media`/`matches` snapshot — defer both to
+    // A change event carries its own `media`/`matches` snapshot - defer both to
     // the list they fired on, so an event can never contradict a live read.
     var MQLE = W.MediaQueryListEvent;
     if (MQLE && MQLE.prototype) {

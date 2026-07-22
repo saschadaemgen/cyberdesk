@@ -2,8 +2,8 @@
 //!
 //! A schema-versioned `settings` key/value table plus a `meta` table holding the
 //! selected `template` (only value: "cyber"). CD-07 (D-0014) adds the `history`
-//! and `favorites` tables — the local memory behind the command palette. CD-10
-//! (D-0019) adds `session_slots` — the persisted slot workspace. Lives in the OS
+//! and `favorites` tables - the local memory behind the command palette. CD-10
+//! (D-0019) adds `session_slots` - the persisted slot workspace. Lives in the OS
 //! app-data directory, never in the repo.
 
 // Some store methods are consumed only by specific IPC paths (settings, memory);
@@ -18,7 +18,7 @@ use rusqlite::Connection;
 const SCHEMA_VERSION: i64 = 7;
 
 /// History is capped at this many rows; the oldest are pruned on each insert
-/// (D-0014). Local only — no sync, no export.
+/// (D-0014). Local only - no sync, no export.
 const HISTORY_CAP: i64 = 10_000;
 
 /// One command-palette suggestion row: a favorite or a history entry.
@@ -32,7 +32,7 @@ pub struct Suggestion {
 /// it showed, its width in units, whether it was the active slot, and its Tor mode.
 /// Only an explicit "Quit & Save" writes these; a plain quit leaves the restore
 /// flag clear so the next launch is the default layout. Internal/blank URLs and
-/// Tor-slot URLs are stored empty (privacy, D-0025) — the caller filters them.
+/// Tor-slot URLs are stored empty (privacy, D-0025) - the caller filters them.
 pub struct SessionSlot {
     pub position: i64,
     pub url: String,
@@ -47,13 +47,13 @@ pub struct Store {
 
 /// The process-wide store, opened on first use. The settings IPC (settings.rs)
 /// and the history/favorites layer (memory.rs) share this one connection behind
-/// a single Mutex — one `state.db`, one lock.
+/// a single Mutex - one `state.db`, one lock.
 pub fn shared() -> &'static Mutex<Store> {
     static S: OnceLock<Mutex<Store>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(Store::open()))
 }
 
-/// The OS app-data directory holding `state.db` — and, since CD-40, the vault
+/// The OS app-data directory holding `state.db` - and, since CD-40, the vault
 /// files (`vault.json` / `vault.seal`, see vault.rs).
 pub(crate) fn data_dir() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA")
@@ -71,7 +71,7 @@ impl Store {
         )
     }
 
-    /// An isolated in-memory store for tests — a throwaway temp DB with the same
+    /// An isolated in-memory store for tests - a throwaway temp DB with the same
     /// schema (migrated) and defaults (seeded) as the real `state.db`, but no
     /// filesystem and no shared global. The regression harness drives the real
     /// history/favorites code against one of these.
@@ -87,7 +87,7 @@ impl Store {
         // CD-33 (D-0050): pin the temp schema to RAM before anything can use it. This
         // is what makes the session's `history` table (create_ram_history) memory-only,
         // and it also keeps SQLite from spilling sorter/index scratch for ANY query
-        // into a temp FILE next to the database — an anti-forensic win beyond history.
+        // into a temp FILE next to the database - an anti-forensic win beyond history.
         store
             .conn
             .pragma_update(None, "temp_store", "MEMORY")
@@ -158,7 +158,7 @@ impl Store {
             // CD-13 (D-0023): update awareness. `update_meta` caches the last-known
             // manifest JSON + the last check time (so the glyph reflects last-known
             // offline); `update_dismissed` holds, per info item id, the target
-            // version it was dismissed at — the item re-appears only if the manifest
+            // version it was dismissed at - the item re-appears only if the manifest
             // later advances past it.
             self.conn
                 .execute_batch(
@@ -175,7 +175,7 @@ impl Store {
         }
         if version < 5 {
             // CD-14 (D-0025): websites are not saved. Drop the session workspace
-            // table — this also PURGES any open-website URLs a prior build had
+            // table - this also PURGES any open-website URLs a prior build had
             // persisted (the privacy reversal of CD-10/D-0019). Slots always start
             // fresh at the own start page.
             self.conn
@@ -183,7 +183,7 @@ impl Store {
                 .expect("failed to migrate to schema v5 (drop session_slots)");
         }
         if version < 6 {
-            // CD-21 (D-0035): the session workspace RETURNS — now opt-in and
+            // CD-21 (D-0035): the session workspace RETURNS - now opt-in and
             // mode-aware. Re-creates session_slots with a per-slot `tor` column (the
             // mode CD-10 lacked). The v5 DROP above already removed the old
             // 4-column table, so this is a clean CREATE (never an ALTER of a shape
@@ -206,14 +206,14 @@ impl Store {
         }
         if version < 7 {
             // CD-33 (D-0050): history is BROWSING CONTENT, so it must not live on
-            // disk. Drop the persisted table — which also PURGES every URL + title a
-            // prior build recorded — and re-create it per session in RAM (see
+            // disk. Drop the persisted table - which also PURGES every URL + title a
+            // prior build recorded - and re-create it per session in RAM (see
             // `create_ram_history`). Same shape as the v5 drop (D-0025), for the same
             // reason: the privacy reversal has to take the existing rows with it, or
             // the residue outlives the decision.
             //
             // `favorites` deliberately stays on disk: a favorite is an explicit user
-            // act (Ctrl+D), not a trace of where you have been — the bookmark/history
+            // act (Ctrl+D), not a trace of where you have been - the bookmark/history
             // split every ephemeral browser makes.
             self.conn
                 .execute_batch(
@@ -230,7 +230,7 @@ impl Store {
     /// Create this session's RAM-only `history` table (CD-33, D-0050).
     ///
     /// A TEMP table lives in the connection's temp schema, which `temp_store =
-    /// MEMORY` (set in [`Store::from_connection`]) pins to RAM — so history is never
+    /// MEMORY` (set in [`Store::from_connection`]) pins to RAM - so history is never
     /// written to disk and dies with the process, exactly like the cache and cookies
     /// now do. SQLite resolves an unqualified name against temp BEFORE main, so every
     /// existing history query keeps working untouched; there is no `main.history` left
@@ -271,7 +271,7 @@ impl Store {
         // not ship Google as its default search.
         self.set_if_absent("search_engine", "duckduckgo");
         // CD-27 (D-0043) one-shot migration: every pre-CD-27 store carries a
-        // LITERAL "google" row written by this seeder — indistinguishable from
+        // LITERAL "google" row written by this seeder - indistinguishable from
         // a user choice, so flipping it corrects our own seed, not the user.
         // The meta marker limits the flip to exactly one run: an EXPLICIT
         // post-migration Google choice sticks across restarts.
@@ -285,8 +285,8 @@ impl Store {
         self.set_if_absent("tor_enabled", "true");
         self.set_if_absent("tor_default", "false");
         // The global fingerprinting-hardening Ampel level is deliberately NOT seeded
-        // here. Its factory default — GREEN, the coherent everyday level (CD-30,
-        // D-0047) — lives solely in settings::init's `.unwrap_or(Green)` fallback,
+        // here. Its factory default - GREEN, the coherent everyday level (CD-30,
+        // D-0047) - lives solely in settings::init's `.unwrap_or(Green)` fallback,
         // which governs precisely while the key is ABSENT. Seeding a value would
         // (1) re-pin a default that goes stale exactly as the old CD-25 "standard"
         // seed did (it booted fresh installs at Yellow, not Green), and (2) forge
@@ -342,7 +342,7 @@ impl Store {
     }
 
     /// Remove a settings row entirely (CD-40: used when a value migrates into
-    /// the vault's sealed state — the plaintext row must not linger).
+    /// the vault's sealed state - the plaintext row must not linger).
     pub fn delete(&self, key: &str) {
         self.conn
             .execute("DELETE FROM settings WHERE key = ?1", [key])
@@ -406,7 +406,7 @@ impl Store {
     /// Replace all session rows in one transaction. Returns whether it committed.
     fn write_session_rows(&self, slots: &[SessionSlot]) -> bool {
         // Store methods hold `&self` (the connection is shared behind the store
-        // Mutex), so use `unchecked_transaction` — the Mutex already serialises access.
+        // Mutex), so use `unchecked_transaction` - the Mutex already serialises access.
         let Ok(tx) = self.conn.unchecked_transaction() else {
             return false;
         };
@@ -448,7 +448,7 @@ impl Store {
     }
 
     /// Take the saved session IFF the last quit was a "Quit & Save": returns the
-    /// slots (ordered by position) and CONSUMES the flag — a one-shot restore, so a
+    /// slots (ordered by position) and CONSUMES the flag - a one-shot restore, so a
     /// later plain quit or a crash boots the default layout (D-0035). `None` when
     /// there is nothing to restore (plain quit, first run, or an old/unknown schema
     /// whose migration left the table empty).
@@ -458,7 +458,7 @@ impl Store {
         }
         self.set_session_save_flag(false);
         let rows = self.load_session_rows();
-        // One-shot: consume the ROWS too, not just the flag — so no saved URL lingers
+        // One-shot: consume the ROWS too, not just the flag - so no saved URL lingers
         // on disk past the restore. Otherwise the last Quit & Save URLs would sit in
         // state.db until the next Quit & Save overwrote them, even after a plain quit
         // (which means "don't keep this"). Matches the D-0025 purge doctrine.
@@ -733,7 +733,7 @@ mod tests {
         assert_eq!(temp_store, 2, "sqlite temp storage must be pinned to MEMORY");
     }
 
-    /// A visit still records and still surfaces in the palette — history works
+    /// A visit still records and still surfaces in the palette - history works
     /// exactly as before within the session; only its persistence is gone.
     #[test]
     fn ram_history_still_records_and_suggests() {
@@ -747,7 +747,7 @@ mod tests {
     }
 
     /// The v7 migration must PURGE a prior build's on-disk history, not just stop
-    /// writing new rows — residue that outlives the decision defeats the point.
+    /// writing new rows - residue that outlives the decision defeats the point.
     /// Drives a real v6-shaped database with a row already in it.
     #[test]
     fn v7_migration_purges_previously_persisted_history() {
@@ -780,12 +780,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(leftover, 0, "the persisted history table must be dropped");
-        // And the session starts with an empty RAM history — the old URL is gone.
+        // And the session starts with an empty RAM history - the old URL is gone.
         assert_eq!(s.query_suggestions("old.example", 6).len(), 0);
     }
 
     /// Two distinct pages favorited in sequence must both persist (no collapse to
-    /// one), and the empty-input palette query — the surface the reveal shows —
+    /// one), and the empty-input palette query - the surface the reveal shows -
     /// must return both, in their saved order. This is the storage half of the
     /// CD-08 favorites repro (the display half is fixed in command.js).
     #[test]
@@ -802,7 +802,7 @@ mod tests {
     }
 
     /// The insert must not use REPLACE/UPSERT semantics that would overwrite an
-    /// existing favorite — re-favoriting the same URL toggles it off, and only
+    /// existing favorite - re-favoriting the same URL toggles it off, and only
     /// that one.
     #[test]
     fn toggle_off_removes_only_that_favorite() {
@@ -816,7 +816,7 @@ mod tests {
         assert_eq!(all[0].url, "https://b.example/");
     }
 
-    /// Typing a query that matches only one favorite returns that one — this is
+    /// Typing a query that matches only one favorite returns that one - this is
     /// what the old palette did on open with the current URL prefilled, and why
     /// only a single favorite ever showed. The empty-input list (above) is the
     /// contrast that proves both are stored.
@@ -833,7 +833,7 @@ mod tests {
 
     // --- Search-engine factory default (CD-27, D-0043) ----------------------
 
-    /// A fresh store seeds DuckDuckGo as the search engine — never Google
+    /// A fresh store seeds DuckDuckGo as the search engine - never Google
     /// (CD-27 acceptance 2, headless half).
     #[test]
     fn fresh_store_defaults_to_duckduckgo() {
@@ -856,7 +856,7 @@ mod tests {
         assert_eq!(s.get("search_engine").as_deref(), Some("duckduckgo"));
     }
 
-    /// An EXPLICIT post-migration Google choice survives the next open — the
+    /// An EXPLICIT post-migration Google choice survives the next open - the
     /// marker limits the flip to one run; Google stays a working option.
     #[test]
     fn explicit_google_choice_survives_reopen() {
@@ -881,7 +881,7 @@ mod tests {
     // --- Session save/restore (CD-21, D-0035) -------------------------------
 
     /// A "Quit & Save" session restores exactly once (mode, url, width, active
-    /// preserved) and is then consumed — a second launch (or a plain quit) boots
+    /// preserved) and is then consumed - a second launch (or a plain quit) boots
     /// the default layout.
     #[test]
     fn save_quit_session_restores_once_then_defaults() {
@@ -903,7 +903,7 @@ mod tests {
 
         // One-shot: consumed after the first restore.
         assert!(s.take_saved_session().is_none(), "restore is consumed → default next time");
-        // And the rows are purged from disk — no saved URL lingers past the restore.
+        // And the rows are purged from disk - no saved URL lingers past the restore.
         assert!(s.load_session_rows().is_empty(), "consumed rows are deleted, not left behind");
     }
 
@@ -919,7 +919,7 @@ mod tests {
             SessionSlot { position: 1, url: "https://new.example/".into(), width_units: 1, active: true, tor: false },
         ]);
         let got = s.take_saved_session().expect("restorable");
-        assert_eq!(got.len(), 2, "DELETE+INSERT replaces — no leftover row from the old save");
+        assert_eq!(got.len(), 2, "DELETE+INSERT replaces - no leftover row from the old save");
         assert_eq!(got[1].url, "https://new.example/");
     }
 }

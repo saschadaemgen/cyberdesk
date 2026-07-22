@@ -1,4 +1,4 @@
-// CARVILON CyberDesk — surf-zone page compositing.
+// CARVILON CyberDesk - surf-zone page compositing.
 //
 // Draws the CEF off-screen page texture as a quad placed at the surf-zone
 // rectangle (given in NDC via the uniform), sampled and composited over the
@@ -63,7 +63,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
     // Edge coverage, toggled live via the uniform (single pipeline, no recompile):
     //   feather > 0 : soft alpha falloff over `feather` px inward from the edge,
     //                 following the rounded contour. CD-06: a narrow band with a
-    //                 steep pow curve — the page stays fully opaque except the
+    //                 steep pow curve - the page stays fully opaque except the
     //                 outermost pixels (a light, casual soften), not the wide
     //                 creamy gradient that read as a 3D/vignette curve.
     //   feather = 0 : CD-02 hard rounded edge (1.5px anti-alias straddling it).

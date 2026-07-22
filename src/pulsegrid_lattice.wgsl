@@ -1,4 +1,4 @@
-// Pulse Grid — micro lattice (CD-05), depth layers (CD-06).
+// Pulse Grid - micro lattice (CD-05), depth layers (CD-06).
 //
 // The faint dot grid that is the base weave of the board. Rendered once into the
 // static bake target as a single fullscreen pass. Since CD-06 it carries THREE

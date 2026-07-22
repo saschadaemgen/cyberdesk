@@ -1,11 +1,11 @@
-//! Headless forensic probe (CD-33) — drives the REAL CEF init + browser-creation
+//! Headless forensic probe (CD-33) - drives the REAL CEF init + browser-creation
 //! path with no window, so a filesystem scan can prove what browsing does or does
 //! not leave on disk.
 //!
 //! This is a verification harness, not a product surface: it is reachable only via
 //! the `CYBERDESK_FS_PROBE=<url>` environment variable and never appears in
 //! `--help`. It deliberately calls `browser::init_cef` / `browser::create_browser_url`
-//! rather than re-implementing them — what it verifies is exactly what ships.
+//! rather than re-implementing them - what it verifies is exactly what ships.
 //!
 //! Copyright (c) 2026 Sascha Daemgen IT and More Systems.
 //! SPDX-License-Identifier: AGPL-3.0-only (open core; commercial Pro edition licensed apart)
@@ -20,7 +20,7 @@ const DEFAULT_DWELL_SECS: u64 = 12;
 
 /// Run the probe if `CYBERDESK_FS_PROBE` names a URL; returns whether it ran.
 ///
-/// Off-screen (OSR) only — no winit window, no renderer, no Pulse Grid. Loads the
+/// Off-screen (OSR) only - no winit window, no renderer, no Pulse Grid. Loads the
 /// URL in slot 0 exactly as the shell would, dwells, then shuts CEF down cleanly so
 /// every profile write CEF intends to flush has happened before the scan.
 pub fn run_if_requested() -> bool {
@@ -43,7 +43,7 @@ pub fn run_if_requested() -> bool {
     browser::init_identity_seed();
     browser::init_cef();
 
-    // MTML: CEF drives its own UI thread — just wait for the context callback.
+    // MTML: CEF drives its own UI thread - just wait for the context callback.
     let deadline = Instant::now() + Duration::from_secs(30);
     while !browser::context_ready() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));

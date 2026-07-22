@@ -1,9 +1,9 @@
 // Floating HUD strip (CD-30 Task B). Talks to the Rust host over the CEF message
-// router (window.cefQuery) only — no network, no fetch, no external resources.
+// router (window.cefQuery) only - no network, no fetch, no external resources.
 // The host pushes state on change via window.cdHud(json) (like cdFrame); this
 // page pulls once on load (get_hud_state) and only ticks the CLOCK and the
 // rotation COUNTDOWN locally between pushes. Every displayed value is real
-// (CD-30 rule 0.1) — the countdown/age anchors are absolute timestamps computed
+// (CD-30 rule 0.1) - the countdown/age anchors are absolute timestamps computed
 // from the push, so a stale cache can never show a wrong deadline. Wire format
 // in docs/cyberdesk-wire-format.md.
 
@@ -58,7 +58,7 @@
 
   // Sascha's digital clock: local wall-clock time. The PROCESS runs under TZ=UTC
   // (the CD-16 timezone clamp, honest and global), so local time is derived from
-  // the host-supplied UTC offset — never from getHours(), which would silently
+  // the host-supplied UTC offset - never from getHours(), which would silently
   // show UTC mislabeled as local.
   function paintClock() {
     if (!state || typeof state.tz_offset_min !== "number") { clockEl.textContent = "--:--:--"; return; }
@@ -86,27 +86,27 @@
 
   // The identity field ticks locally between pushes (countdown / age).
   function paintIdentity() {
-    if (!state) { identityV.textContent = "—"; return; }
+    if (!state) { identityV.textContent = "-"; return; }
     if (deadline != null) {
       identityK.textContent = "New identity in";
       identityV.textContent = fmtCountdown(deadline - Date.now());
     } else {
       identityK.textContent = "Identity age";
-      identityV.textContent = bornAbs != null ? fmtAge(Date.now() - bornAbs) : "—";
+      identityV.textContent = bornAbs != null ? fmtAge(Date.now() - bornAbs) : "-";
     }
   }
 
   var prevLevel = null;
   function paint() {
     if (!state) return;
-    // Protection level — the Ampel state in text, with the honest tint rules:
+    // Protection level - the Ampel state in text, with the honest tint rules:
     // warn when genuinely reduced/off, accent at Red (the strongest).
-    var level = (state.level || "").toUpperCase() || "—";
+    var level = (state.level || "").toUpperCase() || "-";
     levelV.textContent = level;
     levelField.classList.toggle("warn", !!state.reduced || state.level === "off");
     levelField.classList.toggle("good", state.level === "red" && !state.reduced);
-    // The Ampel lamps — lit strictly from the ACTIVE global level (rule 0.1).
-    // Entering Red slams the lamp (the page-side echo of the grid transition —
+    // The Ampel lamps - lit strictly from the ACTIVE global level (rule 0.1).
+    // Entering Red slams the lamp (the page-side echo of the grid transition -
     // it can only fire on a real push carrying the committed Red level).
     ampelEl.setAttribute("data-level", state.level || "");
     if (state.level === "red" && prevLevel !== null && prevLevel !== "red") {
@@ -119,13 +119,13 @@
     for (var i = 0; i < lvs.length; i++) {
       lvs[i].classList.toggle("active", lvs[i].getAttribute("data-level") === state.level);
     }
-    // Honest live vector count (N/N) — the global effective config.
+    // Honest live vector count (N/N) - the global effective config.
     var on = state.vectors_on | 0;
     var total = state.vectors_total | 0;
-    vectorsV.textContent = total ? on + "/" + total + " active" : "—";
+    vectorsV.textContent = total ? on + "/" + total + " active" : "-";
     // The ACTIVE window's route (CD-15 state, surfaced as text). "Onion" is
     // shown only while the window is actually on an onion service (CD-35 Task
-    // C): the host derives it from the live URL + Tor mode — connected to an
+    // C): the host derives it from the live URL + Tor mode - connected to an
     // onion service, resolved inside Tor, nothing more claimed.
     var r = state.route || {};
     routeK.textContent = "Route W" + (r.window || 1);
@@ -133,7 +133,7 @@
     routeV.parentElement.classList.toggle("on", !!r.tor);
     // Vault status (CD-40 1c). While the HUD exists the gate is open, so the
     // honest states are: unlocked (sealed state active), not set up, or the
-    // debug-build dev bypass (loudly warned — the gate was skipped).
+    // debug-build dev bypass (loudly warned - the gate was skipped).
     var vaultV = document.getElementById("vault-v");
     if (vaultV) {
       var vs = state.vault || "none";
@@ -167,7 +167,7 @@
     var from = state && state.level;
     if (target === "off") {
       return "Turn protection OFF? Every site then gets a stable, distinctive fingerprint " +
-        "and can recognise you when you return — this makes you easier to track, not harder.";
+        "and can recognise you when you return - this makes you easier to track, not harder.";
     }
     if (from === "red") {
       return "Step down from Red (maximum)? The noise and timer clamps return from their " +
@@ -206,7 +206,7 @@
     if (weaken) { openGate(target); return; }
     showMenu(false);
     // Up / sideways: immediate. If the host still classifies it as a weakening
-    // (e.g. coming from Custom), it rejects — then run the gate honestly.
+    // (e.g. coming from Custom), it rejects - then run the gate honestly.
     applyLevel(target, false).catch(function () { openGate(target); });
   }
 

@@ -1,4 +1,4 @@
-// Pulse Grid — composite (CD-05).
+// Pulse Grid - composite (CD-05).
 //
 // The backmost layer of the frame: read the baked static circuit (full-res
 // Rgba16Float, raw glow) and lay it over the base color, scaled by the live

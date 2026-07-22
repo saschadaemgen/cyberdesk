@@ -1,4 +1,4 @@
-//! Anti-forensic on-disk hygiene (CD-34, D-0051) — the permanent browsing-residue
+//! Anti-forensic on-disk hygiene (CD-34, D-0051) - the permanent browsing-residue
 //! safety net.
 //!
 //! CD-33 (D-0050) stopped browsing content from being *written* to disk: views run
@@ -6,7 +6,7 @@
 //! two things remained true:
 //!
 //!  1. Residue that older builds already wrote (the measured ~79 MB profile) is not
-//!     removed by that fix — it only stops growing.
+//!     removed by that fix - it only stops growing.
 //!  2. If a future CEF version ever regressed and wrote browsing content to disk
 //!     again, nothing would clean it up.
 //!
@@ -17,16 +17,16 @@
 //!
 //! ## The allowlist is exactly one path
 //!
-//! The purge target is the CEF `root_cache_path` — `<exe_dir>/cyberdesk-cache` — and
+//! The purge target is the CEF `root_cache_path` - `<exe_dir>/cyberdesk-cache` - and
 //! nothing else. That directory is created and owned entirely by CEF for the browsing
 //! profile, its caches, and Chromium component data; the app writes nothing of its own
 //! there. Everything the ticket says must survive lives in a **different filesystem
-//! tree** — `%LOCALAPPDATA%\CyberDesk\{state.db, tor\, logs\}` — which this module never
+//! tree** - `%LOCALAPPDATA%\CyberDesk\{state.db, tor\, logs\}` - which this module never
 //! references. Purge target and protected data are therefore disjoint by construction.
 //!
 //! Deleting the whole directory (not a curated list of sub-paths) is the deliberate
 //! choice: a sub-path allowlist would drift as CEF's on-disk layout changes between
-//! versions and could silently miss a future leak — the exact failure mode CD-33 was
+//! versions and could silently miss a future leak - the exact failure mode CD-33 was
 //! about. One known top-level directory, entirely ours-via-CEF, is both a strict
 //! allowlist (of one entry) *and* the strongest guarantee. CEF recreates it cleanly on
 //! init (proven by CD-33's probe, which ran from an empty dir every time).
@@ -35,7 +35,7 @@
 //!
 //! The purge runs before `init_cef`. Once CEF opens the profile it holds OS locks on
 //! those files, so a mid-session wipe would fail or corrupt. Before init is the only
-//! safe moment — and it is sufficient: content this session browses lives in RAM, so
+//! safe moment - and it is sufficient: content this session browses lives in RAM, so
 //! the on-disk profile only ever holds regenerable scaffolding until the next launch
 //! clears it.
 //!
@@ -52,7 +52,7 @@ pub const CACHE_DIR_NAME: &str = "cyberdesk-cache";
 
 /// The one allowlisted purge target: the CEF `root_cache_path`, `<exe_dir>/cyberdesk-cache`.
 ///
-/// This is the SINGLE definition of that path — `browser::init_cef` calls it too, so the
+/// This is the SINGLE definition of that path - `browser::init_cef` calls it too, so the
 /// directory CEF writes to and the directory we purge can never drift apart. `None` if the
 /// executable path can't be resolved (in which case the purge safely does nothing rather
 /// than guess a path to delete).
@@ -65,7 +65,7 @@ pub fn browsing_cache_root() -> Option<PathBuf> {
 /// Defense-in-depth guard: is `path` a plausible browsing-cache directory that is safe to
 /// remove wholesale? Even though [`browsing_cache_root`] derives the path correctly, a
 /// future refactor bug must never be able to aim `remove_dir_all` at the exe directory, a
-/// drive root, or anything else. If any check fails we do NOT delete — we flag it (per the
+/// drive root, or anything else. If any check fails we do NOT delete - we flag it (per the
 /// ticket's "if in doubt, do not delete").
 ///
 /// The rules: absolute path, final component is exactly [`CACHE_DIR_NAME`], and it has a
@@ -99,7 +99,7 @@ fn last_purge() -> &'static Mutex<PurgeOutcome> {
 }
 
 /// Sum the sizes of every regular file under `path` (recursive). Unreadable entries are
-/// skipped rather than aborting — a footprint reading is advisory, never fatal. Returns 0
+/// skipped rather than aborting - a footprint reading is advisory, never fatal. Returns 0
 /// if `path` does not exist.
 pub fn dir_size(path: &Path) -> u64 {
     fn walk(path: &Path, acc: &mut u64) {
@@ -125,11 +125,11 @@ pub fn dir_size(path: &Path) -> u64 {
 }
 
 /// The guarded delete of one resolved `root`, returning a truthful outcome. Applies the
-/// safety guard, measures, deletes, and (on partial failure) recomputes what remains — the
+/// safety guard, measures, deletes, and (on partial failure) recomputes what remains - the
 /// whole purge mechanism except reading the setting and resolving the path. Split out from
 /// [`purge_on_launch`] so the mechanism is directly unit-testable against a synthetic tree,
 /// including the refusal branch (a path that fails the guard must NOT be deleted). `ran` is
-/// always true here — the opt-out is decided by the caller before we get a path.
+/// always true here - the opt-out is decided by the caller before we get a path.
 ///
 /// Error strings are self-describing sentences (they double as the settings readout's
 /// "Last launch" value and the log message), so the reader needs no extra framing.
@@ -137,13 +137,13 @@ fn purge_dir(root: &Path) -> PurgeOutcome {
     let mut outcome = PurgeOutcome { ran: true, ..Default::default() };
 
     if !is_safe_purge_target(root) {
-        // Failed the guard — flag, never delete (per the ticket's "if in doubt, do not
+        // Failed the guard - flag, never delete (per the ticket's "if in doubt, do not
         // delete"). The directory is left exactly as found.
         outcome.error = Some(format!("refused an unsafe cache path: {}", root.display()));
         return outcome;
     }
     if !root.exists() {
-        // Clean already — nothing has landed here since the last launch.
+        // Clean already - nothing has landed here since the last launch.
         return outcome; // ran=true, found=0, cleared=false
     }
 
@@ -162,7 +162,7 @@ fn purge_dir(root: &Path) -> PurgeOutcome {
 }
 
 /// Purge the browsing-cache/profile directory if the setting is on. Called once per launch,
-/// on the main thread, BEFORE `browser::init_cef` — the only point at which CEF does not yet
+/// on the main thread, BEFORE `browser::init_cef` - the only point at which CEF does not yet
 /// hold the profile's files open.
 ///
 /// Records the outcome for the settings readout. Never panics: a delete failure is logged
@@ -226,10 +226,10 @@ fn human_bytes(n: u64) -> String {
 }
 
 /// The live on-disk browsing footprint + last-purge result, as JSON for the
-/// `get_residue_footprint` IPC. Truthful by construction — both numbers are measured.
+/// `get_residue_footprint` IPC. Truthful by construction - both numbers are measured.
 ///
 /// `on_disk_*` is the CURRENT size of the browsing-cache directory: the working profile
-/// CEF scaffolds while running (regenerable, holding no browsing content — that lives in
+/// CEF scaffolds while running (regenerable, holding no browsing content - that lives in
 /// RAM) and cleared at the next launch. `last_purge` is what the launch purge actually did.
 pub fn footprint_json() -> String {
     let on_disk = browsing_cache_root().map(|p| dir_size(&p)).unwrap_or(0);
@@ -258,7 +258,7 @@ mod tests {
     use super::*;
 
     /// The safety guard accepts a well-formed cache path and rejects the dangerous
-    /// look-alikes a refactor bug might produce — the parent (exe) dir, a differently
+    /// look-alikes a refactor bug might produce - the parent (exe) dir, a differently
     /// named sibling, or a relative path. Paths are built from an absolute base so the
     /// test is portable (a `/…` literal is not absolute on Windows, the target OS).
     #[test]
@@ -269,7 +269,7 @@ mod tests {
         // Accept: absolute, named exactly, with a real parent.
         assert!(is_safe_purge_target(&good));
 
-        // Reject: the exe dir itself (wrong final component — this is what a bug that
+        // Reject: the exe dir itself (wrong final component - this is what a bug that
         // dropped the `.join(CACHE_DIR_NAME)` would produce, and it must never delete).
         assert!(!is_safe_purge_target(&exe_dir));
         // Reject: a differently named sibling.
@@ -283,7 +283,7 @@ mod tests {
         assert!(!is_safe_purge_target(Path::new("/")));
     }
 
-    /// The real derived cache path passes the guard and is named as expected — so the
+    /// The real derived cache path passes the guard and is named as expected - so the
     /// path we hand to `remove_dir_all` in production is one the guard would accept. Asserts
     /// `Some` outright: `current_exe` always resolves in the test binary, so a `None` here
     /// would be a real regression, not a case to skip past (the old `if let` hid that).
@@ -333,7 +333,7 @@ mod tests {
     }
 
     /// The refusal branch: `purge_dir` handed a path that FAILS the safety guard (not named
-    /// `cyberdesk-cache`) must NOT delete it — it flags and leaves the directory exactly as
+    /// `cyberdesk-cache`) must NOT delete it - it flags and leaves the directory exactly as
     /// found. This is the mutation-catcher the coverage review asked for: inverting the
     /// guard, or deleting the wrong path, would fail here.
     #[test]
@@ -366,7 +366,7 @@ mod tests {
     }
 
     /// The footprint readout emits valid JSON carrying the exact keys the settings
-    /// page reads — locking the wire contract so a rename can't silently break the UI.
+    /// page reads - locking the wire contract so a rename can't silently break the UI.
     #[test]
     fn footprint_json_has_the_readout_contract() {
         let j: serde_json::Value = serde_json::from_str(&footprint_json()).unwrap();
@@ -381,7 +381,7 @@ mod tests {
         assert!(lp.get("error").is_some()); // null or a string, but always present
     }
 
-    /// Human formatting is honest at the unit boundaries — including the rounding edge
+    /// Human formatting is honest at the unit boundaries - including the rounding edge
     /// just below a boundary, which must promote (1048575 B is "1.0 MB", never "1024.0 KB").
     #[test]
     fn human_bytes_reads_naturally() {

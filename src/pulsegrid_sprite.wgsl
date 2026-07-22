@@ -1,4 +1,4 @@
-// Pulse Grid — instanced SDF sprite (CD-05).
+// Pulse Grid - instanced SDF sprite (CD-05).
 //
 // One pipeline draws every circuit primitive and every live pulse/flare. Each
 // instance is a line, a filled disk, or a hollow ring; the vertex shader expands
@@ -11,7 +11,7 @@
 //   * the live layer (target Bgra8Unorm, globals.glow_intensity = the slider).
 // Because coverage is multiplied by glow_intensity here, the bake stores raw
 // glow (intensity 1) and the composite re-applies intensity to the baked
-// texture — the two paths stay consistent.
+// texture - the two paths stay consistent.
 
 struct Globals {
     base           : vec4<f32>,   // background base color (composite only)

@@ -1,4 +1,4 @@
-// CARVILON CyberDesk — lazy-slot placeholder (CD-09).
+// CARVILON CyberDesk - lazy-slot placeholder (CD-09).
 //
 // A slot with no browser yet (added via Ctrl+T, awaiting its first navigation)
 // draws this instead of a page: a rounded fill slightly lifted above the base
@@ -78,7 +78,7 @@ fn fs_main(in : VOut) -> @location(0) vec4<f32> {
 
     if (dg < 0.5) {
         // A frame zone (D-0022): a thin inset rounded-rect outline (shared) plus a
-        // core glyph — the slot family, differing glyph. The LEFT (Spine) zone
+        // core glyph - the slot family, differing glyph. The LEFT (Spine) zone
         // shows a diamond; the RIGHT Multifunctional zone shows three stacked
         // bars (a rows / tab-rail glyph). No text; the shell has no font.
         let m = min(in.half.x, in.half.y);

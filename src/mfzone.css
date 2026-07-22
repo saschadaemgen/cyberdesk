@@ -1,5 +1,5 @@
 /* MF-zone tabbed viewer (CD-18). Colors come entirely from the injected token
-   custom properties (theme.toml / Theme::to_css_vars) — nothing hardcoded. The
+   custom properties (theme.toml / Theme::to_css_vars) - nothing hardcoded. The
    MF-zone OSR view is OPAQUE, so the panel fills the whole rect edge-to-edge (no
    floating margin, unlike the settings/info overlay). */
 
@@ -166,7 +166,7 @@ html, body {
 /* --- Application quit (CD-21) --------------------------------------------- */
 /* Persistent chrome pinned below the tab panes (flex:none), so both buttons stay
    visible on every tab. "Quit & Save" is the primary (brand) action. These end the
-   whole shell — the CD-18 per-slot close icon is a separate control. */
+   whole shell - the CD-18 per-slot close icon is a separate control. */
 .quit-bar {
   flex: none;
   display: flex;

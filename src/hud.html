@@ -12,36 +12,36 @@
 </head>
 <body>
   <!-- Floating info strip (CD-30 Task B) + the global Ampel (Task C): a
-       TRANSPARENT top-right cluster in the CD-12 floating idiom — no bars, only
+       TRANSPARENT top-right cluster in the CD-12 floating idiom - no bars, only
        these elements paint. Every field is a live host-pushed value
        (window.cdHud); the page only ticks the clock and the countdown locally
-       between pushes (rule 0.1: status is truthful — the Ampel can only show a
+       between pushes (rule 0.1: status is truthful - the Ampel can only show a
        level that is actually active). -->
   <main class="hud">
     <div class="clock" id="clock" aria-label="Clock">--:--:--</div>
     <div class="row2">
       <!-- The Ampel: the primary, at-a-glance protection control. Click to pick
-           a level — stepping UP applies immediately, stepping DOWN opens the
+           a level - stepping UP applies immediately, stepping DOWN opens the
            two-confirmation gate below (CD-25 gate semantics, host-revalidated). -->
-      <button class="ampel" id="ampel" title="Protection level — click to change"
+      <button class="ampel" id="ampel" title="Protection level - click to change"
               aria-haspopup="menu" aria-expanded="false">
         <span class="lamp lamp-r"></span><span class="lamp lamp-y"></span><span class="lamp lamp-g"></span>
       </button>
       <div class="fields" id="fields">
         <span class="field" id="f-level">
-          <span class="k">Protection</span><span class="v" id="level-v">—</span>
+          <span class="k">Protection</span><span class="v" id="level-v">-</span>
         </span>
         <span class="field">
-          <span class="k">Vectors</span><span class="v" id="vectors-v">—</span>
+          <span class="k">Vectors</span><span class="v" id="vectors-v">-</span>
         </span>
         <span class="field">
-          <span class="k" id="route-k">Route</span><span class="v" id="route-v">—</span>
+          <span class="k" id="route-k">Route</span><span class="v" id="route-v">-</span>
         </span>
         <span class="field">
-          <span class="k" id="identity-k">Identity</span><span class="v" id="identity-v">—</span>
+          <span class="k" id="identity-k">Identity</span><span class="v" id="identity-v">-</span>
         </span>
         <span class="field" id="vault-field">
-          <span class="k">Vault</span><span class="v" id="vault-v">—</span>
+          <span class="k">Vault</span><span class="v" id="vault-v">-</span>
         </span>
       </div>
       <div class="menu" id="menu" hidden>

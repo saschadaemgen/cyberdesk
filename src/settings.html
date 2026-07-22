@@ -92,13 +92,13 @@
 
     <!-- On-disk privacy (CD-34, D-0051). Browsing content is RAM-only (CD-33); this
          net wipes any cache/profile residue that reached disk, on every launch, so
-         nothing browsed survives there — even if something upstream ever regresses.
+         nothing browsed survives there - even if something upstream ever regresses.
          Copy rule (D-0044): state what it does, confidently and accurately; never a
          competitor pointer, never self-deprecation. -->
     <!-- Vault (CD-40, D-0058; unlock model per CD-42, D-0062): start
          authorization + envelope key management. The master password is set
          at first launch (mandatory); this section manages it. Secrets never
-         enter this page — the host captures keystrokes into locked memory;
+         enter this page - the host captures keystrokes into locked memory;
          this page renders masked counts pushed via window.cdVault. -->
     <section class="rows tor-section" aria-label="Vault">
       <h2 class="section-head">Vault <span id="vault-pill" class="tor-status"></span></h2>
@@ -106,7 +106,7 @@
       <div class="row" id="vault-lock-row" hidden>
         <div class="label">
           <span class="name">Lock now</span>
-          <span class="hint">Ends the session and returns to the locked start &mdash; key material is wiped</span>
+          <span class="hint">Ends the session and returns to the locked start - key material is wiped</span>
         </div>
         <button class="btn" id="vault-lock" type="button">Lock</button>
       </div>
@@ -117,13 +117,13 @@
         <div class="row">
           <div class="label">
             <span class="name">Enrolled methods</span>
-            <span class="hint" id="vault-methods">&mdash;</span>
+            <span class="hint" id="vault-methods">-</span>
           </div>
         </div>
         <div class="row">
           <div class="label">
             <span class="name">Unlock policy</span>
-            <span class="hint">The master password is always required; a passkey can be required in addition (2FA) &mdash; no other combination exists</span>
+            <span class="hint">The master password is always required; a passkey can be required in addition (2FA) - no other combination exists</span>
           </div>
           <div class="vault-policy">
             <button class="btn pol" id="vault-pol-1" type="button">Password only</button>
@@ -133,7 +133,7 @@
         <div class="row">
           <div class="label">
             <span class="name">Passphrase cost (Argon2id)</span>
-            <span class="hint" id="vault-kdf-hint">&mdash;</span>
+            <span class="hint" id="vault-kdf-hint">-</span>
           </div>
           <button class="btn" id="vault-retune" type="button">Tune&hellip;</button>
         </div>
@@ -142,12 +142,12 @@
           <label>Passes <input id="kdf-t" type="number" min="1" max="10"></label>
           <label>Lanes <input id="kdf-p" type="number" min="1" max="8"></label>
           <button class="btn" id="kdf-apply" type="button">Apply&hellip;</button>
-          <span class="hint">Applying asks for your passphrase &mdash; captured by the core, verified, then re-derived under the new cost</span>
+          <span class="hint">Applying asks for your passphrase - captured by the core, verified, then re-derived under the new cost</span>
         </div>
         <div class="row">
           <div class="label">
             <span class="name">Change master password</span>
-            <span class="hint">Re-wraps the master key &mdash; your data is never re-encrypted</span>
+            <span class="hint">Re-wraps the master key - your data is never re-encrypted</span>
           </div>
           <button class="btn" id="vault-change" type="button">Change&hellip;</button>
         </div>
@@ -157,13 +157,13 @@
         <div class="row" id="vault-pk-row">
           <div class="label">
             <span class="name">Passkey (Windows Hello)</span>
-            <span class="hint" id="vault-pk-hint">The optional second factor &mdash; with two-factor unlock on, password and passkey are both required.</span>
+            <span class="hint" id="vault-pk-hint">The optional second factor - with two-factor unlock on, password and passkey are both required.</span>
           </div>
           <button class="btn" id="vault-pk-add" type="button" hidden>Add passkey&hellip;</button>
           <button class="btn" id="vault-pk-remove" type="button" hidden>Remove</button>
         </div>
         <div class="vault-hello" id="vault-hello" hidden>Follow the Windows Hello
-        prompts &mdash; enrolling confirms twice (once to create the passkey,
+        prompts - enrolling confirms twice (once to create the passkey,
         once to derive its vault secret).</div>
       </div>
 
@@ -175,7 +175,7 @@
           <span class="vault-placeholder" id="vault-placeholder" hidden></span>
         </div>
         <!-- The live strength meter (CD-42 Task B): rendered purely from the
-             host-computed score push — shown while a NEW master password is
+             host-computed score push - shown while a NEW master password is
              typed (change flow); the password never enters this page. -->
         <div class="vmeter" id="vault-meter" hidden>
           <div class="vmeter-bar"><span id="vault-meter-fill"></span></div>
@@ -186,7 +186,7 @@
           <div class="vmeter-fb" id="vault-meter-fb" hidden></div>
         </div>
         <div class="vweak" id="vault-weak" hidden>
-          <div class="vweak-text">This password is weak &mdash; it could be
+          <div class="vweak-text">This password is weak - it could be
           guessed. Keep typing to strengthen it, or use it anyway: the choice
           is yours.</div>
           <button class="btn" id="vault-weak-use" type="button">Use this weak password anyway</button>
@@ -202,10 +202,10 @@
       <div class="vault-err" id="vault-err" hidden></div>
 
       <p class="honesty">The vault wraps one master key that only your master
-      password opens &mdash; there is no recovery key and no backdoor, by
+      password opens - there is no recovery key and no backdoor, by
       design. If the master password is forgotten, the vault cannot be opened.
       While you type it, the CyberDesk core captures it directly into locked
-      memory &mdash; no page ever sees a keystroke.</p>
+      memory - no page ever sees a keystroke.</p>
     </section>
 
     <section class="rows tor-section" aria-label="On-disk privacy">
@@ -225,13 +225,13 @@
            measured, never asserted). "On disk now" is the working profile CEF scaffolds
            while running; it holds no browsing content and is wiped at the next launch. -->
       <dl class="tor-info">
-        <div><dt>Last launch</dt><dd id="residue-last">—</dd></div>
-        <div><dt>On disk now</dt><dd id="residue-now">—</dd></div>
+        <div><dt>Last launch</dt><dd id="residue-last">-</dd></div>
+        <div><dt>On disk now</dt><dd id="residue-now">-</dd></div>
       </dl>
 
       <p class="honesty">Everything you browse lives only in memory and is gone when
       CyberDesk closes. As a standing safeguard, each launch also wipes any browsing
-      cache or content that ever reached the disk — so <strong>nothing you browsed
+      cache or content that ever reached the disk - so <strong>nothing you browsed
       survives on disk</strong>, even if an update ever wrote some by accident. It only
       ever touches the browsing profile: your <strong>Tor state</strong> (so its
       protection carries across restarts) and your <strong>saved session</strong> are
@@ -239,7 +239,7 @@
     </section>
 
     <!-- Per-window Tor (CD-15). Copy rule (D-0044): state what it does, confidently
-         and accurately — never a competitor pointer, never self-deprecation. -->
+         and accurately - never a competitor pointer, never self-deprecation. -->
     <section class="rows tor-section" aria-label="Tor">
       <h2 class="section-head">Tor <span id="tor-status" class="tor-status"></span></h2>
       <p id="tor-reason" class="tor-reason" hidden></p>
@@ -257,7 +257,7 @@
       <div class="row">
         <div class="label">
           <span class="name">Tor engine enabled</span>
-          <span class="hint">Master switch — when off, the per-window Tor toggle does nothing</span>
+          <span class="hint">Master switch - when off, the per-window Tor toggle does nothing</span>
         </div>
         <div class="switch" data-key="tor_enabled" role="switch" tabindex="0" aria-checked="false">
           <span class="knob"></span>
@@ -267,7 +267,7 @@
       <div class="row">
         <div class="label">
           <span class="name">New circuit / new identity</span>
-          <span class="hint">Rotate to fresh Tor circuits for new requests — reload a page to use its new circuit</span>
+          <span class="hint">Rotate to fresh Tor circuits for new requests - reload a page to use its new circuit</span>
         </div>
         <button class="btn" id="tor-new-circuit" type="button">New circuit</button>
       </div>
@@ -281,20 +281,20 @@
       </div>
 
       <dl class="tor-info">
-        <div><dt>Tor engine</dt><dd id="tor-version">arti —</dd></div>
+        <div><dt>Tor engine</dt><dd id="tor-version">arti -</dd></div>
         <div><dt>Circuit isolation</dt><dd>Each window uses its own Tor circuit, so two Tor windows can't be linked to each other.</dd></div>
       </dl>
 
       <p class="honesty">Tor mode routes that window through the Tor network: sites
       see a Tor exit address, <strong>never your IP</strong>, and every window rides
       its own isolated circuit. It works together with the always-on tracking
-      resistance below — one layer hides where you connect from, the other keeps
+      resistance below - one layer hides where you connect from, the other keeps
       your browser from being profiled and recognised.</p>
     </section>
 
     <!-- Fingerprinting hardening (CD-16 / CD-25, D-0039 / D-0040). Global preset +
          per-window override + a two-confirmation gate on weakening. Copy rule
-         (D-0044): state what the protection does, confidently and accurately —
+         (D-0044): state what the protection does, confidently and accurately -
          never a competitor pointer, never self-deprecation. -->
     <section class="rows tor-section" aria-label="Tracking resistance">
       <h2 class="section-head">Tracking resistance <span id="fp-level" class="tor-status"></span></h2>
@@ -302,7 +302,7 @@
       <!-- The Ampel levels (CD-30 Task C): Green < Yellow < Red is a strict
            protection order. Stepping UP is immediate; stepping DOWN goes through
            the two-confirmation gate. The floating Ampel (top-right) drives the
-           same setting — this dropdown is the settings-card view of it. -->
+           same setting - this dropdown is the settings-card view of it. -->
       <div class="row">
         <div class="label">
           <span class="name">Protection level</span>
@@ -317,9 +317,9 @@
               stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <ul class="select-menu" id="fp-menu" role="listbox" hidden>
-            <li role="option" data-value="green">Green — everyday</li>
-            <li role="option" data-value="yellow">Yellow — elevated</li>
-            <li role="option" data-value="red">Red — maximum, locks window size</li>
+            <li role="option" data-value="green">Green - everyday</li>
+            <li role="option" data-value="yellow">Yellow - elevated</li>
+            <li role="option" data-value="red">Red - maximum, locks window size</li>
             <li role="option" data-value="off">Off</li>
             <li role="option" data-value="custom">Custom…</li>
           </ul>
@@ -350,12 +350,12 @@
         </div>
       </div>
 
-      <!-- Detailed per-vector view — shown only in Custom. Disabling a protection is
+      <!-- Detailed per-vector view - shown only in Custom. Disabling a protection is
            a weakening action and is gated (settings.js). Timezone is process-global
            (always UTC), so it is not a per-vector toggle. -->
       <div class="fp-detail" id="fp-detail" hidden>
         <p class="hint fp-detail-note">Custom mode. Turning a protection off makes this
-        browser easier to fingerprint — a partial, unusual set can make you
+        browser easier to fingerprint - a partial, unusual set can make you
         <em>more</em> identifiable. Timezone stays UTC (it is process-global).</p>
         <div class="row"><div class="label"><span class="name">Canvas</span>
           <span class="hint">Image / canvas readback</span></div>
@@ -401,7 +401,7 @@
         timers). The noise is stable within a session but changes on the next launch
         or a new identity, so a site cannot link one session to the next.</dd></div>
         <div><dt>What stays real</dt><dd>Your operating system, browser identity
-        (User-Agent), and language are left untouched and mutually consistent — no
+        (User-Agent), and language are left untouched and mutually consistent - no
         half-spoofing that would make you <em>more</em> identifiable.</dd></div>
       </dl>
 
@@ -409,11 +409,11 @@
       link</strong> across sites and sessions: stable signals are clamped to common
       values and measured signals carry fresh per-session noise, so the fingerprint
       a tracker records today doesn't match the one it sees tomorrow. For IP
-      anonymity, add CyberDesk's built-in <strong>per-window Tor</strong> (above) —
+      anonymity, add CyberDesk's built-in <strong>per-window Tor</strong> (above) -
       the two layers are designed to work together.</p>
 
       <!-- Per-session identity rotation (CD-29). Re-seeds the fingerprint so a fresh,
-           unlinkable identity is produced — manually, automatically, or each launch. -->
+           unlinkable identity is produced - manually, automatically, or each launch. -->
       <h2 class="section-head" style="margin-top:18px;">New identity</h2>
 
       <div class="row">
@@ -429,7 +429,7 @@
       <div class="row">
         <div class="label">
           <span class="name">Rotate automatically</span>
-          <span class="hint">Re-roll the fingerprint on a timer — the grid counts down and re-rolls</span>
+          <span class="hint">Re-roll the fingerprint on a timer - the grid counts down and re-rolls</span>
         </div>
         <div class="switch" data-key="rotate_auto" role="switch" tabindex="0" aria-checked="false">
           <span class="knob"></span>

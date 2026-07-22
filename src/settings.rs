@@ -1,4 +1,4 @@
-//! Live application settings — the single source of truth shared between the
+//! Live application settings - the single source of truth shared between the
 //! render loop (main thread) and the settings IPC (CEF UI thread).
 //!
 //! The SQLite [`Store`] is owned here for the life of the process: Stage A
@@ -14,7 +14,7 @@ use crate::harden;
 use crate::store::Store;
 
 /// The persisted key/value store (shared process-wide with the history/favorites
-/// layer — see [`crate::store::shared`]).
+/// layer - see [`crate::store::shared`]).
 fn store() -> &'static Mutex<Store> {
     crate::store::shared()
 }
@@ -23,7 +23,7 @@ static FEATHER_EDGES: AtomicBool = AtomicBool::new(true);
 static ANIMATED_BACKGROUND: AtomicBool = AtomicBool::new(true);
 static STAY_FOREGROUND: AtomicBool = AtomicBool::new(true);
 /// Purge any browsing cache/content residue from disk on every launch (CD-34,
-/// D-0051). Default ON — it is the anti-forensic guarantee; disabling it lets
+/// D-0051). Default ON - it is the anti-forensic guarantee; disabling it lets
 /// residue accumulate, so turning it off routes through the weakening gate (D-0040).
 static PURGE_RESIDUE: AtomicBool = AtomicBool::new(true);
 /// Glow intensity as a whole percent (50..=220). The authoritative default is
@@ -32,7 +32,7 @@ static PURGE_RESIDUE: AtomicBool = AtomicBool::new(true);
 static GLOW_INTENSITY: AtomicU32 = AtomicU32::new(115);
 /// Search engine for the command-bar search fallback, as a small id (0=google,
 /// 1=duckduckgo, 2=bing, 3=startpage, 4=brave). The factory default is
-/// DuckDuckGo (CD-27, D-0043) — a de-Googled browser must not ship Google as
+/// DuckDuckGo (CD-27, D-0043) - a de-Googled browser must not ship Google as
 /// its default search; Google stays a selectable option.
 static SEARCH_ENGINE: AtomicU8 = AtomicU8::new(DEFAULT_ENGINE);
 
@@ -44,7 +44,7 @@ static TOR_ENABLED: AtomicBool = AtomicBool::new(true);
 /// Whether new windows open in Tor by default (CD-15). Off by default (clearnet).
 static TOR_DEFAULT: AtomicBool = AtomicBool::new(false);
 /// The GLOBAL fingerprinting-hardening Ampel level a window inherits (CD-25;
-/// graded CD-30): 0=off, 1=green (the factory default — the coherent everyday
+/// graded CD-30): 0=off, 1=green (the factory default - the coherent everyday
 /// level), 2=yellow, 3=red, 4=custom. A per-window override lives in browser.rs
 /// (`SLOT_HARDENING`); this is the default it falls back to.
 static HARDENING_LEVEL: AtomicU8 = AtomicU8::new(1);
@@ -53,7 +53,7 @@ static HARDENING_LEVEL: AtomicU8 = AtomicU8::new(1);
 /// Mutex is fine. Defaults to Standard (all vectors on).
 static HARDENING_CUSTOM: Mutex<harden::Config> = Mutex::new(harden::Config::STANDARD);
 /// The GLOBAL reported-screen-size preset (CD-29): 0=1280x720, 1=1600x900,
-/// 2=1920x1080 (default — the most common real desktop resolution). This is the
+/// 2=1920x1080 (default - the most common real desktop resolution). This is the
 /// COMMON value web slots report for `screen.*`; the actual viewport is never
 /// faked (browser.rs `common_screen_for` keeps reported ≥ measured). A per-window
 /// override lives in browser.rs (`SLOT_SCREEN`).
@@ -62,7 +62,7 @@ static SCREEN_PRESET: AtomicU8 = AtomicU8::new(DEFAULT_SCREEN_PRESET);
 const DEFAULT_SCREEN_PRESET: u8 = 2;
 
 // --- Per-session identity rotation (CD-29, D-0046) --------------------------
-/// Fresh global identity (farble seed) each launch. Default ON — the safe,
+/// Fresh global identity (farble seed) each launch. Default ON - the safe,
 /// unlinkable default. When OFF the seed persists across launches (a deliberately
 /// stable cross-launch identity).
 static ROTATE_ON_RESTART: AtomicBool = AtomicBool::new(true);
@@ -105,9 +105,9 @@ pub const KEY_ROTATE_AUTO: &str = "rotate_auto";
 pub const KEY_ROTATE_NEW_CIRCUIT: &str = "rotate_new_circuit";
 pub const KEY_ROTATE_INTERVAL: &str = "rotate_interval_min";
 /// The persisted global identity seed key (only meaningful when `rotate_on_restart`
-/// is off — a stable cross-launch identity).
+/// is off - a stable cross-launch identity).
 const KEY_IDENTITY_SEED: &str = "identity_seed";
-/// The persisted seed's mint time (unix epoch ms, CD-30) — kept in step with the
+/// The persisted seed's mint time (unix epoch ms, CD-30) - kept in step with the
 /// seed so a restored identity reports its REAL age in the HUD.
 const KEY_IDENTITY_SEED_BORN: &str = "identity_seed_born";
 
@@ -116,7 +116,7 @@ pub const GLOW_MIN: u32 = 50;
 pub const GLOW_MAX: u32 = 220;
 
 /// Map a search-engine id string to its small numeric code (and back). The
-/// allowlist is defined here — anything outside it is rejected.
+/// allowlist is defined here - anything outside it is rejected.
 fn engine_id(value: &str) -> Option<u8> {
     match value {
         "google" => Some(0),
@@ -133,7 +133,7 @@ fn engine_name(id: u8) -> &'static str {
         2 => "bing",
         3 => "startpage",
         4 => "brave",
-        // The factory default — and the defense-in-depth fallback for any
+        // The factory default - and the defense-in-depth fallback for any
         // out-of-range id: never silently Google (CD-27, D-0043).
         _ => "duckduckgo",
     }
@@ -172,8 +172,8 @@ pub fn hardening_level() -> harden::Level {
     level_from_code(HARDENING_LEVEL.load(Ordering::Relaxed))
 }
 
-/// The level a PERSISTED value boots as (CD-31, D-0048): the Red bunker mode —
-/// with its window-size lock — is always a deliberate in-session choice, never
+/// The level a PERSISTED value boots as (CD-31, D-0048): the Red bunker mode -
+/// with its window-size lock - is always a deliberate in-session choice, never
 /// a state the user launches into unexpectedly. A persisted highest level
 /// (an old "strict" or a saved "red") comes up as Yellow: the full ten-vector
 /// protection at standard buckets, freely resizable. Freshly choosing Red
@@ -187,10 +187,10 @@ fn boot_level(persisted: harden::Level) -> harden::Level {
 }
 
 /// Resolve the hardening level a store boots at. A PERSISTED value governs,
-/// shaped by [`boot_level`] (a persisted highest level comes up as Yellow — the
+/// shaped by [`boot_level`] (a persisted highest level comes up as Yellow - the
 /// Red bunker is opt-in per session, CD-31/D-0048; a pre-CD-30 "standard" parses
-/// to Yellow — identical content, so an explicit choice never silently weakens
-/// on upgrade). When the key is ABSENT — a fresh install — the factory default
+/// to Yellow - identical content, so an explicit choice never silently weakens
+/// on upgrade). When the key is ABSENT - a fresh install - the factory default
 /// is GREEN (the coherent everyday level, CD-30/D-0047). Extracted from [`init`]
 /// so the fresh-install default is unit-testable: the store must NOT seed this
 /// key, or the Green fallback is dead and fresh installs silently boot at Yellow.
@@ -302,7 +302,7 @@ pub fn set_rotate_interval(minutes: i64) -> Result<String, String> {
 /// The persisted global identity seed, if any (for the stable cross-launch
 /// identity). Since CD-40 (D-0058) the seed is a sealed-vault tenant when a
 /// vault exists: it keys the fingerprint farbling, so it is linkage material.
-/// With a vault present the plaintext row NEVER answers (fail-closed — a
+/// With a vault present the plaintext row NEVER answers (fail-closed - a
 /// locked/bypassed vault yields None and the caller mints a fresh seed).
 pub fn persisted_identity_seed() -> Option<String> {
     if crate::vault::has_vault() {
@@ -312,7 +312,7 @@ pub fn persisted_identity_seed() -> Option<String> {
 }
 /// Persist the global identity seed (for the stable cross-launch identity).
 /// Routed into the sealed vault state when a vault exists (no-op while it is
-/// not unlocked — never a plaintext fallback).
+/// not unlocked - never a plaintext fallback).
 pub fn store_identity_seed(seed: &str) {
     if crate::vault::has_vault() {
         crate::vault::sealed_set(KEY_IDENTITY_SEED, seed);
@@ -345,7 +345,7 @@ pub fn store_identity_born(ms: u64) {
 /// Apply and persist the global hardening config (CD-25). `level` is one of
 /// off/standard/strict/custom; `vectors` supplies the per-vector flags for custom.
 /// A WEAKENING change (any vector dropped, or turned off) is refused without
-/// `confirm` — the host re-validates the two-confirmation safety gate rather than
+/// `confirm` - the host re-validates the two-confirmation safety gate rather than
 /// trusting the page to have run it. Strengthening is always allowed. Returns the
 /// reply JSON on success.
 pub fn set_hardening(
@@ -383,7 +383,7 @@ pub fn init() {
     FEATHER_EDGES.store(s.get_bool(KEY_FEATHER_EDGES, true), Ordering::Relaxed);
     ANIMATED_BACKGROUND.store(s.get_bool(KEY_ANIMATED_BACKGROUND, true), Ordering::Relaxed);
     STAY_FOREGROUND.store(s.get_bool(KEY_STAY_FOREGROUND, true), Ordering::Relaxed);
-    // CD-34: default ON — the anti-forensic guarantee is the safe default. Read before
+    // CD-34: default ON - the anti-forensic guarantee is the safe default. Read before
     // the launch purge (app::run / fsprobe) consults it.
     PURGE_RESIDUE.store(s.get_bool(KEY_PURGE_RESIDUE, true), Ordering::Relaxed);
     let glow = s
@@ -539,7 +539,7 @@ mod tests {
     use crate::harden::Level;
     use crate::store::Store;
 
-    /// A fresh install must boot the hardening Ampel at GREEN — the coherent
+    /// A fresh install must boot the hardening Ampel at GREEN - the coherent
     /// everyday factory default (CD-30, D-0047). Regression guard for the stale
     /// CD-25 store seed (`hardening_level` = "standard"), which pre-seeded the
     /// key so the Green `.unwrap_or` fallback was dead and fresh installs
@@ -565,7 +565,7 @@ mod tests {
     }
 
     /// CD-31 (D-0048): the Red bunker (window-size lock) is an in-session
-    /// choice — any persisted highest level boots as Yellow (full ten-vector
+    /// choice - any persisted highest level boots as Yellow (full ten-vector
     /// protection, resizable); every other level boots exactly as saved. The
     /// old "strict" name parses to Red first, so it is covered by the same rule.
     #[test]
@@ -582,7 +582,7 @@ mod tests {
 
     /// Every allowlisted engine round-trips id <-> name; anything else is
     /// rejected by the id side, and the name side resolves the factory default
-    /// AND any out-of-range id to DuckDuckGo — never silently Google (CD-27,
+    /// AND any out-of-range id to DuckDuckGo - never silently Google (CD-27,
     /// D-0043).
     #[test]
     fn engine_allowlist_round_trips_and_default_is_duckduckgo() {

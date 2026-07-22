@@ -1,6 +1,6 @@
 //! Update awareness (CD-13 → CD-22). The info area shows a REAL up-to-date status for
 //! every external dependency by comparing its INSTALLED version against a CLIENT-SIDE,
-//! build-time-declared LATEST-KNOWN version ([`COMPONENTS`]) — no live server, no
+//! build-time-declared LATEST-KNOWN version ([`COMPONENTS`]) - no live server, no
 //! network. Each component reads one of `up to date` / `update available` / `held back`
 //! (the held-back overlay is the arti 0.44 case, D-0034), so the panel never shows a
 //! bare "INSTALLED" that says nothing about whether the version is current.
@@ -8,7 +8,7 @@
 //! Installed versions keep their single existing sources and are never restated here:
 //! arti from `Cargo.lock` via `build.rs` (D-0029), CEF from the crate's compile-time
 //! constants, CyberDesk from `CARGO_PKG_VERSION`. Latest-known is declared in this
-//! table and bumped whenever a dependency is — the same maintenance contract as the
+//! table and bumped whenever a dependency is - the same maintenance contract as the
 //! CD-20 known-issues table, which keeps the honesty rule satisfied without a server.
 //!
 //! CD-22 RETIRED the live manifest fetch (CD-13/D-0023). The app's own self-update (a
@@ -16,7 +16,7 @@
 //! CyberDesk shows clearly-marked DEMO data for now, and the failing fetch + the "Last
 //! check failed" footer are gone. The panel is driven entirely from this client-side
 //! table. The `update` state is the seed of the future notification rail (Season 7);
-//! V1 informs only — it never downloads or installs (that arrives with the signed
+//! V1 informs only - it never downloads or installs (that arrives with the signed
 //! pipeline, Season 6+).
 
 // The info-panel surface (update_count / info_snapshot_json / init) is wired by the
@@ -69,7 +69,7 @@ impl Version {
     }
 
     /// True when the two versions are numerically equal under zero-padding, so
-    /// `0.44` and `0.44.0` match (derived `PartialEq` would not — different lengths).
+    /// `0.44` and `0.44.0` match (derived `PartialEq` would not - different lengths).
     fn is_same(&self, other: &Version) -> bool {
         self.cmp(other) == std::cmp::Ordering::Equal
     }
@@ -84,12 +84,12 @@ impl Version {
 pub struct HeldBack {
     /// Short, plain reason shown to the user (why the newer version is held back).
     pub reason: &'static str,
-    /// Short tracking note — what unpins it.
+    /// Short tracking note - what unpins it.
     pub note: &'static str,
 }
 
 /// One external dependency's client-declared version facts. `latest_known` is the
-/// newest version THIS BUILD knows about — updated whenever the dependency is bumped
+/// newest version THIS BUILD knows about - updated whenever the dependency is bumped
 /// (the honesty contract). Status is `installed` vs `latest_known`; the optional
 /// `held_back` overlay takes precedence (it means the newer `latest_known` is known
 /// but deliberately not installed). This generalises the CD-20 arti held-back table:
@@ -109,7 +109,7 @@ pub struct ComponentRelease {
 /// place a "latest-known" version is declared. Bump each entry when its dependency is
 /// bumped (same contract as before). Installed versions are NOT restated here.
 pub static COMPONENTS: &[ComponentRelease] = &[
-    // CyberDesk — DEMO / PLACEHOLDER (CD-22, D-0036). The app's own self-update (a live
+    // CyberDesk - DEMO / PLACEHOLDER (CD-22, D-0036). The app's own self-update (a live
     // manifest feed at carvilon.com + hosting) is DEFERRED to a later ticket; until it
     // is built this is clearly-marked demo data so the panel shows a concrete status
     // instead of a bare "INSTALLED". Set equal to the shipped CARGO_PKG_VERSION → the
@@ -118,12 +118,12 @@ pub static COMPONENTS: &[ComponentRelease] = &[
     // it alongside CARGO_PKG_VERSION until then. (To preview the "update available"
     // rendering, temporarily set a newer literal here.)
     ComponentRelease { id: "cyberdesk", latest_known: "0.1.0", held_back: None },
-    // CEF core — latest-known = the CEF distribution we pin and vet (D-0002). Equal to
+    // CEF core - latest-known = the CEF distribution we pin and vet (D-0002). Equal to
     // the installed crate constants (149.0.6) → "up to date", never a bare "INSTALLED".
     // Bump in lockstep with the CEF crate pin; declaring a newer CEF here before the
     // crate is bumped shows "update available" automatically.
     ComponentRelease { id: "cef", latest_known: "149.0.6", held_back: None },
-    // Tor engine (arti) — 0.44.0 is known upstream but HELD BACK (bootstrap regression,
+    // Tor engine (arti) - 0.44.0 is known upstream but HELD BACK (bootstrap regression,
     // D-0034); installed stays 0.43.x. When arti is verified past the regression, in the
     // SAME commit bump `latest_known` and drop the `held_back` overlay (D-0034 revisit).
     ComponentRelease {
@@ -154,9 +154,9 @@ fn installed_for(id: &str) -> String {
 }
 
 /// The status of a component from `installed` vs its declared `latest_known`:
-///   - `held_back` — a newer version is known but carries a held-back overlay,
-///   - `update`    — a newer version is known and is NOT held back,
-///   - `current`   — installed is at/above the latest-known version (up to date).
+/// - `held_back` - a newer version is known but carries a held-back overlay,
+/// - `update` - a newer version is known and is NOT held back,
+/// - `current` - installed is at/above the latest-known version (up to date).
 /// A component with no declaration is handled by [`component_json`] as `informational`.
 fn status_for(installed: &str, rel: &ComponentRelease) -> &'static str {
     let inst = Version::parse(installed);
@@ -177,7 +177,7 @@ pub fn current_cyberdesk_version() -> &'static str {
 
 /// The running CEF core version, `major.minor.patch`, from the pinned crate's
 /// compile-time constants (verified against `cef 149.3.0`; there is no runtime
-/// `cef_version_info` in this binding — the constants are the source of truth).
+/// `cef_version_info` in this binding - the constants are the source of truth).
 pub fn current_cef_version() -> String {
     format!(
         "{}.{}.{}",
@@ -201,7 +201,7 @@ pub fn current_chromium_version() -> String {
 /// The embedded Tor engine (arti-client) version. Unlike CEF, arti-client exposes
 /// NO compile-time version constant (verified against the pinned crate), so
 /// `build.rs` reads the resolved version from the committed `Cargo.lock` and injects
-/// it as `ARTI_CLIENT_VERSION` (D-0029) — the authoritative running version, not a
+/// it as `ARTI_CLIENT_VERSION` (D-0029) - the authoritative running version, not a
 /// hand-restated literal that would drift on `cargo update`. This is the
 /// arti-client CRATE version (the engine CyberDesk links), not the standalone
 /// `arti` CLI nor the Tor network protocol version. `"unknown"` if the build script
@@ -212,20 +212,20 @@ pub fn current_tor_version() -> &'static str {
 
 // --- Glyph count ------------------------------------------------------------
 
-/// Number of components with an actionable "update available" — the glyph reads this
+/// Number of components with an actionable "update available" - the glyph reads this
 /// lock-free. Held-back and up-to-date components do NOT light it (nothing to act on).
 static COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// The number of components with a genuine update available — drives the info glyph
+/// The number of components with a genuine update available - drives the info glyph
 /// (fill + count). Zero for the shipped table (all up-to-date / held-back).
 pub fn update_count() -> usize {
     COUNT.load(Ordering::Relaxed)
 }
 
 /// Derive the glyph count from the static client table + the compile-time installed
-/// versions (CD-22). Pure and constant at runtime — no thread, no network, no store;
+/// versions (CD-22). Pure and constant at runtime - no thread, no network, no store;
 /// called once at startup. (Replaces the CD-13 background fetch worker, retired in
-/// CD-22 — the app self-update feed returns in its own later ticket.)
+/// CD-22 - the app self-update feed returns in its own later ticket.)
 pub fn init() {
     let n = COMPONENTS
         .iter()
@@ -242,7 +242,7 @@ pub fn init() {
 
 /// Build one component's status object for the info snapshot (CD-22). Every tracked
 /// component compares its installed version against its declared latest-known one and
-/// reports a REAL status — `current` / `update` / `held_back` — never a bare
+/// reports a REAL status - `current` / `update` / `held_back` - never a bare
 /// "informational" (which is reserved for an *undeclared* component: a defensive
 /// fallback showing the bare version with no claim, since the three tracked ones are
 /// always declared in [`COMPONENTS`]). `held_back` carries the `reason` + `note`.
@@ -278,7 +278,7 @@ fn component_json(id: &str, name: &str, detail: Option<String>) -> serde_json::V
 
 /// The `get_info_items` reply: the honest per-component status list (CD-22), built
 /// purely from the client table + the running (compile-time) versions. No live feed,
-/// no fetch status — the failing manifest fetch and its "Last check failed" footer
+/// no fetch status - the failing manifest fetch and its "Last check failed" footer
 /// were retired in CD-22 (the app self-update feed returns in its own later ticket).
 pub fn info_snapshot_json() -> String {
     let components = vec![
@@ -402,7 +402,7 @@ mod tests {
             serde_json::from_str(&info_snapshot_json()).expect("snapshot is valid JSON");
         let comps = snap["components"].as_array().expect("components array");
         assert_eq!(comps.len(), 3);
-        // No component renders a bare informational — every one has a comparison result.
+        // No component renders a bare informational - every one has a comparison result.
         for c in comps {
             let status = c["status"].as_str().unwrap();
             assert!(

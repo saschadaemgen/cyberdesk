@@ -1,4 +1,4 @@
-// CARVILON CyberDesk — settings gear button.
+// CARVILON CyberDesk - settings gear button.
 //
 // A small cog drawn in the top-right corner, composited over everything as the
 // last pass. Transparent everywhere except the gear and its hover halo, so the

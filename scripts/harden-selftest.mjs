@@ -10,7 +10,7 @@
 //   * clock precision is quantized AND monotonic non-decreasing;
 //   * every vector is independently gated by its FP_CONFIG flag (Task C toggles);
 //   * "Off" injects nothing;
-//   * the CD-32 (D-0049) window-size cluster is COHERENT — innerWidth, the root
+//   * the CD-32 (D-0049) window-size cluster is COHERENT - innerWidth, the root
 //     clientWidth/Height, visualViewport, outerWidth/Height and the viewport-derived
 //     matchMedia features all agree, with matchMedia cross-checked against an
 //     INDEPENDENT evaluator that only ever sees the real geometry (the Brave trap).
@@ -36,7 +36,7 @@ function check(name, cond) {
 // guard passes; each method returns a deterministic "real" value so we can observe
 // whether the hardening changed it.
 
-// `asFrame` builds a NESTED frame (window.top !== window) — the CD-32 viewport
+// `asFrame` builds a NESTED frame (window.top !== window) - the CD-32 viewport
 // block must leave those alone: an iframe's inner size is its own box.
 function makeSandbox(seed, config, asFrame) {
   // A canvas 2D context whose getImageData returns a fixed gradient (so farbling is
@@ -130,7 +130,7 @@ function makeSandbox(seed, config, asFrame) {
   });
 
   // An INDEPENDENT media-query evaluator, deliberately written against the REAL
-  // geometry — exactly like Blink, which our JS cannot reach into. The hardening
+  // geometry - exactly like Blink, which our JS cannot reach into. The hardening
   // may only change the ANSWER by rewriting the query it hands us, so this is a
   // genuine cross-check of the shift math rather than a restatement of it.
   // Media queries evaluate against the ICB (the root client box), not innerWidth.
@@ -138,7 +138,7 @@ function makeSandbox(seed, config, asFrame) {
     const W0 = REAL.clientW, H0 = REAL.clientH;
     q = String(q).trim().toLowerCase();
     let m;
-    // device-* describes the SCREEN, not the viewport — the host already reports
+    // device-* describes the SCREEN, not the viewport - the host already reports
     // it, so the hardening must leave these thresholds alone.
     if ((m = /^\(\s*(min-|max-)?device-(width|height)\s*:\s*([+-]?[\d.]+)px\s*\)$/.exec(q))) {
       const v = m[2] === "width" ? REAL.scrW : REAL.scrH, t = parseFloat(m[3]);
@@ -218,7 +218,7 @@ const STANDARD = {
   viewport: true
 };
 
-// The page reads these through the PROTOTYPE accessors — the exact properties the
+// The page reads these through the PROTOTYPE accessors - the exact properties the
 // hardening patches. The sandbox global is a plain object (node's vm contextifies
 // it), so invoke the accessor explicitly instead of faking a prototype chain.
 const winGet = (win, name) =>
@@ -313,17 +313,17 @@ console.log("\n[clock precision]");
 }
 
 // 4b. CD-32 (D-0049): a COHERENT common inner size below Red. ---------------
-console.log("\n[window size — coherent cluster]");
+console.log("\n[window size - coherent cluster]");
 {
   const w = makeSandbox("aaaa1111", STANDARD);
   const R = w.REAL;
   // The real column is 1200x1278 on a 2560x1440 reported screen. The nearest
   // ladder step BY WIDTH is 1280x720 (|1200-1280| = 80 beats |1200-1600| = 400)
-  // — truthful-closest, and emphatically not a fixed 1920 (acceptance 3).
+  // - truthful-closest, and emphatically not a fixed 1920 (acceptance 3).
   const iw = winGet(w, "innerWidth"), ih = winGet(w, "innerHeight");
   check("inner size is the nearest common step (1200 -> 1280)", iw === 1280 && ih === 720);
   check("reported step is NOT a fixed 1920", iw !== 1920);
-  // The real window is untouched — reporting is all we do below Red (acceptance 2).
+  // The real window is untouched - reporting is all we do below Red (acceptance 2).
   check("the real window is never moved", R.innerW === 1200 && R.innerH === 1278);
 
   // --- coherence: one delta moves the whole cluster (acceptance 4) ----------
@@ -334,7 +334,7 @@ console.log("\n[window size — coherent cluster]");
   check("root clientHeight rides the same delta", ch === R.clientH + dh);
   // The scrollbar gap Blink actually measured survives: a real 1280-inner window
   // WITH a scrollbar reports clientWidth 1265, and so do we. Reporting inner ===
-  // client would claim "no scrollbar" on every scrolling page — a tell of its own.
+  // client would claim "no scrollbar" on every scrolling page - a tell of its own.
   check("real scrollbar gap preserved (inner - client === 15)", iw - cw === R.innerW - R.clientW);
   check("visualViewport rides the same delta", vvGet(w, "width") === R.clientW + dw);
   check("outerWidth rides the same delta", winGet(w, "outerWidth") === R.innerW + dw);
@@ -344,7 +344,7 @@ console.log("\n[window size — coherent cluster]");
   check("a non-root element is untouched", elGet(w, w.someDiv, "clientWidth") === 640);
   // Never claim an inner size the reported screen cannot contain.
   check("inner <= reported screen", iw <= R.scrW && ih <= R.scrH);
-  // innerWidth is [Replaceable] in WebIDL — its setter is part of the real
+  // innerWidth is [Replaceable] in WebIDL - its setter is part of the real
   // surface, so a getter-only replacement would throw where Chrome accepts.
   check("[Replaceable] setter preserved on innerWidth",
     typeof Object.getOwnPropertyDescriptor(w.Window.prototype, "innerWidth").set === "function");
@@ -370,7 +370,7 @@ console.log("\n[window size — coherent cluster]");
   check("matchMedia two-sided range agrees",
     mm(w, "(1000px <= width <= 1270px)").matches === (cw >= 1000 && cw <= 1270));
   // em resolves against the INITIAL font size (16px) in a media query: 80em =
-  // 1280px, which the reported 1265 misses and the real 1185 misses too — so use
+  // 1280px, which the reported 1265 misses and the real 1185 misses too - so use
   // a threshold where real and reported DISAGREE to prove the shift applies.
   check("matchMedia em threshold is shifted (75em = 1200px)",
     mm(w, "(min-width: 75em)").matches === (cw >= 1200));
@@ -380,7 +380,7 @@ console.log("\n[window size — coherent cluster]");
     && mm(w, "(orientation: portrait)").matches === false);
   check("aspect-ratio follows the reported size", mm(w, "(min-aspect-ratio: 16/9)").matches === true
     && mm(w, "(max-aspect-ratio: 1/1)").matches === false);
-  // device-* describes the SCREEN (reported natively by the host) — never shifted.
+  // device-* describes the SCREEN (reported natively by the host) - never shifted.
   // Both halves discriminate: shifting by dw would drag 2600 down to 2520 and
   // flip the first answer to true.
   check("device-width is left to the host (never shifted)",
@@ -398,7 +398,7 @@ console.log("\n[window size — coherent cluster]");
     && Object.keys(mm(w, "(min-width: 1px)")).indexOf("matches") === -1);
 
   // --- Red: the same rule is the identity ----------------------------------
-  // At Red the shell snaps the real window to 1920x1080 — already a ladder step —
+  // At Red the shell snaps the real window to 1920x1080 - already a ladder step -
   // so the nearest step IS the real size: reported == real, and the residual that
   // the cluster spoof leaves below Red closes with no special case.
   const red = makeSandbox("aaaa1111", { ...STANDARD, strict: true });
@@ -472,7 +472,7 @@ console.log("\n[fonts clamp]");
 
 // 7. Identity rotation (Task E): re-seeding = a fresh identity across EVERY farbled
 //    vector, while the clamps (common values) stay put. This is what a rotation event
-//    (manual / auto / on-restart) does — the host swaps the injected seed and respawns.
+//    (manual / auto / on-restart) does - the host swaps the injected seed and respawns.
 console.log("\n[identity rotation / Task E]");
 {
   const before = makeSandbox("seed-BEFORE", STANDARD);
@@ -480,7 +480,7 @@ console.log("\n[identity rotation / Task E]");
   check("rotation changes canvas identity", canvasHash(before) !== canvasHash(after));
   check("rotation changes audio identity", audioHash(before) !== audioHash(after));
   check("rotation changes webgl readback identity", webglReadHash(before) !== webglReadHash(after));
-  // The clamps are common values by design — they must NOT change on rotation
+  // The clamps are common values by design - they must NOT change on rotation
   // (everyone shares them; that is the point of a clamp vs a farble).
   const glB = new before.WebGLRenderingContext(), glA = new after.WebGLRenderingContext();
   check("rotation does NOT change the GPU clamp", glB.getParameter(0x9246) === glA.getParameter(0x9246));

@@ -2,7 +2,7 @@
 //!
 //! History records every surf-view page visit (URL + title, a visit count and a
 //! last-visit time); favorites are the user's Ctrl+D / star toggles. Both live
-//! only in the local `state.db` (D-0014) — no sync, no export. Internal
+//! only in the local `state.db` (D-0014) - no sync, no export. Internal
 //! `cyberdesk://` pages and blank navigations never enter either table.
 
 use crate::store::{self, Suggestion};
@@ -44,7 +44,7 @@ pub fn toggle_favorite(url: &str, title: &str) -> bool {
     toggle_favorite_in(&store::shared().lock().unwrap(), url, title)
 }
 
-/// The guarded toggle against an explicit store — the exact logic the surf-view
+/// The guarded toggle against an explicit store - the exact logic the surf-view
 /// Ctrl+D shortcut runs (`is_recordable` filter + [`store::Store::toggle_favorite`]).
 /// Split out so the regression harness drives the shortcut's real path against a
 /// throwaway store rather than reaching into the store directly.
@@ -65,7 +65,7 @@ mod tests {
 
     /// The CD-08 repro through the shortcut's own code path: favorite two
     /// different pages in a row (as surf-view Ctrl+D does), then read back the
-    /// empty-input palette list (as the reveal shows). Both must be there — the
+    /// empty-input palette list (as the reveal shows). Both must be there - the
     /// bug was that only the current page's favorite was ever visible.
     #[test]
     fn ctrl_d_on_two_pages_keeps_both_favorites() {

@@ -1,9 +1,9 @@
-// CARVILON CyberDesk — update-awareness info glyph (CD-13).
+// CARVILON CyberDesk - update-awareness info glyph (CD-13).
 //
 // A small status light in the top-right near the gear, composited over everything
 // (transparent elsewhere, premultiplied OVER). Idle = a faint outline circle;
 // updates available = a filled brand disc with a subtle pulsing halo and a small
-// knocked-out count digit. Rendered per the floating law — its own element, no
+// knocked-out count digit. Rendered per the floating law - its own element, no
 // strip. This is a status light, not an alarm: the pulse amplitude is modest.
 
 struct InfoUniforms {

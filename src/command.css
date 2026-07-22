@@ -1,8 +1,8 @@
 /* Floating command sets (CD-12, D-0021). The CD-08 bar is gone: the top page is
    a TRANSPARENT band (the OSR view paints alpha; the Pulse Grid breathes behind).
-   It holds N per-window ensembles — one per slot, positioned by the host frame
+   It holds N per-window ensembles - one per slot, positioned by the host frame
    state, each an address capsule + orbs + star + suggestions that drives THAT
-   column — plus one shared favorites-tile launcher. Colors/sizes come entirely
+   column - plus one shared favorites-tile launcher. Colors/sizes come entirely
    from the injected token custom properties (theme.toml / Theme::to_css_vars). */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -116,7 +116,7 @@ html, body {
   background: color-mix(in srgb, var(--brand) 20%, transparent);
   box-shadow: 0 0 12px color-mix(in srgb, var(--brand) 35%, transparent);
 }
-/* Ready: connected to Tor — a distinct accent-lit shield so "protected" reads
+/* Ready: connected to Tor - a distinct accent-lit shield so "protected" reads
    apart from a merely-toggled-on shield that is still bootstrapping (CD-18). */
 .tor-orb.ready {
   color: color-mix(in srgb, var(--accent) 85%, var(--text));
@@ -131,7 +131,7 @@ html, body {
 }
 @media (prefers-reduced-motion: reduce) { .tor-orb.connecting { animation: none; } }
 /* Tor engine failed (CD-15 HOTFIX): this column is set to Tor but the engine
-   could not bootstrap — warn colour so a lit shield never implies protection
+   could not bootstrap - warn colour so a lit shield never implies protection
    that isn't there. It cannot fetch (fail-closed), so this is honest, not alarm. */
 .tor-orb.failed {
   color: var(--warn);
@@ -142,7 +142,7 @@ html, body {
 
 /* Per-window mini-Ampel (CD-25 orb → CD-30 graded traffic light): a vertical
    three-lamp light in an orb. The lamp matching the window's EFFECTIVE level is
-   lit + glows (a status display first — it can only show a level that is
+   lit + glows (a status display first - it can only show a level that is
    actually active); Off leaves every lamp dark; Custom tints all three faintly
    brand; reduced is warn-ringed; an override adds the small dot marker. */
 .fp-orb {
@@ -260,7 +260,7 @@ html, body {
 .fp-pop-btn.weaken { border-color: var(--warn); color: color-mix(in srgb, var(--warn) 88%, var(--text)); }
 .fp-pop-btn.weaken:hover { background: var(--warn); color: var(--bg); }
 
-/* Per-window close icon (CD-18): an orb-sized X to the right of the Tor icon —
+/* Per-window close icon (CD-18): an orb-sized X to the right of the Tor icon -
    closes THIS window. Warn-tinted on hover; dimmed + disabled on the last window
    (the host refuses to close it). Replaces the retired CD-12 corner-hover orb. */
 .close-btn {
